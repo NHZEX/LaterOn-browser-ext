@@ -450,7 +450,7 @@ footer { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-it
 .board-cell { position: relative; overflow: hidden; background: var(--cover-ph); }
 .board-cell .board-img { width: 100%; height: 100%; object-fit: cover; transition: transform .45s ease; }
 .board-card:hover .board-cell .board-img { transform: scale(1.05); }
-/* 封面加载不出来、或这个类目还一篇都没有时：什么都不放，只留一块淡色底 */
+.board-cell .board-placeholder { width: 100%; height: 100%; object-fit: cover; }
 .board-body { padding: 11px 2px 0; }
 /* 标题是 Pinterest 那种「紧贴封面下方、字号偏大」的写法 */
 .board-name { overflow: hidden; margin: 0; font-size: 14.5px; font-weight: 770; letter-spacing: -.28px; text-overflow: ellipsis; white-space: nowrap; }

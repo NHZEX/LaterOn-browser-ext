@@ -6,6 +6,11 @@
   const SETTINGS_KEY = "laterOnSettings";
   const normalizeUrl = globalThis.LaterOnUrl.normalize;
   let writeQueue = Promise.resolve();
+  function enqueue(task) {
+    if (globalThis.LaterOnCollection) return globalThis.LaterOnCollection.enqueue(task);
+    writeQueue = writeQueue.catch(() => {}).then(task);
+    return writeQueue;
+  }
 
   const isWebUrl = (url) => /^https?:\/\//i.test(String(url || ""));
 
@@ -41,7 +46,7 @@
 
   function savePosition(itemId, rawY) {
     const y = Math.max(0, Math.round(Number(rawY) || 0));
-    writeQueue = writeQueue.catch(() => {}).then(async () => {
+    return enqueue(async () => {
       const stored = await chrome.storage.local.get([ITEMS_KEY, POSITIONS_KEY]);
       if (!(stored[ITEMS_KEY] || []).some((item) => item.id === itemId)) return false;
       const positions = { ...(stored[POSITIONS_KEY] || {}) };
@@ -50,17 +55,19 @@
       await chrome.storage.local.set({ [POSITIONS_KEY]: positions });
       return true;
     });
-    return writeQueue;
   }
 
-  async function cleanOrphanedPositions(items) {
-    const known = new Set((items || []).map((item) => item.id));
-    const stored = await chrome.storage.local.get(POSITIONS_KEY);
-    const positions = stored[POSITIONS_KEY] || {};
-    const next = Object.fromEntries(Object.entries(positions).filter(([id]) => known.has(id)));
-    if (Object.keys(next).length !== Object.keys(positions).length) {
-      await chrome.storage.local.set({ [POSITIONS_KEY]: next });
-    }
+  async function cleanOrphanedPositions() {
+    return enqueue(async () => {
+      // Re-read inside the shared queue: an onChanged event can predate an import.
+      const stored = await chrome.storage.local.get([ITEMS_KEY, POSITIONS_KEY]);
+      const known = new Set((stored[ITEMS_KEY] || []).map((item) => item.id));
+      const positions = stored[POSITIONS_KEY] || {};
+      const next = Object.fromEntries(Object.entries(positions).filter(([id]) => known.has(id)));
+      if (Object.keys(next).length !== Object.keys(positions).length) {
+        await chrome.storage.local.set({ [POSITIONS_KEY]: next });
+      }
+    });
   }
 
   chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
@@ -73,7 +80,7 @@
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     if (changes[ITEMS_KEY]) {
-      cleanOrphanedPositions(changes[ITEMS_KEY].newValue || []).catch(() => {});
+      cleanOrphanedPositions().catch(() => {});
       setupActiveTab().catch(() => {});
     }
     if (changes[SETTINGS_KEY]) setupActiveTab().catch(() => {});

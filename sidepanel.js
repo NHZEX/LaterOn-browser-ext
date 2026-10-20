@@ -293,7 +293,7 @@ async function init() {
   // 封面（COVERS_KEY）故意不在这批里：它可能比整个列表还大，
   // 排在首屏之后单独读，列表才能最快出来。
   const storedPromise = chrome.storage.local
-    .get([STORAGE_KEY, PROJECTS_KEY, ACTIVE_PROJECT_KEY, CURRENT_ITEM_KEY, SETTINGS_KEY, FILTER_KEY, FILTER_CHOSEN_KEY, ORDER_KEY])
+    .get([STORAGE_KEY, PROJECTS_KEY, ACTIVE_PROJECT_KEY, CURRENT_ITEM_KEY, SETTINGS_KEY, FILTER_KEY, FILTER_CHOSEN_KEY, ORDER_KEY, "laterOnCollectionEpoch"])
     .catch((error) => ({ __laterOnLoadError: String(error?.message || error || "读取失败") }));
 
   // ② 读「秒开缓存」并立刻画第一屏：上一回的列表快照就在本页 localStorage 里，
@@ -332,6 +332,7 @@ async function init() {
       : tr("loadFailedRetry");
     return;
   }
+  LaterOnStorage.initialize(stored);
   const migrateStart = nowMs();
   const migrated = await migrateLegacyCovers(stored[STORAGE_KEY]);
   seg.migrate = Math.round(nowMs() - migrateStart);
@@ -822,17 +823,9 @@ async function commitSidepanelCardOrder(dropIndex) {
     .map((article) => article.dataset.id)
     .filter((id) => id && id !== draggedId);
   const anchorId = visibleIds[dropIndex] ?? null;
-  const scoped = items.filter((item) => activeProject === "unfiled" ? !item.projectId : item.projectId === activeProject);
-  const full = sidepanelScopeOrder(scoped).filter((id) => id !== draggedId);
-  const anchorIndex = anchorId ? full.indexOf(anchorId) : -1;
-  const nextOrder = anchorIndex === -1
-    ? [...full, draggedId]
-    : [...full.slice(0, anchorIndex), draggedId, ...full.slice(anchorIndex)];
-  const nextOrders = { ...orders, [sidepanelOrderScope()]: nextOrder };
   const wasCustom = sortMode === "custom";
-
-  // 先让本地界面落到最终位置，再异步写共享存储；这样松手不会先弹回原位。
-  orders = nextOrders;
+  const response = await LaterOnStorage.run("moveItem", { id: draggedId, scope: sidepanelOrderScope(), beforeId: anchorId });
+  orders = response.orders;
   sortMode = "custom";
   finishSidepanelDrag();
   render();
@@ -841,7 +834,6 @@ async function commitSidepanelCardOrder(dropIndex) {
   const stored = await chrome.storage.local.get(SETTINGS_KEY);
   const settings = stored[SETTINGS_KEY] || {};
   await chrome.storage.local.set({
-    [ORDER_KEY]: nextOrders,
     [SETTINGS_KEY]: { ...settings, defaultSort: "custom" }
   });
 }
@@ -1201,9 +1193,9 @@ function normalizeProject(projectId) {
 }
 
 // 旧收藏只有 read 布尔、没有 status：按 read 推导成三档之一，兼容已有数据。
-// doneAt（标为已读的时刻）由全屏界面负责补写并落盘，这里只保证内存里读得到，不重复写存储。
+// doneAt 由后台的旧数据迁移补齐；此处只整理展示字段。
 function normalizeItems(list) {
-  return (list || []).map((it) => {
+  return (list || []).filter(Boolean).map((it) => {
     if (!it) return it;
     const status = it.status || (it.read ? "done" : "unread");
     return { ...it, status, doneAt: status === "done" ? Number(it.doneAt) || null : null };
@@ -1225,25 +1217,15 @@ function resolveImage(item) {
 // 一次性搬家：把还躺在收藏列表里的 base64 封面挪到单独的键里。
 // 搬完列表数据回归「纯文字」，读写都快。已搬过（没有 data: 封面）就什么都不做。
 async function migrateLegacyCovers(rawItems) {
-  if (!Array.isArray(rawItems)) return null;
-  const moved = {};
-  let changed = false;
-  const next = rawItems.map((it) => {
-    if (it && it.id && typeof it.image === "string" && it.image.startsWith("data:")) {
-      moved[it.id] = it.image;
-      changed = true;
-      return { ...it, image: `local://${it.id}` };
-    }
-    return it;
-  });
-  if (!changed) return null;
+  const needsMigration = Array.isArray(rawItems) && rawItems.some((item) =>
+    !item || (typeof item.image === "string" && item.image.startsWith("data:"))
+    || ((item.status === "done" || (!item.status && item.read)) && !Number(item.doneAt)));
+  if (!needsMigration) return null;
   try {
-    const stored = await chrome.storage.local.get(COVERS_KEY);
-    const merged = { ...(stored[COVERS_KEY] || {}), ...moved };
-    covers = merged;
-    await chrome.storage.local.set({ [STORAGE_KEY]: next, [COVERS_KEY]: merged });
-  } catch { /* 搬不动就先用老数据，不影响显示 */ }
-  return next;
+    const response = await LaterOnStorage.run("migrateLegacyData");
+    covers = response.covers;
+    return response.items;
+  } catch { return null; }
 }
 
 // ── 秒开缓存 ────────────────────────────────────────────────
@@ -1273,17 +1255,7 @@ function readSlimCache() {
   }
 }
 
-// 用户上传的封面增删后，把 COVERS_KEY 整体写回存储。
-async function saveCovers(next) {
-  try {
-    await chrome.storage.local.set({ [COVERS_KEY]: next });
-    covers = next;
-    return true;
-  } catch {
-    status.textContent = tr("operationFailed");
-    return false;
-  }
-}
+
 
 // 缩略图：卡片 DOM 是复用的，用户自己换/移除封面后要能同步刷新。
 function applyThumb(article, item) {
@@ -1374,6 +1346,7 @@ const NO_SUMMARY = "暂无摘要";
 const IS_EMPTY_SUMMARY = /^\s*(暂无摘要|No summary)?\s*$/i;
 
 async function editItem(item) {
+  const originalCover = resolveImage(item);
   try {
     await ensureDialogLoaded();
   } catch {
@@ -1384,7 +1357,7 @@ async function editItem(item) {
     title: tr("editItem"),
     message: IS_EMPTY_SUMMARY.test(item.description) ? tr("missingSummaryHint") : "",
     // 封面：可以自己上传一张本地图片（自动压缩后保存），也可以移除。
-    cover: { name: "cover", label: tr("cover"), value: resolveImage(item) },
+    cover: { name: "cover", label: tr("cover"), value: originalCover },
     fields: [
       { name: "title", label: tr("title"), value: item.title, maxLength: 200 },
       {
@@ -1416,17 +1389,8 @@ async function editItem(item) {
   // 封面：data URL（用户上传）或 ""（移除）。没动过时等于旧值，不会写。
   // 本体（base64 大图）放进单独的 COVERS_KEY，收藏条目里只记一个 local://<id> 的指针，
   // 这样收藏列表始终是纯文字小数据，侧栏打开才不会被拖慢。
-  const originalCover = resolveImage(item);
   if (typeof values.cover === "string" && values.cover !== originalCover) {
-    if (values.cover) {
-      if (!await saveCovers({ ...covers, [item.id]: values.cover })) return;
-      patch.image = `local://${item.id}`;
-    } else {
-      const nextCovers = { ...covers };
-      delete nextCovers[item.id];
-      if (!await saveCovers(nextCovers)) return;
-      patch.image = "";
-    }
+    patch.cover = values.cover;
     // 记一笔：这是用户自己定的封面，之后再收藏同一网址时别用自动抓取的把它盖掉。
     patch.imageEdited = true;
   }
@@ -1477,7 +1441,7 @@ function safeTarget(url) {
 
 async function commitItemMutation(operation, ids, patch) {
   try {
-    const response = await chrome.runtime.sendMessage({ type: "MUTATE_ITEMS", operation, ids: [...ids], patch });
+    const response = await LaterOnStorage.run("mutateItems", { operation, ids: [...ids], patch });
     if (!response?.ok || !Array.isArray(response.items)) throw new Error(response?.error || "Item write failed");
     items = normalizeItems(response.items);
     covers = response.covers || {};

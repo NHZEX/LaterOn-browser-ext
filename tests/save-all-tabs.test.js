@@ -209,6 +209,7 @@ sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 
 const start = Date.now();
+vm.runInContext(fs.readFileSync(path.join(path.dirname(SOURCE), 'modules/storage/coordinator.js'), 'utf8'), sandbox);
 vm.runInContext(src, sandbox, { filename: "background.js" });
 
 let failures = 0;

@@ -316,10 +316,9 @@ async function partLibrary() {
   check("会提示「没有改动」", /没有改动/.test(document.querySelector("#toast").textContent), document.querySelector("#toast").textContent);
 
   // 别处的改动（比如后台重新抓了一次）也要能同步到已有卡片上。
-  const storageChanged = listeners.find((fn) => typeof fn === "function");
   const nextItems = store.laterOnItems.map((entry) => entry.id === "item-2" ? { ...entry, title: "后台更新后的标题", description: "后台更新后的摘要" } : entry);
   store.laterOnItems = nextItems;
-  storageChanged({ laterOnItems: { newValue: nextItems } }, "local");
+  listeners.forEach((fn) => fn({ laterOnItems: { newValue: nextItems } }, "local"));
   await tick();
   check("外部改动也能同步到卡片标题（不再是一张死卡）", titleOf("item-2") === "后台更新后的标题", titleOf("item-2"));
   check("摘要同步也是好的", descOf("item-2") === "后台更新后的摘要", descOf("item-2"));

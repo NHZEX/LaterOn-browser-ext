@@ -2,18 +2,19 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const source = fs.readFileSync(path.join(__dirname, '../../background.js'), 'utf8');
-const mutation = source.slice(source.indexOf('async function mutateItems('), source.indexOf('async function usesEnglish()'));
 module.exports = function install(window) {
   if (!window.chrome?.runtime || window.__itemMutationMock) return;
   window.__itemMutationMock = true;
-  const context = vm.createContext({ chrome: window.chrome, Date, Set,
-    STORAGE_KEY: 'laterOnItems', COVERS_KEY: 'laterOnCovers', ORDER_KEY: 'laterOnOrder', CURRENT_ITEM_KEY: 'laterOnCurrentItem' });
-  vm.runInContext(`let queue = Promise.resolve(); function queueItemWrite(task) { const result = queue.then(task); queue = result.catch(() => {}); return result; }\n${mutation}`, context);
+  const storageContext = vm.createContext({ Date, crypto: window.crypto,
+    chrome: { storage: window.chrome.storage, runtime: { onMessage: { addListener() {} } } } });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../../modules/storage/coordinator.js'), 'utf8'), storageContext);
+  window.eval(fs.readFileSync(path.join(__dirname, '../../modules/storage/client.js'), 'utf8'));
   const original = window.chrome.runtime.sendMessage;
   window.chrome.runtime.sendMessage = async function(message, ...args) {
-    if (message?.type !== 'MUTATE_ITEMS') return original?.call(this, message, ...args);
-    try { return await context.mutateItems(message); }
-    catch (error) { return { ok: false, error: error.message }; }
+    if (message?.type === 'COLLECTION_COMMAND') {
+      try { return await storageContext.LaterOnCollection.execute(message); }
+      catch (error) { return { ok: false, error: error.message }; }
+    }
+    return original?.call(this, message, ...args);
   };
 };

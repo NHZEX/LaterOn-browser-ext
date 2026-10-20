@@ -206,7 +206,8 @@ const text = (el, selector) => el?.querySelector(selector)?.textContent || "";
   check("用的确实是该项目里的封面", workImages.every((src) => /1\.jpg|2\.jpg|3\.jpg/.test(src)), workImages.join(" "));
   const readCover = boardOf("read").querySelector(".board-cover");
   check("阅读类目没有带封面的 → 只拼 1 格", readCover.dataset.count === "1");
-  check("没封面时是一块干净的空白底，不塞图标", readCover.querySelectorAll("img").length === 0);
+  check("没封面时显示默认占位图", readCover.querySelector(".board-placeholder")?.getAttribute("src") === "article-cover-placeholder.png");
+  check("空项目也显示默认占位图", boardOf("empty").querySelector(".board-placeholder")?.getAttribute("src") === "article-cover-placeholder.png");
 
   console.log("\n── 类目简介 ──");
   const workNote = boardOf("work").querySelector(".board-note");

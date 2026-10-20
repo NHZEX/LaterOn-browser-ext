@@ -294,6 +294,21 @@ const cardFolderOptions = () => [...document.querySelectorAll(".card .project-se
   check("放下后收藏进入该项目", store.laterOnItems.find((item) => item.id === "i2")?.projectId === design.id, String(store.laterOnItems.find((item) => item.id === "i2")?.projectId));
   check("高亮已经清掉", !designRow.classList.contains("drop-target"));
 
+  console.log("\n── 编辑弹窗打开期间，保留其他页面新增项目和修改的简介 ──");
+  const editing = window.editBoard(design.id);
+  await tick(30);
+  const external = { id: "external", name: "另一页新增", createdAt: 10 };
+  await window.chrome.storage.local.set({ laterOnProjects: [
+    ...store.laterOnProjects.map(project => project.id === design.id ? { ...project, note: "另一页更新的简介" } : project), external
+  ] });
+  await tick(20);
+  dialog().querySelector('[data-field="name"]').value = "新的设计名称";
+  click(dialog().querySelector(".lod-ok"));
+  await editing;
+  check("改名不覆盖并发修改的简介", store.laterOnProjects.find(project => project.id === design.id)?.note === "另一页更新的简介");
+  check("改名保留另一页新建的项目", store.laterOnProjects.some(project => project.id === external.id));
+  check("弹窗中的改名正常保存", store.laterOnProjects.find(project => project.id === design.id)?.name === "新的设计名称");
+
   console.log("\n── 项目行的视觉规矩（静态锁，jsdom 看不出排版）──");
   // 项目行左侧是「实心缩略图」而不是线框图标：图标时代它自带一圈留白，
   // 换成缩略图后如果不显式给列间距，文字会直接贴在图上——这只有肉眼看得见。

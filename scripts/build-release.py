@@ -50,6 +50,11 @@ RUNTIME_FILES = (
     "theme.js",
     "translation.css",
     "url-utils.js",
+    "modules/storage/coordinator.js",
+    "modules/storage/client.js",
+    "modules/backup/core.js",
+    "modules/backup/background.js",
+    "modules/backup/settings.js",
 )
 RUNTIME_DIRS = ("_locales",)
 

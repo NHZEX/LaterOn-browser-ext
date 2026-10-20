@@ -140,10 +140,19 @@
         <section class="settings-group">
           <h2 data-i18n="data">数据</h2>
           <div class="setting-row">
-            <div class="setting-label"><strong data-i18n="backupRestore">备份与恢复</strong><span data-i18n="backupHint">把网页数据导出成文件，或在另一台设备导入</span></div>
+            <div class="setting-label"><strong data-i18n="backupRestore">备份与恢复</strong><span data-i18n="backupHint">默认不包含图片数据，远程图片保留链接；导入后缺图使用默认占位图。</span></div>
             <div class="data-actions">
-              <button id="exportBtn" class="setting-action" type="button" data-i18n="export">导出网页</button>
+              <div class="export-actions">
+                <button id="exportBtn" class="setting-action" type="button" data-i18n="export">导出网页</button>
+                <label class="export-images"><input id="exportImages" type="checkbox" /><span data-i18n="backupIncludeImages">包含图片数据（文件较大）</span></label>
+              </div>
+              <div class="import-actions">
+              <select class="setting-select" id="importMode" data-i18n-aria-label="backupImportMode" aria-label="导入方式">
+                <option value="merge" data-i18n="backupMergeMode">合并收藏</option>
+                <option value="replace" data-i18n="backupReplaceMode">覆盖恢复收藏</option>
+              </select>
               <button id="importBtn" class="setting-action" type="button" data-i18n="import">导入网页</button>
+              </div>
               <input id="importFile" type="file" accept="application/json,.json" hidden />
             </div>
           </div>
@@ -155,5 +164,6 @@
       </main>
     </div>
     <script src="settings.js"></script>
+    <script src="modules/backup/settings.js"></script>
   </body>
 </html>

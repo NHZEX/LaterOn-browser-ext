@@ -1,0 +1,83 @@
+// Render an image-free backup through the real library and sidepanel pages.
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const { JSDOM, VirtualConsole } = require('jsdom');
+const root = path.resolve(__dirname, '..');
+const read = name => fs.readFileSync(path.join(root, name), 'utf8');
+const clone = value => JSON.parse(JSON.stringify(value));
+const tick = () => new Promise(resolve => setTimeout(resolve, 10));
+const context = vm.createContext({ URL });
+vm.runInContext(read('modules/backup/core.js'), context);
+const core = context.LaterOnBackup;
+const image = 'data:image/png;base64,AAAA';
+const source = {
+  laterOnItems: [{ id: 'a', url: 'https://example.com/a', title: 'Article', savedAt: 1,
+    projectId: 'p', image: 'local://a', favicon: image, status: 'reading' }],
+  laterOnProjects: [{ id: 'p', name: 'Project', createdAt: 1, cover: image, coverPick: ['a'] }],
+  laterOnCovers: { a: image }
+};
+const exported = core.create(source, '1', '2026-10-21T01:00:00Z');
+const restored = clone(core.toStorage(core.parse(exported)));
+
+async function checkPage(page) {
+  const errors = [];
+  const virtualConsole = new VirtualConsole();
+  virtualConsole.on('jsdomError', error => errors.push(error.message));
+  virtualConsole.on('error', error => errors.push(String(error)));
+  const dom = new JSDOM(read(`${page}.html`), { runScripts: 'outside-only', pretendToBeVisual: true,
+    url: `chrome-extension://lateron/${page}.html`, virtualConsole });
+  const { window } = dom;
+  const document = window.document;
+  const store = { ...clone(restored), laterOnActiveProject: 'p', laterOnFilter: 'all', laterOnFilterChosen: true };
+  const listeners = [];
+  const memory = new Map();
+  Object.defineProperty(window, 'localStorage', { value: {
+    getItem: key => memory.get(key) ?? null,
+    setItem: (key, value) => memory.set(key, String(value)),
+    removeItem: key => memory.delete(key)
+  } });
+  const event = () => ({ addListener() {} });
+  window.scrollTo = () => {};
+  window.chrome = {
+    storage: { local: {
+      async get(keys) { return clone(Object.fromEntries(keys.filter(key => key in store).map(key => [key, store[key]]))); },
+      async set(patch) { Object.assign(store, clone(patch)); }
+    }, onChanged: { addListener: listener => listeners.push(listener) } },
+    tabs: { query: async () => [{ id: 1, windowId: 1 }], getCurrent: async () => ({ id: 1, windowId: 1 }),
+      onActivated: event(), onUpdated: event() },
+    windows: { getCurrent: async () => ({ id: 1 }) },
+    runtime: { getURL: name => `chrome-extension://lateron/${name}`, sendMessage: async () => ({ ok: false }), onMessage: event() }
+  };
+  try {
+    for (const name of ['url-utils.js', 'tab-navigation.js', 'i18n.js', 'dialog.js', 'modules/storage/client.js', `${page}.js`]) window.eval(read(name));
+    const itemSelector = page === 'library' ? '.board-card[data-project="p"]' : '.item[data-id="a"]';
+    for (let attempt = 0; attempt < 100 && !document.querySelector(itemSelector); attempt++) await tick();
+    assert(document.querySelector(itemSelector), `${page} renders the restored collection`);
+    if (page === 'library') {
+      assert.equal(document.querySelector('.board-placeholder')?.getAttribute('src'), 'article-cover-placeholder.png');
+      assert.equal(document.querySelector('.project-thumb .project-ph')?.textContent, 'P');
+      document.querySelector('.board-card[data-project="p"]').click();
+      for (let attempt = 0; attempt < 100 && !document.querySelector('.card[data-id="a"]'); attempt++) await tick();
+      assert.equal(document.querySelector('.card[data-id="a"] .cover-logo')?.getAttribute('src'), 'article-cover-placeholder.png');
+      assert.equal(document.querySelector('.card[data-id="a"] .cover-img'), null);
+      const broken = window.createBoardCell({ image: 'https://example.com/unavailable.jpg' });
+      broken.querySelector('.board-img').dispatchEvent(new window.Event('error'));
+      assert(broken.querySelector('.board-placeholder'), 'failed remote images fall back too');
+      const custom = window.createBoardCellFromSrc('https://example.com/unavailable.jpg');
+      custom.querySelector('.board-img').dispatchEvent(new window.Event('error'));
+      assert(custom.querySelector('.board-placeholder'), 'failed custom project covers fall back too');
+    } else {
+      assert.equal(document.querySelector('.item[data-id="a"] .thumb-logo')?.getAttribute('src'), 'article-cover-placeholder.png');
+      assert.equal(document.querySelector('.item[data-id="a"] .thumb-img'), null);
+    }
+    assert.deepEqual(errors, []);
+  } finally { window.close(); }
+}
+
+(async () => {
+  await checkPage('library');
+  await checkPage('sidepanel');
+  console.log('PASS image-free backup displays default covers in library, project boards and sidepanel');
+})().catch(error => { console.error(error); process.exitCode = 1; });

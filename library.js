@@ -139,7 +139,7 @@ function normalizeItems(list) {
   // 旧收藏只有 read 布尔、没有 status：按 read 推导成三档之一，兼容已有数据。
   // 顺带补 doneAt（标为已读的时刻，自动清除按它起算）：本版本之前就标好的老收藏
   // 没有这个时间，这里补成「现在」，从今天开始计 30 天，不会一升级就全被清掉。
-  return (list || []).map((it) => {
+  return (list || []).filter(Boolean).map((it) => {
     if (!it) return it;
     const status = it.status || (it.read ? "done" : "unread");
     const doneAt = status === "done" ? (Number(it.doneAt) || Date.now()) : null;
@@ -162,37 +162,15 @@ function resolveImage(item) {
 // 一次性搬家：把还躺在收藏列表里的 base64 封面挪到单独的键里。
 // 搬完列表数据回归「纯文字」，哪个页面打开都快。已搬过（没有 data: 封面）就什么都不做。
 async function migrateLegacyCovers(rawItems) {
-  if (!Array.isArray(rawItems)) return null;
-  const moved = {};
-  let changed = false;
-  const next = rawItems.map((it) => {
-    if (it && it.id && typeof it.image === "string" && it.image.startsWith("data:")) {
-      moved[it.id] = it.image;
-      changed = true;
-      return { ...it, image: `local://${it.id}` };
-    }
-    return it;
-  });
-  if (!changed) return null;
+  const needsMigration = Array.isArray(rawItems) && rawItems.some((item) =>
+    !item || (typeof item.image === "string" && item.image.startsWith("data:"))
+    || ((item.status === "done" || (!item.status && item.read)) && !Number(item.doneAt)));
+  if (!needsMigration) return null;
   try {
-    const stored = await chrome.storage.local.get(COVERS_KEY);
-    const merged = { ...(stored[COVERS_KEY] || {}), ...moved };
-    covers = merged;
-    await chrome.storage.local.set({ [STORAGE_KEY]: next, [COVERS_KEY]: merged });
-  } catch { /* 搬不动就先用老数据，不影响显示 */ }
-  return next;
-}
-
-// 用户上传的封面增删后，把 COVERS_KEY 整体写回存储。
-async function saveCovers(next) {
-  try {
-    await chrome.storage.local.set({ [COVERS_KEY]: next });
-    covers = next;
-    return true;
-  } catch {
-    showToast(tr("operationFailed"));
-    return false;
-  }
+    const response = await LaterOnStorage.run("migrateLegacyData");
+    covers = response.covers;
+    return response.items;
+  } catch { return null; }
 }
 
 // 三档：未读 / 在读 / 已读（已完成）。点一下「标为已读」按钮 = 标记完成，再点取消；
@@ -239,17 +217,14 @@ async function init() {
   await window.LaterOnI18n?.getLanguage();
   window.LaterOnI18n?.applyStatic();
   const [result, activeTabs] = await Promise.all([
-    chrome.storage.local.get([STORAGE_KEY, PROJECTS_KEY, ACTIVE_PROJECT_KEY, SETTINGS_KEY, CURRENT_ITEM_KEY, FILTER_KEY, FILTER_CHOSEN_KEY, ORDER_KEY, COVERS_KEY]),
+    chrome.storage.local.get([STORAGE_KEY, PROJECTS_KEY, ACTIVE_PROJECT_KEY, SETTINGS_KEY, CURRENT_ITEM_KEY, FILTER_KEY, FILTER_CHOSEN_KEY, ORDER_KEY, COVERS_KEY, "laterOnCollectionEpoch"]),
     chrome.tabs.query({ active: true, currentWindow: true })
   ]);
+  LaterOnStorage.initialize(result);
   covers = result[COVERS_KEY] || {};
   const migrated = await migrateLegacyCovers(result[STORAGE_KEY]);
   const rawItems = migrated || result[STORAGE_KEY] || [];
   items = normalizeItems(rawItems);
-  // 补齐的 doneAt 要写回存储，否则下次打开又变回「没有时间」，永远不会被清除。
-  if (items.some((item, i) => item.doneAt && !Number(rawItems[i]?.doneAt))) {
-    chrome.storage.local.set({ [STORAGE_KEY]: items });
-  }
   projects = sortPinnedFirst(result[PROJECTS_KEY] || []);
   orders = result[ORDER_KEY] || {};
   const launchParams = new URLSearchParams(window.location.search);
@@ -365,24 +340,12 @@ document.querySelector("#openSettings")?.addEventListener("click", async (event)
 async function createProject(nameValue) {
   const name = String(nameValue || "").trim();
   if (!name) return;
-  // 同名就不重复建，直接跳到那个项目。
-  const existing = projects.find((project) => project.name === name);
-  if (existing) {
-    selectProject(existing.id);
-    showToast(tr("projectExists", { name }));
-    return;
-  }
-  const project = { id: crypto.randomUUID(), name, createdAt: Date.now() };
-  projects = [...projects, project];
   try {
-    await chrome.storage.local.set({ [PROJECTS_KEY]: projects });
-  } catch {
-    projects = projects.filter((entry) => entry.id !== project.id);
-    showToast(tr("createProjectFailed"));
-    return;
-  }
-  selectProject(project.id);
-  showToast(tr("projectCreated", { name }));
+    const response = await LaterOnStorage.run("createProject", { name });
+    projects = sortPinnedFirst(response.projects);
+    selectProject(response.project.id);
+    showToast(tr(response.existed ? "projectExists" : "projectCreated", { name: response.project.name }));
+  } catch { showToast(tr("createProjectFailed")); }
 }
 
 async function promptCreateProject() {
@@ -709,22 +672,14 @@ function clearReorderPreview() {
 async function commitCardOrder(dropIndex) {
   const draggedId = drag?.id;
   if (!draggedId || dropIndex == null) return;
-  const scoped = items.filter((item) => activeProject === "all" || (activeProject === "unfiled" ? !item.projectId : item.projectId === activeProject));
   // 屏幕上现在这个顺序里，被拖的这张应该排到谁前面（null = 排最后）。
   const visibleIds = [...grid.querySelectorAll(".card")]
     .map((card) => card.dataset.id)
     .filter((id) => id && id !== draggedId);
   const anchorId = visibleIds[dropIndex] ?? null;
 
-  const full = scopeOrder(scoped).filter((id) => id !== draggedId);
-  const at = anchorId ? full.indexOf(anchorId) : -1;
-  const nextOrder = at === -1
-    ? [...full, draggedId]
-    : [...full.slice(0, at), draggedId, ...full.slice(at)];
-
-  const nextOrders = { ...orders, [orderScope()]: nextOrder };
-  orders = nextOrders;
-  await chrome.storage.local.set({ [ORDER_KEY]: nextOrders });
+  const response = await LaterOnStorage.run("moveItem", { id: draggedId, scope: orderScope(), beforeId: anchorId });
+  orders = response.orders;
 
   // 存好之后再收起让位效果。顺序很讲究：先关掉过渡，再抹掉预览用的 transform，
   // 然后 render() 按新顺序排好——三步在同一帧内完成，所以卡片直接从「让开的样子」
@@ -767,18 +722,16 @@ async function commitBoardOrder(dropIndex) {
   const at = anchorId ? full.indexOf(anchorId) : -1;
   const next = at === -1 ? [...full, draggedId] : [...full.slice(0, at), draggedId, ...full.slice(at)];
 
-  const nextProjects = next.map((id) => projects.find((project) => project.id === id)).filter(Boolean);
-  for (const project of projects) if (!nextProjects.includes(project)) nextProjects.push(project);
-  if (nextProjects.every((project, i) => project.id === projects[i]?.id)) return;   // 位置没变，不用写库
+  if (next.every((id, i) => id === projects[i]?.id)) return;
 
   const name = projects.find((project) => project.id === draggedId)?.name || tr("unnamedProject");
+  const response = await LaterOnStorage.run("moveProject", { id: draggedId, beforeId: anchorId });
   boardGrid.classList.add("no-transition");
   clearReorderPreview();
-  projects = nextProjects;
-  await chrome.storage.local.set({ [PROJECTS_KEY]: projects });
+  projects = response.projects;
   render();
   renderProjects();   // 侧栏的项目列表跟着换，两边顺序始终一致
-  showToast(tr("movedToPosition", { name, n: next.indexOf(draggedId) + 1 }));
+  showToast(tr("movedToPosition", { name, n: projects.findIndex((project) => project.id === draggedId) + 1 }));
   void boardGrid.offsetHeight;
   boardGrid.classList.remove("no-transition");
 }
@@ -1049,10 +1002,7 @@ function createBoardCard(group) {
   } else {
     const picked = boardCoverItems(group);
     if (!picked.length) {
-      // 这个类目还一篇收藏都没有：留一块空的封面板（只有底色，不放图标）。
-      const cell = document.createElement("div");
-      cell.className = "board-cell";
-      cover.append(cell);
+      cover.append(createBoardCellFromSrc(""));
     } else {
       for (const item of picked) cover.append(createBoardCell(item));
     }
@@ -1088,11 +1038,22 @@ function boardCoverItems(group) {
   return [...withCover, ...withoutCover].slice(0, 3);
 }
 
+function createBoardPlaceholder() {
+  const image = document.createElement("img");
+  image.className = "board-placeholder";
+  image.src = "article-cover-placeholder.png";
+  image.alt = "";
+  return image;
+}
+
 function createBoardCell(item) {
   const cell = document.createElement("div");
   cell.className = "board-cell";
   const src = resolveImage(item);
-  if (!src) return cell;
+  if (!src) {
+    cell.append(createBoardPlaceholder());
+    return cell;
+  }
   const img = document.createElement("img");
   img.className = "board-img";
   img.referrerPolicy = "no-referrer";
@@ -1101,7 +1062,7 @@ function createBoardCell(item) {
   img.addEventListener("error", () => {
     const fallback = nextCoverFallback(img.src);
     if (fallback) img.src = fallback;
-    else img.remove();
+    else cell.replaceChildren(createBoardPlaceholder());
   });
   img.src = src;
   cell.append(img);
@@ -1112,12 +1073,15 @@ function createBoardCell(item) {
 function createBoardCellFromSrc(src) {
   const cell = document.createElement("div");
   cell.className = "board-cell";
-  if (!src) return cell;
+  if (!src) {
+    cell.append(createBoardPlaceholder());
+    return cell;
+  }
   const img = document.createElement("img");
   img.className = "board-img";
   img.alt = "";
   img.loading = "lazy";
-  img.addEventListener("error", () => img.remove());
+  img.addEventListener("error", () => cell.replaceChildren(createBoardPlaceholder()));
   img.src = src;
   cell.append(img);
   return cell;
@@ -1262,23 +1226,14 @@ async function editBoard(projectId) {
     showToast(tr("duplicateProject"));
     return;
   }
-  projects = projects.map((entry) => {
-    if (entry.id !== projectId) return entry;
-    const updated = {
-      ...entry,
-      name: finalName,
-      note: nextNote,
-      // 没动过封面就原样保留（含「没有自定义封面」这个状态）。
-      ...(coverChanged ? { cover: nextCover } : {})
-    };
-    if (pickChanged) {
-      // 全部取消 = 回到「按项目内容自动拼封面」，把字段删掉，别在存储里留个空壳。
-      if (nextPick.length) updated.coverPick = nextPick;
-      else delete updated.coverPick;
-    }
-    return updated;
-  });
-  await chrome.storage.local.set({ [PROJECTS_KEY]: projects });
+  const changes = {
+    ...(nameChanged ? { name: finalName } : {}),
+    ...(noteChanged ? { note: nextNote } : {}),
+    ...(coverChanged ? { cover: nextCover } : {}),
+    ...(pickChanged ? { coverPick: nextPick } : {})
+  };
+  const response = await LaterOnStorage.run("updateProject", { id: projectId, changes });
+  projects = response.projects;
   render();
   // 提示按实际改了什么来写，不啰嗦。
   const changed = [
@@ -1476,11 +1431,12 @@ const IS_EMPTY_SUMMARY = /^\s*(暂无摘要|No summary)?\s*$/i;
 // 改过的会被标记为 titleEdited / descriptionEdited，
 // 之后再次收藏同一网址时，后台不会再拿自动抓取的结果覆盖掉用户手写的版本。
 async function editItem(item) {
+  const originalCover = resolveImage(item);
   const result = await LaterOnDialog.prompt({
     title: tr("editItem"),
     message: IS_EMPTY_SUMMARY.test(item.description) ? tr("missingSummaryHint") : "",
     // 封面：可以自己上传一张本地图片（自动压缩后保存），也可以移除，显示回 Logo 占位。
-    cover: { name: "cover", label: tr("cover"), value: resolveImage(item) },
+    cover: { name: "cover", label: tr("cover"), value: originalCover },
     fields: [
       { name: "title", label: tr("title"), value: item.title, maxLength: 200 },
       {
@@ -1513,17 +1469,8 @@ async function editItem(item) {
   // 没动过时 values.cover 就等于传进去的旧值，不会触发无谓的写入。
   // 本体（base64 大图）放进单独的 COVERS_KEY，收藏条目里只记一个 local://<id> 的指针，
   // 这样收藏列表始终是纯文字小数据，页面打开才不会被拖慢。
-  const originalCover = resolveImage(item);
   if (typeof values.cover === "string" && values.cover !== originalCover) {
-    if (values.cover) {
-      if (!await saveCovers({ ...covers, [item.id]: values.cover })) return;
-      patch.image = `local://${item.id}`;
-    } else {
-      const nextCovers = { ...covers };
-      delete nextCovers[item.id];
-      if (!await saveCovers(nextCovers)) return;
-      patch.image = "";
-    }
+    patch.cover = values.cover;
     // 记一笔：这是用户自己定的封面，之后再收藏同一网址时别用自动抓取的把它盖掉。
     patch.imageEdited = true;
   }
@@ -1564,30 +1511,10 @@ function sortPinnedFirst(list) {
 async function toggleProjectPin(id) {
   const project = projects.find((entry) => entry.id === id);
   if (!project) return;
-  const next = projects.filter((entry) => entry.id !== id);
-  const moved = { ...project };
-  // 除了该项目之外，还置顶着几个、普通的有几个——两者夹出它能去的下标范围。
-  const plain = next.filter((entry) => !entry.pinned);
-  const pins = next.length - plain.length;
-  if (project.pinned) {
-    // 取消置顶：回到它在普通列表里原来的那个位置（置顶时记下的序号），
-    // 落在「还置顶着的那几个」之后。记不住（数据是别的界面写的）就排在置顶区之后。
-    const back = Number.isInteger(project.pinFrom) ? Math.max(0, Math.min(project.pinFrom, plain.length)) : 0;
-    delete moved.pinned;
-    delete moved.pinFrom;
-    next.splice(pins + back, 0, moved);
-  } else {
-    // 置顶：提到置顶那一拨的最后，并记下它原本排第几，取消时才能原样放回去。
-    // 序号要在「还没把自己摘出去」的列表上算——摘出去之后 findIndex 永远找不到自己。
-    const plainAll = projects.filter((entry) => !entry.pinned);
-    moved.pinned = true;
-    moved.pinFrom = Math.max(0, plainAll.findIndex((entry) => entry.id === id));
-    next.splice(pins, 0, moved);
-  }
-  projects = next;
+  const response = await LaterOnStorage.run("setProjectPinned", { id, pinned: !project.pinned });
+  projects = response.projects;
   renderProjects();
-  await chrome.storage.local.set({ [PROJECTS_KEY]: projects });
-  showToast(tr(moved.pinned ? "pinDone" : "unpinDone", { name: project.name }));
+  showToast(tr(response.project.pinned ? "pinDone" : "unpinDone", { name: response.project.name }));
 }
 
 function renderProjects() {
@@ -1853,11 +1780,11 @@ async function commitFolderOrder() {
   const rest = projects.filter((project) => project.id !== dragged.id);
   const [min, max] = folderDropRange();
   const at = Math.max(min, Math.min(max, index));
-  rest.splice(at, 0, dragged);
-  if (rest.every((project, i) => project.id === projects[i].id)) return; // 位置没变，不用写库
-  projects = rest;
-  await chrome.storage.local.set({ [PROJECTS_KEY]: projects });
-  showToast(tr("movedToPosition", { name: dragged.name, n: rest.indexOf(dragged) + 1 }));
+  if (projects.indexOf(dragged) === at) return;
+  const response = await LaterOnStorage.run("moveProject", { id: dragged.id, beforeId: rest[at]?.id ?? null });
+  projects = response.projects;
+  renderProjects();
+  showToast(tr("movedToPosition", { name: dragged.name, n: projects.findIndex((project) => project.id === dragged.id) + 1 }));
 }
 
 // 拖拽排序只在「自己那一区」里发生：置顶的项目只能在置顶那几个之间换位，
@@ -1991,9 +1918,9 @@ async function commitRename(id, input) {
     renderProjects();
     return;
   }
-  projects = projects.map((entry) => entry.id === id ? { ...entry, name } : entry);
+  const response = await LaterOnStorage.run("updateProject", { id, changes: { name } });
+  projects = response.projects;
   renderProjects();
-  await chrome.storage.local.set({ [PROJECTS_KEY]: projects });
   showToast(tr("renamedTo", { name }));
 }
 
@@ -2001,9 +1928,8 @@ async function toggleProjectArchive(id) {
   const project = projects.find((entry) => entry.id === id);
   if (!project) return;
   const archived = !project.archived;
-  const next = projects.map((entry) => entry.id === id ? { ...entry, archived } : entry);
-  await chrome.storage.local.set({ [PROJECTS_KEY]: next });
-  projects = next;
+  const response = await LaterOnStorage.run("updateProject", { id, changes: { archived } });
+  projects = response.projects;
   selectProject(archived ? "archive" : id);
   showToast(tr(archived ? "projectArchived" : "projectRestored"));
 }
@@ -2015,29 +1941,20 @@ async function deleteProject(id) {
   const confirmed = await LaterOnDialog.confirm({
     tone: "danger",
     title: tr("deleteProjectTitle", { name: project.name }),
-    message: affected
-      ? tr("deleteProjectItems", { n: affected })
-      : tr("deleteEmptyProject"),
+    message: affected ? tr("deleteProjectItems", { n: affected }) : tr("deleteEmptyProject"),
     confirmText: tr("deleteProject")
   });
   if (!confirmed) return;
-  projects = projects.filter((entry) => entry.id !== id);
-  const deletedIds = new Set(items.filter((item) => item.projectId === id).map((item) => item.id));
-  items = items.filter((item) => !deletedIds.has(item.id));
-  covers = Object.fromEntries(Object.entries(covers).filter(([itemId]) => !deletedIds.has(itemId)));
-  orders = Object.fromEntries(Object.entries(orders)
-    .filter(([scope]) => scope !== id)
-    .map(([scope, ids]) => [scope, ids.filter((itemId) => !deletedIds.has(itemId))]));
-  const patch = { [PROJECTS_KEY]: projects, [STORAGE_KEY]: items, [COVERS_KEY]: covers, [ORDER_KEY]: orders };
-  if (deletedIds.has(currentItemId)) patch[CURRENT_ITEM_KEY] = null;
-  await chrome.storage.local.set(patch);
-  if (activeProject === id) {
-    activeProject = "all";
-    await chrome.storage.local.set({ [ACTIVE_PROJECT_KEY]: "all" });
-  }
+  const response = await LaterOnStorage.run("deleteProject", { id });
+  projects = response.projects;
+  items = normalizeItems(response.items);
+  covers = response.covers;
+  orders = response.orders;
+  if (!items.some((item) => item.id === currentItemId)) currentItemId = null;
+  if (activeProject === id) activeProject = "all";
   renderProjects();
   render();
-  showToast(tr(affected ? "projectDeletedWithItems" : "projectDeleted", { name: project.name, n: affected }));
+  showToast(tr(response.affected ? "projectDeletedWithItems" : "projectDeleted", { name: project.name, n: response.affected }));
 }
 
 function openFolderMenu(projectId, x, y) {
@@ -2265,7 +2182,7 @@ async function waitForSidePanelReady(windowId) {
 
 async function commitItemMutation(operation, ids, patch) {
   try {
-    const response = await chrome.runtime.sendMessage({ type: "MUTATE_ITEMS", operation, ids: [...ids], patch });
+    const response = await LaterOnStorage.run("mutateItems", { operation, ids: [...ids], patch });
     if (!response?.ok || !Array.isArray(response.items)) throw new Error(response?.error || "Item write failed");
     items = normalizeItems(response.items);
     covers = response.covers || {};
@@ -2300,7 +2217,7 @@ function projectPickerFolders() {
 }
 
 async function createProjectFromPicker(name) {
-  const response = await chrome.runtime.sendMessage({ type: "CREATE_PROJECT", name }).catch(() => null);
+  const response = await LaterOnStorage.run("createProject", { name }).catch(() => null);
   return response?.project || null;
 }
 

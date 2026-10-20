@@ -165,6 +165,10 @@ window.eval(librarySource);
   check("取消保留项目和内容", store.laterOnProjects.some(p => p.id === "p3") && store.laterOnItems.some(i => i.id === "i1"));
   pending = window.deleteProject("p3");
   await tick(30);
+  await window.chrome.storage.local.set({
+    laterOnItems: [...store.laterOnItems, { id: "late", title: "确认期间新增", url: "https://example.com/late", savedAt: Date.now(), projectId: "p3", status: "unread" }],
+    laterOnReadingPositions: { i1: 10, late: 20, i2: 30 }
+  });
   click(document.querySelector(".lod-ok"));
   await pending;
   await tick();
@@ -172,6 +176,7 @@ window.eval(librarySource);
   check("待整理内容保持原样", store.laterOnItems.length === 1 && store.laterOnItems[0].id === "i2" && store.laterOnItems[0].projectId === null);
   check("清理封面和排序", !store.laterOnCovers.i1 && store.laterOnCovers.i2 === "kept-cover" && !store.laterOnOrder.p3 && store.laterOnOrder.all.join() === "i2");
   check("清理当前阅读标记", store.laterOnCurrentItem === null);
+  check("按确认时的最新归属级联删除，并同步清理阅读位置", !store.laterOnItems.some(item => item.id === "late") && JSON.stringify(store.laterOnReadingPositions) === JSON.stringify({ i2: 30 }));
   check("离开已删除项目", store.laterOnActiveProject === "all");
   await window.toggleProjectArchive("p1");
   pending = window.deleteProject("p1");

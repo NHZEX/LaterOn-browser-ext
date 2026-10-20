@@ -1,4 +1,4 @@
-importScripts("url-utils.js", "reading-position-background.js");
+importScripts("url-utils.js", "modules/storage/coordinator.js", "modules/backup/core.js", "modules/backup/background.js", "reading-position-background.js");
 const normalizeUrl = LaterOnUrl.normalize;
 
 const STORAGE_KEY = "laterOnItems";
@@ -9,51 +9,11 @@ const CURRENT_ITEM_KEY = "laterOnCurrentItem";
 // 每次提交都读取最新列表，避免批量抓取期间的单篇保存被旧快照覆盖。
 let itemWriteQueue = Promise.resolve();
 function queueItemWrite(task) {
+  if (globalThis.LaterOnCollection) return globalThis.LaterOnCollection.enqueue(task);
   const pending = itemWriteQueue.then(task);
   itemWriteQueue = pending.catch(() => {});
   return pending;
 }
-// 网页修改与删除共用添加/自动清理的队列，始终从最新存储按 id 修改。
-async function mutateItems({ operation, ids, patch = {} }) {
-  if (!["delete", "update"].includes(operation) || !Array.isArray(ids) || ids.some(id => typeof id !== "string")) {
-    throw new Error("Invalid item mutation");
-  }
-  return queueItemWrite(async () => {
-    const stored = await chrome.storage.local.get([STORAGE_KEY, COVERS_KEY, ORDER_KEY, CURRENT_ITEM_KEY]);
-    const original = stored[STORAGE_KEY] || [];
-    const targets = new Set(ids);
-    let affected = 0;
-    const nextItems = operation === "delete"
-      ? original.filter(item => { if (!targets.has(item.id)) return true; affected++; return false; })
-      : original.map(item => {
-        if (!targets.has(item.id)) return item;
-        affected++;
-        const next = { ...patch };
-        delete next.id;
-        if (next.status) {
-          next.read = next.status === "done";
-          next.doneAt = next.status === "done"
-            ? (item.status === "done" && Number(item.doneAt) ? item.doneAt : Date.now())
-            : null;
-        }
-        return { ...item, ...next };
-      });
-    const nextCovers = { ...(stored[COVERS_KEY] || {}) };
-    const write = { [STORAGE_KEY]: nextItems };
-    if (operation === "delete") {
-      for (const id of targets) delete nextCovers[id];
-      write[COVERS_KEY] = nextCovers;
-      write[ORDER_KEY] = Object.fromEntries(Object.entries(stored[ORDER_KEY] || {}).map(
-        ([scope, list]) => [scope, Array.isArray(list) ? list.filter(id => !targets.has(id)) : list]
-      ));
-      if (targets.has(stored[CURRENT_ITEM_KEY])) write[CURRENT_ITEM_KEY] = null;
-    }
-    // 一次提交网页、封面、顺序及当前阅读标记；失败时不返回成功结果。
-    await chrome.storage.local.set(write);
-    return { ok: true, items: nextItems, covers: nextCovers, affected };
-  });
-}
-
 async function usesEnglish() {
   try { return (await chrome.storage.local.get(SETTINGS_KEY))[SETTINGS_KEY]?.language === "en"; }
   catch { return false; }
@@ -380,12 +340,6 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 ensureLegacyCleanup().catch(() => {});
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message.type === "MUTATE_ITEMS") {
-    mutateItems(message)
-      .then(sendResponse)
-      .catch(error => sendResponse({ ok: false, error: error.message }));
-    return true;
-  }
   if (message.type === "SAVE_ITEM") {
     saveItem(message.item)
       .then(sendResponse)
@@ -423,7 +377,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   // 网页里的选项目浮层点了「新建」：统一由后台写库，保证数据和收藏库一致。
   if (message.type === "CREATE_PROJECT") {
-    createProject(message.name)
+    createProject(message.name, message.epoch)
       .then(sendResponse)
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
@@ -1020,13 +974,15 @@ async function runBatchSave({ tabs, source = "shortcut", notifyTabId = null, pro
       }
 
       const saved = await queueItemWrite(async () => {
-        const stored = await chrome.storage.local.get(STORAGE_KEY);
+        const stored = await chrome.storage.local.get([STORAGE_KEY, PROJECTS_KEY]);
         const items = stored[STORAGE_KEY] || [];
+        const targetProjectId = (stored[PROJECTS_KEY] || []).some((project) => project.id === projectId && !project.archived)
+          ? projectId : null;
         const key = normalizeUrl(meta.url);
         const existing = items.find((entry) => normalizeUrl(entry.url) === key);
         if (existing) {
           const refreshed = mergeDuplicateMetadata(existing, meta);
-          const target = projectId || null;
+          const target = projectId && !targetProjectId ? existing.projectId || null : targetProjectId;
           const moved = (existing.projectId || null) !== target;
           if (moved) existing.projectId = target;
           if (refreshed || moved) await chrome.storage.local.set({ [STORAGE_KEY]: items });
@@ -1039,7 +995,7 @@ async function runBatchSave({ tabs, source = "shortcut", notifyTabId = null, pro
           image: meta.image || "",
           favicon: meta.favicon || "",
           source: meta.source || safeHostname(meta.url),
-          projectId,
+          projectId: targetProjectId,
           url: meta.url,
           savedAt: base - i,
           status: "unread"
@@ -1248,19 +1204,8 @@ async function showPickerOverlay(tab, payload) {
 }
 
 // 新建项目（浮层和收藏库共用同一份数据，形状保持一致）。
-async function createProject(name) {
-  const clean = String(name || "").replace(/\s+/g, " ").trim().slice(0, 28);
-  if (!clean) return { ok: false, error: (await usesEnglish()) ? "Project name can’t be empty" : "项目名称不能为空" };
-
-  const stored = await chrome.storage.local.get(PROJECTS_KEY);
-  const projects = stored[PROJECTS_KEY] || [];
-  // 同名项目不重复创建，直接选用已有那个，避免列表里出现两个「工作」。
-  const existing = projects.find((project) => project.name === clean && !project.archived);
-  if (existing) return { ok: true, project: existing, existed: true };
-
-  const project = { id: crypto.randomUUID(), name: clean, createdAt: Date.now() };
-  await chrome.storage.local.set({ [PROJECTS_KEY]: [...projects, project] });
-  return { ok: true, project, existed: false };
+async function createProject(name, epoch) {
+  return LaterOnCollection.execute({ action: "createProject", name, epoch });
 }
 
 // 体积较大的网页执行代码已移到 content-folder-picker.js，仅在实际使用时注入目标网页。
@@ -1642,16 +1587,18 @@ async function ensureLegacyCleanup() {
 // 一次性迁移清理：1.14.0 起不再保存网页正文，把旧版本可能残留的
 // contentHtml / wordCount / byline 字段从已有收藏上移除，释放本地空间。
 async function cleanupLegacyContent() {
-  const result = await chrome.storage.local.get(STORAGE_KEY);
-  const items = result[STORAGE_KEY] || [];
-  let changed = false;
-  const cleaned = items.map((item) => {
-    if (!("contentHtml" in item) && !("wordCount" in item) && !("byline" in item)) return item;
-    const { contentHtml: _contentHtml, wordCount: _wordCount, byline: _byline, ...rest } = item;
-    changed = true;
-    return rest;
+  return queueItemWrite(async () => {
+    const result = await chrome.storage.local.get(STORAGE_KEY);
+    const items = result[STORAGE_KEY] || [];
+    let changed = false;
+    const cleaned = items.map((item) => {
+      if (!("contentHtml" in item) && !("wordCount" in item) && !("byline" in item)) return item;
+      const { contentHtml: _contentHtml, wordCount: _wordCount, byline: _byline, ...rest } = item;
+      changed = true;
+      return rest;
+    });
+    if (changed) await chrome.storage.local.set({ [STORAGE_KEY]: cleaned });
   });
-  if (changed) await chrome.storage.local.set({ [STORAGE_KEY]: cleaned });
 }
 
 function safeHostname(url) {

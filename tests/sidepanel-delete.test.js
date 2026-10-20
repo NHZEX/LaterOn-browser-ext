@@ -14,7 +14,7 @@ const context = vm.createContext({
     if (loadFailed) throw Error('load failed');
     context.window.LaterOnDialog = { confirm: async () => confirmed };
   },
-  chrome: { runtime: { sendMessage: async () => { writes++; return { ok: true, items: [], covers: {} }; } } }
+  LaterOnStorage: { run: async () => { writes++; return { ok: true, items: [], covers: {} }; } }
 });
 vm.runInContext(helper + deletion, context);
 (async () => {

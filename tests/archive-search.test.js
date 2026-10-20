@@ -32,6 +32,7 @@ function mount(page) {
     runtime: { getURL: p => `chrome-extension://fixture/${p}`, sendMessage: async () => ({ok:false}), onMessage: {addListener(){}} },
     windows: {getCurrent: async () => ({id:1})}
   };
+  require('./helpers/item-mutation')(w);
   for (const file of ['i18n.js','dialog.js','picker-ui.js','url-utils.js','tab-navigation.js',page+'.js']) w.eval(read(file));
   return { dom, w, store, errors, cache };
 }

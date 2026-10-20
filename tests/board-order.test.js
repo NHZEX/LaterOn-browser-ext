@@ -196,6 +196,26 @@ async function dropDrag(app, point) {
   check("图板容器是定位参照（虚线框要定位）", /\.board-grid \{[^}]*position: relative/.test(css));
   check("拖动中掐断入场动画（否则会盖掉行内 transform）", /\.board-grid\.is-reordering \.board-card \{[^}]*animation: none/.test(css));
 
+  console.log("\n── ⑦ 写入失败保持原顺序，结束拖拽后可以重试 ──");
+  const priorOrder = store.laterOnProjects.map(project => project.id).join(",");
+  const originalSet = app.window.chrome.storage.local.set;
+  app.window.chrome.storage.local.set = async patch => {
+    if (patch.laterOnProjects) throw new Error("fixture write failure");
+    return originalSet(patch);
+  };
+  const failedDrag = await startDrag(app, "read", 0);
+  await dropDrag(app, failedDrag.point);
+  const failedEnd = new app.window.Event("dragend", { bubbles: true });
+  failedDrag.source.dispatchEvent(failedEnd);
+  await app.tick(20);
+  check("失败不改变持久化顺序", store.laterOnProjects.map(project => project.id).join(",") === priorOrder);
+  check("失败不改变页面项目顺序", boardIds(app.board).join(",") === priorOrder);
+  check("失败后清理拖拽状态和过渡禁用", !app.board.classList.contains("is-reordering") && !app.board.classList.contains("no-transition"));
+  app.window.chrome.storage.local.set = originalSet;
+  const retried = await startDrag(app, "read", 0);
+  await dropDrag(app, retried.point);
+  check("重试可以保存", store.laterOnProjects[0].id === "read");
+
   console.log(failures ? `\n有 ${failures} 项失败` : "\n全部检查通过 🎉");
   process.exit(failures ? 1 : 0);
 })();

@@ -138,72 +138,6 @@ async function init() {
     else window.location.href = url;
   });
 
-  // 导出收藏
-  document.querySelector("#exportBtn").addEventListener("click", async () => {
-    const data = await chrome.storage.local.get(["laterOnItems", "laterOnProjects", "laterOnCovers", "laterOnOrder"]);
-    const payload = {
-      type: "lateron-backup",
-      version: 2,
-      exportedAt: Date.now(),
-      items: data.laterOnItems || [],
-      projects: data.laterOnProjects || [],
-      // 自定义封面本体不在 items 里；不导出它，恢复后 local:// 指针会全部变成坏图。
-      covers: data.laterOnCovers || {},
-      order: data.laterOnOrder || {}
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `lateron-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    // 给浏览器一次事件循环去接管下载，再释放 URL；同步释放在部分环境会取消下载。
-    window.setTimeout(() => URL.revokeObjectURL(url), 0);
-  });
-
-  // 导入收藏（按网址去重合并）
-  const fileInput = document.querySelector("#importFile");
-  document.querySelector("#importBtn").addEventListener("click", () => fileInput.click());
-  fileInput.addEventListener("change", async () => {
-    const file = fileInput.files[0];
-    if (!file) return;
-    try {
-      const parsed = JSON.parse(await file.text());
-      if (!parsed || !Array.isArray(parsed.items)) throw new Error(t("importBadFile"));
-      const existing = await chrome.storage.local.get(["laterOnItems", "laterOnProjects", "laterOnCovers", "laterOnOrder"]);
-      const byUrl = new Map((existing.laterOnItems || []).map((it) => [normalizeUrl(it.url), it]));
-      let skipped = 0;
-      for (const it of parsed.items) {
-        // 备份文件可以被手工修改，不能把任意协议塞进收藏链接。
-        if (!isImportableItem(it)) { skipped += 1; continue; }
-        const key = normalizeUrl(it.url);
-        if (!byUrl.has(key)) byUrl.set(key, it);
-      }
-      const mergedItems = [...byUrl.values()];
-      const projById = new Map((existing.laterOnProjects || []).map((p) => [p.id, p]));
-      (parsed.projects || []).forEach((p) => { if (!projById.has(p.id)) projById.set(p.id, p); });
-      await chrome.storage.local.set({
-        laterOnItems: mergedItems,
-        laterOnProjects: [...projById.values()],
-        laterOnCovers: { ...(existing.laterOnCovers || {}), ...(parsed.covers || {}) },
-        laterOnOrder: { ...(existing.laterOnOrder || {}), ...(parsed.order || {}) }
-      });
-      await LaterOnDialog.alert({
-        tone: "success",
-        title: t("importDoneTitle"),
-        message: t("importDoneMsg", { n: mergedItems.length, skipped: skipped ? t("skippedCount", { n: skipped }) : "" })
-      });
-    } catch (error) {
-      await LaterOnDialog.alert({
-        tone: "danger",
-        title: t("importFailTitle"),
-        message: String(error?.message || error)
-      });
-    } finally {
-      fileInput.value = "";
-    }
-  });
-
   // 清空所有收藏
   document.querySelector("#wipeBtn").addEventListener("click", async () => {
     const confirmed = await LaterOnDialog.confirm({
@@ -213,8 +147,13 @@ async function init() {
       confirmText: t("wipeConfirmBtn")
     });
     if (!confirmed) return;
-    await chrome.storage.local.remove(["laterOnCovers", "laterOnOrder", "laterOnCurrentItem", "laterOnReadingPositions"]);
-    await chrome.storage.local.set({ laterOnItems: [] });
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "COLLECTION_WIPE" });
+      if (!response?.ok) throw new Error(response?.error || "WRITE_FAILED");
+    } catch {
+      await LaterOnDialog.alert({ tone: "danger", title: t("backupOperationFailed"), message: t("backupOperationFailed") });
+      return;
+    }
     try { localStorage.removeItem("laterOnPanelCache"); } catch { /* 清缓存失败不影响清空收藏 */ }
     await LaterOnDialog.alert({
       tone: "success",
@@ -387,30 +326,6 @@ async function renderDiag() {
       const extra = diag.lastCoverTitle ? (isEn() ? ` (${diag.lastCoverTitle})` : `（${diag.lastCoverTitle}）`) : "";
       coverEl.textContent = [relativeTime(diag.lastCoverAt), t("coverLine", { title: titleLabel, cover: coverLabel }) + extra].join(" · ");
     }
-  }
-}
-
-function normalizeUrl(url) {
-  try {
-    const u = new URL(url);
-    u.hash = "";
-    for (const param of ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"]) {
-      u.searchParams.delete(param);
-    }
-    u.host = u.host.replace(/^www\./, "");
-    return u.toString().replace(/\/$/, "");
-  } catch {
-    return url;
-  }
-}
-
-function isImportableItem(item) {
-  if (!item || typeof item !== "object" || typeof item.id !== "string" || !item.id) return false;
-  try {
-    const url = new URL(item.url);
-    return url.protocol === "http:" || url.protocol === "https:";
-  } catch {
-    return false;
   }
 }
 

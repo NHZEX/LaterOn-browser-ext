@@ -30,42 +30,46 @@ const chrome = {
 };
 const ctx = vm.createContext({ chrome, console, URL, crypto: webcrypto, setTimeout, clearTimeout, setInterval, clearInterval, importScripts() {} });
 vm.runInContext(fs.readFileSync(path.join(root, 'url-utils.js'), 'utf8'), ctx);
+vm.runInContext(fs.readFileSync(path.join(root, 'modules/storage/coordinator.js'), 'utf8'), ctx);
 vm.runInContext(fs.readFileSync(path.join(root, 'background.js'), 'utf8'), ctx);
 ctx.showActionFeedback = async () => {};
 ctx.notifyTab = async () => {};
-const page = name => ({ url: `https://fixture.test/${name}`, title: name, image: "", id: name });
+const mutateItems = fields => ctx.LaterOnCollection.execute({ ...fields, action: 'mutateItems', epoch: store.laterOnCollectionEpoch || '' });
+const page = name => ({ url: `https://fixture.test/${name}`, title: name, image: "", id: name, projectId: "p" });
 (async () => {
   store.laterOnItems = [page('delete'), page('keep'), page('recent')];
   store.laterOnCovers = { delete: 'data:delete', keep: 'data:keep' };
   store.laterOnOrder = { all: ['delete', 'keep'], project: ['delete', 'recent'] };
   store.laterOnCurrentItem = 'delete';
-  let result = await ctx.mutateItems({ operation: 'delete', ids: ['delete', 'missing'] });
+  store.laterOnProjects = [{ id: 'p', name: 'P', coverPick: ['delete', 'keep'] }];
+  let result = await mutateItems({ operation: 'delete', ids: ['delete', 'missing'] });
   assert.strictEqual(result.affected, 1);
   assert.deepStrictEqual(store.laterOnItems.map(it => it.id), ['keep', 'recent']);
   assert.deepStrictEqual(store.laterOnCovers, { keep: 'data:keep' });
   assert.deepStrictEqual(store.laterOnOrder, { all: ['keep'], project: ['recent'] });
   assert.strictEqual(store.laterOnCurrentItem, null);
+  assert.deepStrictEqual(store.laterOnProjects[0].coverPick, ['keep']);
 
   store.laterOnItems = [page('keep'), page('delete')];
   await Promise.all([
     ctx.saveItem(page('concurrent'), { silent: true }),
-    ctx.mutateItems({ operation: 'delete', ids: ['delete'] }),
-    ctx.mutateItems({ operation: 'update', ids: ['delete'], patch: { status: 'reading' } })
+    mutateItems({ operation: 'delete', ids: ['delete'] }),
+    mutateItems({ operation: 'update', ids: ['delete'], patch: { status: 'reading' } })
   ]);
   assert.deepStrictEqual(store.laterOnItems.map(it => it.title).sort(), ['concurrent', 'keep'], '并发添加保留，迟到的状态更新不能复活已删除网页');
 
   store.laterOnCovers = { keep: 'data:keep' };
   const before = clone(store);
   failWrite = true;
-  await assert.rejects(ctx.mutateItems({ operation: 'delete', ids: ['keep'] }), /fixture write failure/);
+  await assert.rejects(mutateItems({ operation: 'delete', ids: ['keep'] }), /fixture write failure/);
   assert.deepStrictEqual(store, before, '提交失败时网页、封面和排序均不改变');
-  result = await ctx.mutateItems({ operation: 'delete', ids: ['keep'] });
+  result = await mutateItems({ operation: 'delete', ids: ['keep'] });
   assert.strictEqual(result.affected, 1, '失败后可以重试，队列不会堵塞');
   assert.strictEqual(store.laterOnCovers.keep, undefined);
 
   store.laterOnItems = [{ ...page('done'), status: 'done', doneAt: 123 }];
-  await ctx.mutateItems({ operation: 'update', ids: ['done'], patch: { status: 'done' } });
+  await mutateItems({ operation: 'update', ids: ['done'], patch: { status: 'done' } });
   assert.strictEqual(store.laterOnItems[0].doneAt, 123, '已读日期不因重复标记重置');
-  await assert.rejects(ctx.mutateItems({ operation: 'invalid', ids: [] }), /Invalid/);
+  await assert.rejects(mutateItems({ operation: 'invalid', ids: [] }), /Invalid/);
   console.log('PASS 删除原子提交、封面/排序/阅读标记清理、并发添加/修改、失败保留与重试');
 })().catch(error => { console.error(error); process.exitCode = 1; });
