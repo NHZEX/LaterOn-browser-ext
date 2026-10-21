@@ -38,7 +38,7 @@ nav { display: flex; gap: 4px; padding: 4px; border-radius: 99px; background: va
 .search svg { width: 17px; fill: none; stroke: var(--muted); stroke-linecap: round; stroke-width: 1.8; }
 .search input { min-width: 0; flex: 1; border: 0; outline: 0; padding: 0 8px; background: transparent; font-size: 13px; color: var(--ink); }
 kbd { border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; color: var(--subtle); background: var(--field-soft); font-size: 10px; }
-.workspace { display: grid; grid-template-columns: 248px minmax(0,1fr); max-width: 1680px; min-height: calc(100vh - 78px); margin: auto; }
+.workspace { display: grid; grid-template-columns: var(--sidebar-width, 280px) minmax(0,1fr); max-width: 1680px; min-height: calc(100vh - 78px); margin: auto; }
 .project-sidebar {
   position: sticky; top: 78px; align-self: start;
   height: calc(100vh - 78px);
@@ -46,13 +46,38 @@ kbd { border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; color
   padding: 24px 16px 20px; border-right: 1px solid var(--hairline-2);
   background: color-mix(in srgb, var(--paper) 54%, transparent);
 }
+.sidebar-resizer {
+  position: absolute; z-index: 5; top: 0; right: -12px; bottom: 0; width: 24px;
+  cursor: col-resize; touch-action: none;
+}
+.sidebar-resizer::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: 11px; width: 2px;
+  background: var(--accent); opacity: 0; transition: opacity .15s;
+}
+.sidebar-resizer:hover::after, .sidebar-resizer:focus-visible::after,
+.is-resizing-sidebar .sidebar-resizer::after { opacity: 1; }
+.sidebar-resizer:focus-visible { outline: none; }
+.sidebar-resizer:focus-visible::after { left: 10px; width: 4px; box-shadow: 0 0 0 2px var(--paper); }
+.is-resizing-sidebar, .is-resizing-sidebar * { cursor: col-resize !important; user-select: none !important; }
+.sidebar-size-controls {
+  position: absolute; z-index: 6; top: 12px; left: calc(100% + 12px);
+  display: flex; gap: 4px; padding: 6px; border: 1px solid var(--line);
+  border-radius: 12px; background: var(--card); box-shadow: var(--shadow-md);
+}
+.sidebar-size-controls[hidden] { display: none; }
+.sidebar-size-controls button {
+  min-width: 32px; min-height: 32px; padding: 4px 8px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--ink); font-size: 13px; white-space: nowrap;
+}
+.sidebar-size-controls button:hover { background: var(--accent-soft); }
+.sidebar-size-controls button:focus-visible { outline: 2px solid var(--accent); }
 .sidebar-section + .sidebar-section { margin-top: 28px; }
 .projects-section { display: none; flex-direction: column; flex: 1; min-height: 0; }
 /* 具体项目不是第三个顶层入口，而是「全部项目」展开后的子级。
    用缩进与更紧凑的行高建立父子关系，保持侧栏干净，不额外画树状连接线。 */
 .projects-section.is-visible {
   position: relative; display: flex;
-  margin: 4px 0 0 27px; padding: 5px 0 4px 14px;
+  margin: 4px 0 0 12px; padding: 5px 0 4px;
 }
 .sidebar-label { margin: 0 10px 9px; color: var(--muted); font-size: 11px; font-weight: 720; letter-spacing: .04em; }
 .project-nav {
@@ -161,7 +186,12 @@ kbd { border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; color
 /* 右侧要给「⋯」留位（它是绝对定位的），但不能留太多——侧栏本来就窄，
    缩略图 + 列间距已经吃掉一截名字空间了。⋯ 20px 宽、贴右 6px，留 28px 正好够。 */
 .project-row .project-nav { padding-right: 31px; }
-.project-row .project-name { overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }
+.project-row .project-name {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden; min-width: 0; line-height: 1.45; overflow-wrap: anywhere;
+}
+.project-nav:focus-visible .project-name { -webkit-line-clamp: unset; }
+.projects-section .nav-count { min-width: 23px; font-variant-numeric: tabular-nums; }
 .project-row.drop-target .project-nav { outline: none; background: var(--accent-soft); color: #c84427; box-shadow: inset 0 0 0 2px rgba(255,92,53,.5); }
 /* 拖拽排序：被拖的行变淡，跟随光标的是一份实体化影像，指示线标出会落在哪 */
 .project-row { cursor: default; }
@@ -230,7 +260,7 @@ kbd { border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; color
 .sidebar-slogan { margin: 7px 12px 0; color: var(--subtle); font-size: 10.5px; font-weight: 500; line-height: 1.55; letter-spacing: .01em; opacity: .72; }
 
 @media (prefers-reduced-motion: reduce) {
-  .project-nav, .inbox-icon, .all-icon, .project-more, .sidebar-setting, .board-create { transition: none; }
+  .project-nav, .inbox-icon, .all-icon, .project-more, .sidebar-setting, .board-create, .sidebar-resizer::after { transition: none; }
 }
 
 /* 项目的右键 / 「⋯」菜单 */
@@ -508,7 +538,6 @@ footer { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-it
 .toast.pill-toast.show { opacity: 1; transform: translateX(0) scale(1); }
 
 @media (max-width: 900px) {
-  .workspace { grid-template-columns: 208px minmax(0,1fr); }
   .topbar { grid-template-columns: 1fr auto; }
   nav { display: none; }
   .search { width: 220px; }
@@ -521,7 +550,8 @@ footer { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-it
   .workspace { display: block; }
   .project-sidebar { position: static; align-self: stretch; height: auto; display: block; padding: 14px 18px; border-right: 0; border-bottom: 1px solid var(--line); }
   .projects-section { flex: none; }
-  .projects-section.is-visible { margin-left: 27px; padding-left: 12px; }
+  .projects-section.is-visible { margin-left: 12px; padding-left: 0; }
+  .sidebar-resizer, .sidebar-size-controls { display: none; }
   .project-list { flex: none; overflow: visible; padding-right: 0; }
   .sidebar-footer { margin-top: 14px; }
   .sidebar-slogan { display: none; }
@@ -529,6 +559,7 @@ footer { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-it
   .sidebar-section + .sidebar-section { margin-top: 12px; }
   .sidebar-label { display: none; }
   .project-nav { display: flex; width: auto; gap: 6px; }
+  .projects-section .project-nav { display: grid; width: 100%; }
   .project-nav strong { margin-left: 2px; }
   main { padding: 26px 18px 90px; }
   .grid { grid-template-columns: repeat(auto-fill, 45vw); gap: 16px 12px; }

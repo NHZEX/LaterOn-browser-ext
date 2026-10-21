@@ -35,7 +35,7 @@
       </header>
 
       <div class="workspace">
-        <aside class="project-sidebar" data-i18n-aria-label="projectNav" aria-label="项目导航">
+        <aside id="projectSidebar" class="project-sidebar" data-i18n-aria-label="projectNav" aria-label="项目导航">
           <!-- 「待整理」单独占一块，钉在侧栏最上面：它不是一个普通筛选项，
                而是一个待办——有东西堆在这里就该去归位。有内容时整块高亮。
                仍然带 .project-nav，所以点击切换、拖收藏进来归类的行为都照旧。 -->
@@ -102,6 +102,12 @@
               <span data-i18n="settings">设置</span>
             </button>
             <p class="sidebar-slogan" data-i18n="slogan">有价值的网页，留给 LaterOn。</p>
+          </div>
+          <div id="sidebarResizer" class="sidebar-resizer" role="separator" tabindex="0" aria-orientation="vertical" aria-controls="projectSidebar" data-i18n-aria-label="resizeSidebar" aria-label="调整侧栏宽度" data-i18n-title="resizeSidebarHint" title="拖动调整宽度，点击打开宽度控制；双击或 Enter 恢复默认，方向键微调"></div>
+          <div id="sidebarSizeControls" class="sidebar-size-controls" role="group" data-i18n-aria-label="resizeSidebar" aria-label="调整侧栏宽度" hidden>
+            <button type="button" data-sidebar-size="narrower" data-i18n-title="narrowSidebar" data-i18n-aria-label="narrowSidebar" title="缩窄侧栏" aria-label="缩窄侧栏">−</button>
+            <button type="button" data-sidebar-size="wider" data-i18n-title="widenSidebar" data-i18n-aria-label="widenSidebar" title="加宽侧栏" aria-label="加宽侧栏">+</button>
+            <button type="button" data-sidebar-size="reset" data-i18n="resetSidebar" data-i18n-title="resetSidebar" title="恢复默认宽度">恢复默认</button>
           </div>
         </aside>
 

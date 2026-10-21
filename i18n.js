@@ -7,6 +7,8 @@
     "zh-CN": {
       unread: "未读", read: "已读", all: "全部", allProjects: "全部内容", allProjectsOverview: "全部项目", inbox: "等待整理",
       noInbox: "还没有要整理的", projects: "项目", settings: "设置", slogan: "有价值的网页，留给 LaterOn。", search: "搜索网页",
+      resizeSidebar: "调整侧栏宽度", resizeSidebarHint: "拖动调整宽度，点击打开宽度控制；双击或 Enter 恢复默认，方向键微调",
+      narrowSidebar: "缩窄侧栏", widenSidebar: "加宽侧栏", resetSidebar: "恢复默认宽度", sidebarWidth: "{n} 像素",
       select: "选择", create: "创建", projectName: "项目名称", sortNewest: "最近添加", sortOldest: "最早添加",
       sortSource: "按来源", sortCustom: "自定义顺序", selectCount: "已选 {count} 篇", selectAll: "全选",
       deselectAll: "取消全选", markDone: "标完成", markUnread: "标未读", openInNewWindow: "在新窗口打开", moveTo: "移动到…", delete: "删除", done: "完成",
@@ -146,6 +148,8 @@
     en: {
       unread: "Unread", read: "Read", all: "All", allProjects: "All content", allProjectsOverview: "All projects", inbox: "Inbox",
       noInbox: "Nothing to sort", projects: "Projects", settings: "Settings", slogan: "Keep valuable pages in LaterOn.", search: "Search pages",
+      resizeSidebar: "Resize sidebar", resizeSidebarHint: "Drag to resize or click for width controls; double-click or Enter to reset, arrow keys to adjust",
+      narrowSidebar: "Narrow sidebar", widenSidebar: "Widen sidebar", resetSidebar: "Reset width", sidebarWidth: "{n} pixels",
       select: "Select", create: "Create", projectName: "Project name", sortNewest: "Newest", sortOldest: "Oldest",
       sortSource: "By source", sortCustom: "Custom order", selectCount: "{count} selected", selectAll: "Select all",
       deselectAll: "Deselect all", markDone: "Mark read", markUnread: "Mark unread", openInNewWindow: "Open in new window", moveTo: "Move to…", delete: "Delete", done: "Done",

@@ -2,6 +2,7 @@ const STORAGE_KEY = "laterOnItems";
 const PROJECTS_KEY = "laterOnProjects";
 const ACTIVE_PROJECT_KEY = "laterOnActiveProject";
 const SETTINGS_KEY = "laterOnSettings";
+const SIDEBAR_WIDTH_KEY = "laterOnSidebarWidth";
 // 全屏与侧栏共享的「当前正在读哪篇」标记：任意一方点开文章都写它，
 // 另一方据此高亮 + 滚动定位，保证两个视图的阅读位置一致。
 const CURRENT_ITEM_KEY = "laterOnCurrentItem";
@@ -217,10 +218,11 @@ async function init() {
   await window.LaterOnI18n?.getLanguage();
   window.LaterOnI18n?.applyStatic();
   const [result, activeTabs] = await Promise.all([
-    chrome.storage.local.get([STORAGE_KEY, PROJECTS_KEY, ACTIVE_PROJECT_KEY, SETTINGS_KEY, CURRENT_ITEM_KEY, FILTER_KEY, FILTER_CHOSEN_KEY, ORDER_KEY, COVERS_KEY, "laterOnCollectionEpoch"]),
+    chrome.storage.local.get([STORAGE_KEY, PROJECTS_KEY, ACTIVE_PROJECT_KEY, SETTINGS_KEY, CURRENT_ITEM_KEY, FILTER_KEY, FILTER_CHOSEN_KEY, ORDER_KEY, COVERS_KEY, SIDEBAR_WIDTH_KEY, "laterOnCollectionEpoch"]),
     chrome.tabs.query({ active: true, currentWindow: true })
   ]);
   LaterOnStorage.initialize(result);
+  initSidebarResize(result[SIDEBAR_WIDTH_KEY]);
   covers = result[COVERS_KEY] || {};
   const migrated = await migrateLegacyCovers(result[STORAGE_KEY]);
   const rawItems = migrated || result[STORAGE_KEY] || [];
@@ -260,6 +262,120 @@ async function init() {
   libraryWindowId = activeTabs[0]?.windowId || null;
   render();
   renderProjects();
+}
+
+function initSidebarResize(savedWidth) {
+  const workspace = document.querySelector(".workspace");
+  const handle = document.querySelector("#sidebarResizer");
+  const controls = document.querySelector("#sidebarSizeControls");
+  if (!workspace || !handle || !controls) return;
+  const minWidth = 240;
+  const defaultWidth = 280;
+  const maxWidth = 420;
+  const normalizeWidth = (value) => typeof value === "number" && Number.isFinite(value)
+    ? Math.max(minWidth, Math.min(maxWidth, Math.round(value))) : defaultWidth;
+  let preferredWidth = normalizeWidth(savedWidth);
+  let resizing = null;
+  let ignoreClick = false;
+
+  const applyWidth = (value) => {
+    // Narrow windows keep at least 360px for content; retain the preferred width for later.
+    const available = workspace.clientWidth || window.innerWidth;
+    const limit = Math.max(minWidth, Math.min(maxWidth, available - 360));
+    const width = Math.min(normalizeWidth(value), limit);
+    workspace.style.setProperty("--sidebar-width", `${width}px`);
+    handle.setAttribute("aria-valuemin", String(minWidth));
+    handle.setAttribute("aria-valuemax", String(limit));
+    handle.setAttribute("aria-valuenow", String(width));
+    handle.setAttribute("aria-valuetext", tr("sidebarWidth", { n: width }));
+    return width;
+  };
+  const currentWidth = () => Number(handle.getAttribute("aria-valuenow"));
+  const saveWidth = (value) => {
+    preferredWidth = applyWidth(value);
+    chrome.storage.local.set({ [SIDEBAR_WIDTH_KEY]: preferredWidth }).catch(() => {});
+  };
+  const finishResize = (cancelled = false) => {
+    if (!resizing) return;
+    const { pointerId, moved } = resizing;
+    resizing = null;
+    document.body.classList.remove("is-resizing-sidebar");
+    if (handle.hasPointerCapture?.(pointerId)) handle.releasePointerCapture(pointerId);
+    ignoreClick = moved;
+    if (cancelled) applyWidth(preferredWidth);
+    else if (moved) saveWidth(currentWidth());
+  };
+
+  handle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || event.isPrimary === false || window.innerWidth <= 620 || resizing) return;
+    event.preventDefault();
+    ignoreClick = false;
+    controls.hidden = true;
+    handle.focus({ preventScroll: true });
+    resizing = { pointerId: event.pointerId, x: event.clientX, width: currentWidth(), moved: false };
+    handle.setPointerCapture?.(event.pointerId);
+    document.body.classList.add("is-resizing-sidebar");
+  });
+  handle.addEventListener("pointermove", (event) => {
+    if (!resizing || event.pointerId !== resizing.pointerId) return;
+    const delta = event.clientX - resizing.x;
+    if (!resizing.moved && Math.abs(delta) < 3) return;
+    resizing.moved = true;
+    applyWidth(resizing.width + delta);
+  });
+  handle.addEventListener("pointerup", (event) => {
+    if (event.pointerId === resizing?.pointerId) finishResize();
+  });
+  handle.addEventListener("pointercancel", () => finishResize(true));
+  handle.addEventListener("lostpointercapture", () => finishResize(true));
+  handle.addEventListener("click", () => {
+    if (ignoreClick) { ignoreClick = false; return; }
+    controls.hidden = !controls.hidden;
+  });
+  handle.addEventListener("dblclick", () => {
+    controls.hidden = true;
+    saveWidth(defaultWidth);
+  });
+  handle.addEventListener("keydown", (event) => {
+    const step = event.shiftKey ? 32 : 8;
+    const widths = { ArrowLeft: currentWidth() - step, ArrowRight: currentWidth() + step,
+      Home: minWidth, End: maxWidth, Enter: defaultWidth };
+    if (Object.hasOwn(widths, event.key)) {
+      event.preventDefault();
+      if (!resizing) saveWidth(widths[event.key]);
+    } else if (event.key === " ") {
+      event.preventDefault();
+      controls.hidden = !controls.hidden;
+    }
+  });
+  controls.addEventListener("click", (event) => {
+    const action = event.target.closest("[data-sidebar-size]")?.dataset.sidebarSize;
+    if (!action) return;
+    const widths = { narrower: currentWidth() - 24, wider: currentWidth() + 24, reset: defaultWidth };
+    saveWidth(widths[action]);
+  });
+  document.addEventListener("click", (event) => {
+    if (!controls.contains(event.target) && !handle.contains(event.target)) controls.hidden = true;
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    finishResize(true);
+    if (controls.contains(document.activeElement)) handle.focus({ preventScroll: true });
+    controls.hidden = true;
+  });
+  window.addEventListener("blur", () => finishResize(true));
+  window.addEventListener("resize", () => {
+    finishResize(true);
+    controls.hidden = true;
+    applyWidth(preferredWidth);
+  });
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !changes[SIDEBAR_WIDTH_KEY] || resizing) return;
+    preferredWidth = normalizeWidth(changes[SIDEBAR_WIDTH_KEY].newValue);
+    applyWidth(preferredWidth);
+  });
+  window.addEventListener("lateron-language-change", () => applyWidth(preferredWidth));
+  applyWidth(preferredWidth);
 }
 
 chrome.storage.onChanged.addListener((changes, area) => {
@@ -1562,6 +1678,8 @@ function renderProjects() {
     button.type = "button";
     button.className = `project-nav${activeProject === project.id ? " active" : ""}`;
     button.dataset.project = project.id;
+    button.setAttribute("aria-label", project.name);
+    button.title = tr("projectTip", { name: project.name, pinned: project.pinned ? tr("pinnedPrefix") : "" });
     // 每行左侧不是文件夹图标，而是该项目的缩略图（和选项目浮层里的一样）：
     // 项目自带封面就用封面，否则取项目里某篇的封面，都没有就用名字首字做占位色块。
     const thumb = projectThumb(project.name, projectCoverFor(project.id));

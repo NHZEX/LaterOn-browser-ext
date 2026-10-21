@@ -339,7 +339,7 @@ const cardFolderOptions = () => [...document.querySelectorAll(".card .project-se
   const nestedSection = ruleOf("\\.projects-section\\.is-visible");
   const nestedNav = ruleOf("\\.projects-section\\s+\\.project-nav");
   const nestedFirstCol = Number(/grid-template-columns:\s*(\d+)px/.exec(nestedNav)?.[1] || 0);
-  check("项目列表整体右缩，明确从属于全部项目", /margin:[^;]*0 0 (?:2[4-9]|[3-9]\d)px/.test(nestedSection), nestedSection);
+  check("项目列表保留适度缩进，给名称更多空间", /margin:[^;]*0 0 1[2-6]px/.test(nestedSection), nestedSection);
   check("子级列表不画树状竖线", !/\.projects-section\.is-visible::before/.test(libraryCss));
   check("子级项目缩略图小于顶层入口", nestedFirstCol > 0 && nestedFirstCol < firstCol, "顶层=" + firstCol + "px 子级=" + nestedFirstCol + "px");
 
