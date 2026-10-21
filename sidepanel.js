@@ -559,9 +559,10 @@ function syncCurrentTabItem(url, { followProject = true } = {}) {
   const previousId = currentItemId;
   currentItemId = nextId;
   syncSaveButtonState(!!matched);
+  // 离开已收藏网页时也同步清空，避免全屏界面或重开的侧栏恢复旧高亮。
+  if (previousId !== nextId) chrome.storage.local.set({ [CURRENT_ITEM_KEY]: nextId }).catch(() => {});
 
   if (matched) {
-    if (previousId !== nextId) chrome.storage.local.set({ [CURRENT_ITEM_KEY]: nextId }).catch(() => {});
     // 切换到另一个已收藏标签页时，目标文章可能属于另一个项目。
     // 必须先切换项目再定位，否则它会被旧项目的筛选挡住，卡片根本不在 DOM 里。
     const targetProject = normalizeProject(matched.projectId || "unfiled");

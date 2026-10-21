@@ -215,6 +215,9 @@ window.eval(librarySource);
   await tick(20);
   check("切到 i1 后，i1 立刻高亮", document.querySelector('.card[data-id="i1"]').classList.contains("is-current"));
   check("原来的 i2 高亮被取消", !document.querySelector('.card[data-id="i2"]').classList.contains("is-current"));
+  await window.chrome.storage.local.set({ laterOnCurrentItem: null });
+  await tick(20);
+  check("侧栏清除共享标记后，全屏收藏库同步取消所有正在读高亮", !document.querySelector(".card.is-current"));
 
   console.log("\n── 第 8 步：全程没有未捕获的错误 ──");
   check("没有 jsdom 报错", errors.length === 0, errors.slice(0, 3).join(" | "));

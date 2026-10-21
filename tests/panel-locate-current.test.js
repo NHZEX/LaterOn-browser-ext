@@ -356,6 +356,27 @@ function bigStore(currentIndex, overrides = {}) {
   check("冻结页能按完整原网址定位所属项目与收藏", envFrozen.store.laterOnActiveProject === "work" && envFrozen.isHighlighted("frozen"));
   const frozenSave = envFrozen.document.querySelector("#saveCurrent");
   check("冻结页显示已添加", frozenSave.disabled && frozenSave.classList.contains("saved"));
+  envFrozen.switchTab({ id: 22, url: "https://example.com/not-saved", title: "未收藏网页" });
+  await tick(150);
+  check("离开冻结收藏后取消侧栏高亮", !envFrozen.isHighlighted("frozen"));
+  check("离开冻结收藏后清除共享的正在读标记", envFrozen.store.laterOnCurrentItem === null, String(envFrozen.store.laterOnCurrentItem));
+  check("新网页仍可正常收藏", !frozenSave.disabled && !frozenSave.classList.contains("saved"));
+  const envReopened = boot({ store: envFrozen.store });
+  await tick(150);
+  check("重新打开侧栏不会恢复已离开的冻结收藏标记", !envReopened.isHighlighted("frozen"));
+
+  // 已离开标签页的资料迟到时，不能把刚清除的阅读标记写回去。
+  let finishFrozenMetadata;
+  envFrozen.window.chrome.runtime.sendMessage = (message) => message.type === "EXTRACT_METADATA" && message.tabId === 21
+    ? new Promise(resolve => { finishFrozenMetadata = resolve; }) : Promise.resolve({ ok: false });
+  envFrozen.switchTab({ id: 21, url: `chrome-extension://noogafoofpebimajpfpamcfhoaifemoa/suspended.html#ttl=Example%20Domain&pos=0&uri=${originalFrozen}` });
+  await tick(50);
+  check("再次切回冻结收藏时能正常定位", envFrozen.store.laterOnCurrentItem === "frozen" && envFrozen.isHighlighted("frozen"));
+  envFrozen.switchTab({ id: 22, url: "https://example.com/not-saved" });
+  await tick(50);
+  finishFrozenMetadata({ ok: true, metadata: { title: "迟到的冻结页资料" } });
+  await tick(100);
+  check("旧冻结页的迟到资料不会恢复共享高亮", envFrozen.store.laterOnCurrentItem === null && !envFrozen.isHighlighted("frozen"));
 
   // ═══ ⑧ 侧栏拖宽 / 顶部栏变高后仍然不会遮住卡片 ═══
   console.log("\n── ⑧ 顶部吸顶区变高 → 按实际可见区域重新居中 ──");
