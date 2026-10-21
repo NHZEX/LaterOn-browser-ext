@@ -159,6 +159,8 @@ function makeSandbox(page) {
     Date,
     Promise
   });
+  vm.runInContext(fs.readFileSync(path.join(ROOT, "url-utils.js"), "utf8"), context);
+  context.unwrapSuspendedTab = context.LaterOnUrl.unwrapSuspendedTab;
   vm.runInContext(REAL_SOURCE, context);
 
   return {

@@ -47,8 +47,8 @@ function showFolderPickerOverlay(payload) {
       const response = await safeRuntimeMessage({ type: "CREATE_PROJECT", name });
       return response?.project || null;
     },
-    onPick: (projectId) => safeRuntimeMessage({ type: "CONFIRM_BATCH_SAVE", projectId }),
-    onCancel: () => safeRuntimeMessage({ type: "CANCEL_BATCH_SAVE" })
+    onPick: (projectId) => safeRuntimeMessage({ type: "CONFIRM_BATCH_SAVE", projectId, batchId: data.batchId }),
+    onCancel: () => safeRuntimeMessage({ type: "CANCEL_BATCH_SAVE", batchId: data.batchId })
   });
 }
 

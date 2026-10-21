@@ -59,6 +59,15 @@ vm.runInContext(navigationSource, context, { filename: "tab-navigation.js" });
   }
   assert.strictEqual((await context.LaterOnTabs.findOpen("https://youtu.be/SS-ufzKALnI"))?.id, 5, "不同视频不能误复用");
 
+  const original = "https://suspended.test/a%2Fb?q=C++&part=2#section";
+  tabs.push({ id: 6, windowId: 40, active: false, url: `chrome-extension://noogafoofpebimajpfpamcfhoaifemoa/suspended.html#ttl=Test&pos=300&uri=${original}` });
+  const suspended = await context.LaterOnTabs.findOpen(original);
+  assert.strictEqual(suspended?.id, 6, "已有冻结页按原网址匹配");
+  await context.LaterOnTabs.activate(suspended);
+  assert.strictEqual(tabUpdates.at(-1).id, 6);
+  assert.strictEqual(JSON.stringify(tabUpdates.at(-1).patch), JSON.stringify({ active: true }), "只聚焦冻结页，不强制导航或恢复");
+  assert.strictEqual((await context.LaterOnTabs.findOpen("https://suspended.test/a%2Fb?q=C++&part=3")), null, "不同参数不能误复用");
+
   assert.match(librarySource, /LaterOnTabs\.findOpen\(target, \{ excludeTabId: libraryTabId \}\)/);
   assert.match(sidepanelSource, /LaterOnTabs\.findOpen\(target\)/);
   console.log("PASS 已打开页面会被复用并聚焦其窗口");

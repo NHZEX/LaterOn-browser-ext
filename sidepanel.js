@@ -470,7 +470,8 @@ async function loadCurrentPage() {
   const generation = ++loadGeneration;
   resetCurrentPage();
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = globalThis.LaterOnUrl?.unwrapSuspendedTab(activeTab) || activeTab;
     if (!tab?.id) throw new Error(tr("noCurrentPage"));
     if (!/^https?:/i.test(tab.url || "")) {
       const scheme = String(tab.url || "").split(":", 1)[0].toLowerCase();

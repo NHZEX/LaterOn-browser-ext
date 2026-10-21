@@ -1,5 +1,6 @@
-importScripts("url-utils.js", "modules/storage/coordinator.js", "modules/backup/core.js", "modules/backup/background.js", "reading-position-background.js");
+importScripts("url-utils.js", "modules/storage/coordinator.js", "modules/backup/core.js", "modules/backup/background.js", "modules/collection/picker.js", "reading-position-background.js");
 const normalizeUrl = LaterOnUrl.normalize;
+const unwrapSuspendedTab = LaterOnUrl.unwrapSuspendedTab;
 
 const STORAGE_KEY = "laterOnItems";
 const PROJECTS_KEY = "laterOnProjects";
@@ -364,13 +365,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         // 窗口已经关掉时端口可能已断开，忽略即可。
       }
     };
-    confirmBatchSave(message.projectId || null, reply)
+    confirmBatchSave(message.projectId || null, reply, message.batchId)
       .then((result) => reply(result && result.ok === false ? result : { ok: true }))
       .catch((error) => reply({ ok: false, error: String(error?.message || error) }));
     return true;
   }
   if (message.type === "CANCEL_BATCH_SAVE") {
-    cancelPendingBatch()
+    cancelPendingBatch(message.batchId)
+      .then(sendResponse)
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message.type === "GET_PENDING_PICKER") {
+    getPendingPickerPayload(message.batchId)
       .then(sendResponse)
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
@@ -407,9 +414,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "QUICK_SAVE_TAB") {
     (async () => {
       try {
-        const tab = message.tabId
+        const rawTab = message.tabId
           ? await chrome.tabs.get(message.tabId).catch(() => null)
           : (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+        const tab = unwrapSuspendedTab(rawTab);
         if (!tab?.id || !isWebUrl(tab.url)) {
           sendResponse({ ok: false, error: (await usesEnglish()) ? "The current page can’t be added" : "当前页面无法添加" });
           return;
@@ -445,15 +453,16 @@ async function handleCommand(command, commandTab) {
     return;
   }
 
-  const tab = commandTab?.id
+  const rawTab = commandTab?.id
     ? commandTab
     : (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+  const tab = unwrapSuspendedTab(rawTab);
 
-  if (!tab?.id || !isWebUrl(tab.url)) {
+  if (!tab?.id || !isWebUrl(tab.url) || (command === "toggle-translation" && tab.suspended)) {
     // 在 LaterOn 全屏收藏库里按 Alt+1 时，不能只在工具栏图标上挂一个「!」：
     // 页面本身已有 toast，就把“为什么不能收藏”直接说在人眼正在看的地方。
     // Chrome 设置页等其它受保护页面收不到扩展页消息，仍保留角标兜底。
-    const explained = await showLibraryCommandNotice(tab, command);
+    const explained = await showLibraryCommandNotice(rawTab, command);
     if (!explained) await showActionError();
     return;
   }
@@ -466,7 +475,9 @@ async function handleCommand(command, commandTab) {
 }
 
 async function quickSave(tab, source = "shortcut") {
+  tab = unwrapSuspendedTab(tab);
   const en = await usesEnglish();
+  if (!tab?.id || !isWebUrl(tab.url)) return { ok: false, error: en ? "The current page can’t be added" : "当前页面无法添加" };
   // 设置里打开了「收藏单篇前先选项目」：跟整窗收藏走同一套流程——
   // 只在当前网页里弹出选项目浮层，用户选好之后再真正开始收藏。
   if (await shouldAskFolderForSingle()) {
@@ -509,7 +520,8 @@ async function quickSave(tab, source = "shortcut") {
     : saved.duplicated
       ? (en ? "This page is already added" : "这个网页已经添加过了")
       : (en ? `Added: ${pillTitle(baseItem.title)}` : `已添加：${pillTitle(baseItem.title)}`);
-  await showPagePills(tab.id, [message]).catch(() => {});
+  if (!tab.suspended) await showPagePills(tab.id, [message]).catch(() => {});
+  else await showActionFeedback("✓", "#25834b", 1600);
   // 把结果回传，好让侧边栏 / 工具栏小窗口的按钮显示正确的字样。
   return { ok: true, duplicated: !!saved.duplicated, refreshed: !!saved.refreshed, updated: !!saved.updated };
 }
@@ -779,7 +791,7 @@ async function saveAllTabsInWindow(source = "shortcut") {
   try {
     await stage({ lastStage: "开始", lastRunAt: Date.now() });
 
-    const tabs = await chrome.tabs.query({ currentWindow: true });
+    const tabs = (await chrome.tabs.query({ currentWindow: true })).map(unwrapSuspendedTab);
     const targets = tabs.filter((tab) => isWebUrl(tab.url));
     await stage({ lastStage: "读取标签页", lastTabCount: targets.length });
 
@@ -851,11 +863,13 @@ async function shouldAskFolderForSingle() {
 // 都是先选项目 → 再抓取收藏 → 已收藏过的会被搬进所选项目。
 async function askFolderThenSave({ tabs, source = "shortcut", activeTab = null, savedCount = 0, remembered = null }) {
   const targets = tabs || [];
+  const batchId = crypto.randomUUID();
   const last = remembered || (await resolveProject((await chrome.storage.local.get(LAST_PROJECT_KEY))[LAST_PROJECT_KEY] || ""));
 
   // 先把这一批标签页暂存起来，等用户在浮层里选好项目（或新建一个）再真正开始。
-  await chrome.storage.session.set({
+  await queueItemWrite(() => chrome.storage.session.set({
     [PENDING_KEY]: {
+      batchId,
       createdAt: Date.now(),
       source,
       notifyTabId: activeTab?.id ?? null,
@@ -867,16 +881,29 @@ async function askFolderThenSave({ tabs, source = "shortcut", activeTab = null, 
         title: tab.title || tab.url,
         favIconUrl: tab.favIconUrl || "",
         discarded: !!tab.discarded,
+        suspended: !!tab.suspended,
         status: tab.status || "",
         windowId: tab.windowId
       }))
     }
-  });
+  }));
 
-  // 选择项目只允许使用网页内浮层，不再创建任何独立窗口。
+  // 其他扩展的冻结页不允许注入；在 LaterOn 自己的页面复用同一个选择器。
+  if (activeTab?.suspended) {
+    try {
+      await chrome.tabs.create({ url: chrome.runtime.getURL(`save-project-picker.html?batch=${encodeURIComponent(batchId)}`) });
+      return { ok: true, pending: true, tabCount: targets.length };
+    } catch {
+      await cancelPendingBatch(batchId);
+      const en = await usesEnglish();
+      await showActionError();
+      return { ok: false, pending: false, error: en ? "Couldn’t open the project picker. Try again." : "没能打开项目选择框，请重试" };
+    }
+  }
+  // 普通网页继续使用页内浮层，不创建独立窗口。
   // 首次注入可能正撞上页面跳转，短暂等一下再重试一次；共享 UI 会先移除旧宿主，
   // 因此即使第一次稍后恢复，页面上最终也只会保留一个浮层。
-  const pickerPayload = { tabs: targets, projectId: last.id, savedCount };
+  const pickerPayload = { tabs: targets, projectId: last.id, savedCount, batchId };
   let shown = await showPickerOverlay(activeTab, pickerPayload);
   if (!shown && activeTab?.id && isWebUrl(activeTab.url)) {
     await new Promise((resolve) => setTimeout(resolve, 180));
@@ -1091,60 +1118,12 @@ const PICKER_VERIFY_TIMEOUT_MS = 700;
 const pickerRunByTab = new Map();
 
 async function showPickerOverlay(tab, payload) {
-  if (!tab?.id || !isWebUrl(tab.url)) return false;
+  if (!tab?.id || tab.suspended || !isWebUrl(tab.url)) return false;
   const runId = (pickerRunByTab.get(tab.id) || 0) + 1;
   pickerRunByTab.set(tab.id, runId);
   try {
     const stored = await chrome.storage.local.get([PROJECTS_KEY, STORAGE_KEY, SETTINGS_KEY, COVERS_KEY]);
-    const projects = stored[PROJECTS_KEY] || [];
-    const items = stored[STORAGE_KEY] || [];
-    const settings = stored[SETTINGS_KEY] || {};
-    const covers = stored[COVERS_KEY] || {};
-
-    // 每个项目下已有多少篇：给用户一个参考。
-    const counts = new Map();
-    let unfiled = 0;
-    for (const item of items) {
-      if (item.projectId) counts.set(item.projectId, (counts.get(item.projectId) || 0) + 1);
-      else unfiled += 1;
-    }
-    // 项目的封面：优先用用户「编辑项目」时上传的自定义封面（data URL，离线也能显示），
-    // 没有才取该项目里第一篇「有图」的收藏。浮层里每行左侧就显示这张缩略图——
-    // 和全屏左侧栏项目行是同一套逻辑（library.js 的 projectCoverFor），两处永远一致。
-    const coverFor = (projectId) => {
-      const project = projects.find((p) => p.id === projectId);
-      if (project?.cover) return project.cover;
-      const inProject = items.filter((it) => (it.projectId || "") === projectId);
-      for (const it of inProject) {
-        // 条目上存的是 local://<id> 指针，真正的图在 covers 里；老数据可能还是 data: / 远程 URL。
-        if (it.id && covers[it.id]) return covers[it.id];
-        const image = typeof it.image === "string" ? it.image : "";
-        if (image.startsWith("local://")) {
-          const data = covers[image.slice(8)];
-          if (data) return data;
-        } else if (image) {
-          return image;
-        }
-      }
-      return null;
-    };
-    const folders = [
-      { id: "", name: settings.language === "en" ? "Inbox" : "等待整理", count: unfiled, cover: coverFor("") },
-      ...projects.filter((project) => !project.archived).map((project) => ({ id: project.id, name: project.name, count: counts.get(project.id) || 0, cover: coverFor(project.id) }))
-    ];
-
-    // 默认选中上次用过的项目；它如果已被删掉就退回「待整理」。
-    let selected = payload?.projectId || "";
-    if (selected && !folders.some((folder) => folder.id === selected)) selected = "";
-
-    const pickerPayload = {
-      theme: settings.theme || "light",
-      language: settings.language === "en" ? "en" : "zh-CN",
-      selected,
-      savedCount: payload?.savedCount || 0,
-      folders,
-      pages: (payload?.tabs || []).map((entry) => ({ title: entry.title || entry.url, url: entry.url }))
-    };
+    const pickerPayload = LaterOnPicker.buildPayload(stored, payload || {});
     // files 注入不能直接带 args：先把很小的配置放进一个一次性 JSON 节点，
     // 再执行真正的 UI 文件。用 DOM 传递比依赖两次注入共享全局变量更稳。
     // 配置节点和 UI 文件可以并行注入：content-folder-picker.js 会监听配置就绪事件，
@@ -1212,43 +1191,55 @@ async function createProject(name, epoch) {
 
 // 取出「等待选择项目」的那一批标签页，并记录用户选的项目。
 // 返回 null 表示没有待处理的批次（重复点击 / 已过期）。
-async function claimPendingBatch(projectId) {
-  const stored = await chrome.storage.session.get(PENDING_KEY);
-  const pending = stored[PENDING_KEY];
-  if (!pending || !pending.tabs?.length) return null;
-  if (Date.now() - (pending.createdAt || 0) > 10 * 60 * 1000) {
-    await chrome.storage.session.remove(PENDING_KEY);
-    return null;
-  }
-  await chrome.storage.session.remove(PENDING_KEY);
-
-  // 用户选的项目在这段时间里可能被删掉了（浮层最长会停留 10 分钟），
-  // 这里再校验一次：不存在就退回「待整理」，不给收藏留下悬空的归属。
-  const chosen = await resolveProject(projectId);
-
-  if (chosen.id) await chrome.storage.local.set({ [LAST_PROJECT_KEY]: chosen.id });
-  else await chrome.storage.local.remove(LAST_PROJECT_KEY);
-
-  return {
-    tabs: pending.tabs,
-    source: pending.source || "shortcut",
-    notifyTabId: pending.notifyTabId ?? null,
-    projectId: chosen.id,
-    projectName: chosen.name
-  };
+async function getPendingPickerPayload(batchId) {
+  const pending = (await chrome.storage.session.get(PENDING_KEY))[PENDING_KEY];
+  if (!batchId || pending?.batchId !== batchId || Date.now() - pending.createdAt > 10 * 60 * 1000) return { ok: false };
+  const stored = await chrome.storage.local.get([PROJECTS_KEY, STORAGE_KEY, SETTINGS_KEY, COVERS_KEY]);
+  return { ok: true, payload: LaterOnPicker.buildPayload(stored, pending) };
 }
 
-async function cancelPendingBatch() {
-  const stored = await chrome.storage.session.get(PENDING_KEY);
-  const had = !!stored[PENDING_KEY];
-  await chrome.storage.session.remove(PENDING_KEY);
-  if (had) await recordDiag({ lastStage: "已取消（没有添加任何页面）", lastResultAt: Date.now() });
-  return { ok: true, cancelled: had };
+async function claimPendingBatch(projectId, batchId) {
+  return queueItemWrite(async () => {
+    const stored = await chrome.storage.session.get(PENDING_KEY);
+    const pending = stored[PENDING_KEY];
+    if (!pending || !pending.tabs?.length || (batchId !== undefined && pending.batchId !== batchId)) return null;
+    if (Date.now() - (pending.createdAt || 0) > 10 * 60 * 1000) {
+      await chrome.storage.session.remove(PENDING_KEY);
+      return null;
+    }
+    await chrome.storage.session.remove(PENDING_KEY);
+
+    // 用户选的项目在这段时间里可能被删掉了（浮层最长会停留 10 分钟），
+    // 这里再校验一次：不存在就退回「待整理」，不给收藏留下悬空的归属。
+    const chosen = await resolveProject(projectId);
+
+    if (chosen.id) await chrome.storage.local.set({ [LAST_PROJECT_KEY]: chosen.id });
+    else await chrome.storage.local.remove(LAST_PROJECT_KEY);
+
+    return {
+      tabs: pending.tabs,
+      source: pending.source || "shortcut",
+      notifyTabId: pending.notifyTabId ?? null,
+      projectId: chosen.id,
+      projectName: chosen.name
+    };
+  });
+}
+
+async function cancelPendingBatch(batchId) {
+  return queueItemWrite(async () => {
+    const stored = await chrome.storage.session.get(PENDING_KEY);
+    if (batchId !== undefined && stored[PENDING_KEY]?.batchId !== batchId) return { ok: false, cancelled: false };
+    const had = !!stored[PENDING_KEY];
+    await chrome.storage.session.remove(PENDING_KEY);
+    if (had) await recordDiag({ lastStage: "已取消（没有添加任何页面）", lastResultAt: Date.now() });
+    return { ok: true, cancelled: had };
+  });
 }
 
 // 确认收藏：先回执（好让选项目的小窗口立刻关闭），再在后台继续一篇一篇地收藏。
-async function confirmBatchSave(projectId, onAccepted) {
-  const claimed = await claimPendingBatch(projectId);
+async function confirmBatchSave(projectId, onAccepted, batchId) {
+  const claimed = await claimPendingBatch(projectId, batchId);
   if (!claimed) return { ok: false, error: (await usesEnglish()) ? "This batch has already been processed" : "这一批标签页已经处理过了" };
   if (typeof onAccepted === "function") onAccepted({ ok: true, tabCount: claimed.tabs.length });
   return runBatchSave(claimed);
@@ -1311,6 +1302,7 @@ async function extractTabMetadataById(tabId) {
     tab = null;
   }
   if (!tab) return { ok: false, error: en ? "This tab couldn’t be found" : "找不到这个标签页" };
+  tab = unwrapSuspendedTab(tab);
   if (!isWebUrl(tab.url)) return { ok: false, error: en ? "This page can’t be added. Open a regular web page and try again." : "这个页面无法添加，请打开一个普通网页后重试。" };
   const metadata = await extractTabMetadata(tab);
   return { ok: true, metadata: { ...metadata, url: tab.url } };
@@ -1510,6 +1502,7 @@ async function applyServerMetaRescue(result) {
 }
 
 async function extractTabMetadata(tab) {
+  tab = unwrapSuspendedTab(tab);
   const fallback = {
     title: tab.title || tab.url,
     titleFrom: "tab",
@@ -1524,7 +1517,7 @@ async function extractTabMetadata(tab) {
   // 休眠（内存被回收）或从未加载过的标签，注入脚本注定要等到超时，
   // 这种情况直接用浏览器已有的标题和图标，省下几秒白等。
   // 就算注入失败，服务端兜底也还能补救（弹窗类站点的标签页标题同样是错的）。
-  if (tab.discarded || tab.status === "unloaded") return applyServerMetaRescue(fallback);
+  if (tab.discarded || tab.status === "unloaded" || tab.suspended) return applyServerMetaRescue(fallback);
 
   // 抖音滑动切换视频后，标题面板与封面会滞后于网址；先等它对齐，否则会抓到上一条视频。
   // 等待 + 事后复核共用同一个截止时间，所以最多只耽搁 DOUYIN_SETTLE_MS。

@@ -343,6 +343,20 @@ function bigStore(currentIndex, overrides = {}) {
   const videoSave = envVideo.document.querySelector("#saveCurrent");
   check("已打开的同一 YouTube 视频显示已添加而不是添加", videoSave.disabled && videoSave.classList.contains("saved"));
 
+  const originalFrozen = "https://example.com/a%2Fb?q=C++&part=2#section";
+  const envFrozen = boot({
+    store: {
+      laterOnItems: [makeItem({ id: "frozen", projectId: "work", url: originalFrozen })],
+      laterOnProjects: [{ id: "work", name: "工作" }],
+      laterOnActiveProject: "unfiled", laterOnSettings: {}, laterOnCovers: {}
+    },
+    activeTab: { id: 21, windowId: 7, active: true, title: "占位页", url: `chrome-extension://noogafoofpebimajpfpamcfhoaifemoa/suspended.html#ttl=Example%20Domain&pos=0&uri=${originalFrozen}` }
+  });
+  await tick(350);
+  check("冻结页能按完整原网址定位所属项目与收藏", envFrozen.store.laterOnActiveProject === "work" && envFrozen.isHighlighted("frozen"));
+  const frozenSave = envFrozen.document.querySelector("#saveCurrent");
+  check("冻结页显示已添加", frozenSave.disabled && frozenSave.classList.contains("saved"));
+
   // ═══ ⑧ 侧栏拖宽 / 顶部栏变高后仍然不会遮住卡片 ═══
   console.log("\n── ⑧ 顶部吸顶区变高 → 按实际可见区域重新居中 ──");
   const wideStickyBottom = 96;

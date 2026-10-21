@@ -4,7 +4,7 @@
 (function () {
   function comparable(url) {
     try {
-      const parsed = new URL(url);
+      const parsed = new URL(globalThis.LaterOnUrl?.unwrapSuspendedUrl(url) || url);
       if (!["http:", "https:"].includes(parsed.protocol)) return "";
       return globalThis.LaterOnUrl?.normalize
         ? globalThis.LaterOnUrl.normalize(parsed.href)

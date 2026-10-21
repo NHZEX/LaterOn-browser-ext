@@ -207,6 +207,9 @@ const sandbox = {
 };
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
+for (const file of ["url-utils.js", "modules/collection/picker.js"]) {
+  vm.runInContext(fs.readFileSync(path.join(path.dirname(SOURCE), file), "utf8"), sandbox);
+}
 
 const start = Date.now();
 vm.runInContext(fs.readFileSync(path.join(path.dirname(SOURCE), 'modules/storage/coordinator.js'), 'utf8'), sandbox);
