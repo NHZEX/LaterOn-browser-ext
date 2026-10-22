@@ -36,7 +36,6 @@
     "theme.js",
     "translation.css",
     "modules/storage/coordinator.js",
-    "modules/collection/picker.js",
     "modules/storage/client.js",
     "modules/backup/core.js",
     "modules/backup/background.js",

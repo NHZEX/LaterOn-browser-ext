@@ -164,7 +164,7 @@ const sandbox = {
 };
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
-for (const file of ["url-utils.js", "modules/collection/picker.js"]) {
+for (const file of ["url-utils.js", "collection-picker.js"]) {
   vm.runInContext(require("./helpers/read-runtime.cjs")(file), sandbox);
 }
 vm.runInContext(src, sandbox, { filename: "background.js" });

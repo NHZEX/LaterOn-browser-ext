@@ -3,20 +3,21 @@ const { resolve } = require("node:path");
 const { buildSync } = require("esbuild");
 
 const root = resolve(__dirname, "../..");
-// Compile the actual compatibility entry in memory; standalone tests need no prior build.
-const { outputFiles } = buildSync({
-  stdin: {
-    contents: 'import entry from "./wxt/entrypoints/url-utils"; entry.main();',
-    resolveDir: root,
-    loader: "ts"
-  },
-  bundle: true,
-  write: false,
-  format: "iife",
-  platform: "browser",
-  target: "esnext"
-});
+// Compile actual compatibility entries in memory; standalone tests need no prior build.
+const scripts = Object.fromEntries(["url-utils", "collection-picker"].map((entry) => {
+  const { outputFiles } = buildSync({
+    stdin: {
+      contents: `import entry from "./wxt/entrypoints/${entry}"; entry.main();`,
+      resolveDir: root,
+      loader: "ts"
+    },
+    bundle: true,
+    write: false,
+    format: "iife",
+    platform: "browser",
+    target: "esnext"
+  });
+  return [`${entry}.js`, outputFiles[0].text];
+}));
 
-module.exports = (name) => name === "url-utils.js"
-  ? outputFiles[0].text
-  : readFileSync(resolve(root, name), "utf8");
+module.exports = (name) => scripts[name] ?? readFileSync(resolve(root, name), "utf8");

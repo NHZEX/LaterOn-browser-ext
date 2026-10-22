@@ -105,6 +105,11 @@ async function verifyBuiltWorker(directory = builtDirectory) {
   context.importScripts = (...names) => names.forEach((name) => vm.runInContext(fs.readFileSync(path.join(directory, name), "utf8"), context, { filename: name }));
   context.importScripts("background.js");
   assert.equal(typeof context.LaterOnUrl.normalize, "function");
+  const pickerPayload = context.LaterOnPicker.buildPayload({ laterOnItems: [saved] }, { batchId: "compiled-batch", tabs: [saved], savedCount: 1 });
+  assert.equal(pickerPayload.folders[0].count, 1, "Built worker loads the compiled picker synchronously");
+  assert.equal(pickerPayload.batchId, "compiled-batch");
+  assert.equal(pickerPayload.savedCount, 1);
+  assert.equal(pickerPayload.pages[0].url, saved.url);
   const original = "https://example.com/a%2Fb?q=C++&b=2#/article/1";
   const suspended = `chrome-extension://fixture/suspended.html#ttl=Example&pos=0&uri=${original}`;
   assert.equal(context.LaterOnUrl.suspendedPage(suspended).url, original, "Compiled helper preserves the raw suspended URL");

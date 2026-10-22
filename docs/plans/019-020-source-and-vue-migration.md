@@ -2,7 +2,7 @@
 
 记录日期：2026-10-22；更新日期：2026-10-23。已确认尝试 Vue + TypeScript + Reka UI，并先通过文件移动整理程序结构、将底层逻辑 TS 化和模块化。本文记录技术方向及分阶段实施边界。
 
-状态：ITER-019 A、B 已完成并通过本机验证；B 尚未发布。后续 ITER-020 待实施。优先级与进度统一维护在 [roadmap](../roadmap.md)，执行结果见 [月度实施记录](../iterations/2026-10.md)。
+状态：ITER-019 A、B、C 已完成并通过本机验证；C 尚未发布，B 尚未发布。后续 ITER-020 待实施。优先级与进度统一维护在 [roadmap](../roadmap.md)，执行结果见 [月度实施记录](../iterations/2026-10.md)。
 
 ## 现有边界与技术选择
 
@@ -16,12 +16,15 @@
 | --- | --- | --- |
 | ITER-019 A：源码位置整理 | 将 `url-utils.js` 移至 `src/shared/url-utils.js`，同步测试和资源清单；构建仍输出根级 `url-utils.js` | 独立提交文件移动与路径修正，保持业务行为；已有测试和 WXT 构建通过 |
 | ITER-019 B：纯逻辑 TS 试点 | 将 `src/shared/url-utils.js` 转为 TS 模块，明确参数、返回值及模块导出；按需提供新旧入口兼容适配 | 独立提交 TS 与模块接入；新旧调用方共用一份实现，URL 身份、TMS、查询编码、hash 路由等既有行为回归通过 |
+| ITER-019 C：项目选择数据 TS 化 | 将 `modules/collection/picker.js` 迁至 `src/collection/picker.ts`，明确快照、请求及结果类型；接入 WXT 兼容入口 | 保持项目顺序、归档过滤、数量、封面优先级、语言和批次信息；纯模块、旧后台和构建产物回归通过 |
 | ITER-020 A：设置页原生构建入口 | 将设置页接入 WXT 页面构建，复用现有功能 | 保留 `settings.html` 对外路径，验证资源、主题初始化及脚本加载；与 Vue 重写分开审查 |
 | ITER-020 B：Vue 设置页 | 将表单与 DOM 操作逐步迁为 Vue + TS，按需使用 Reka UI；优先确认弹窗和开关 | 设置保存、主题、语言、快捷键信息、备份预览及导入导出行为保持一致；完成开发模式及 production 包验收 |
 
 首批共享源码放入 `src/shared/`，A 阶段通过资源复制保留发布路径，B 阶段切换为 WXT 编译；其他模块位置与后续 TS 编译接入方式在相应阶段结合 WXT 配置确定。不一次性移动整个仓库，不仅为收纳根目录而批量建立 `legacy` 目录，其他文件按迁移单元逐步整理。
 
 ITER-019 B 将 URL 实现转为 [TS 模块](../../src/shared/url-utils.ts)，直接导出四个函数和相关类型；[WXT unlisted script 入口](../../wxt/entrypoints/url-utils.ts) 仅将其接到 `globalThis.LaterOnUrl`，继续输出根级 `url-utils.js`。该文件退出复制清单，新代码可直接 import 同一实现。类型配置继承 WXT 生成配置，`pnpm typecheck` 独立执行，CI 同步检查；暂只纳入已迁移 TS 文件，旧 JS 测试不全量改写。CJS 测试通过统一 helper 在内存中使用 esbuild 编译实际兼容入口，保持 VM / DOM 隔离，并可独立运行；生产编译仍由 WXT / Vite 负责。入口及类型配置遵循 [WXT 脚本入口](https://wxt.dev/guide/essentials/entrypoints#unlisted-scripts) 与 [TypeScript 配置](https://wxt.dev/guide/essentials/config/typescript)。
+
+ITER-019 C 延续单模块迁移，纯实现放在 [src/collection/picker.ts](../../src/collection/picker.ts)，[WXT 兼容入口](../../wxt/entrypoints/collection-picker.ts) 保留 `LaterOnPicker.buildPayload` 接口。产物采用 WXT 默认根级路径 `collection-picker.js`，后台同步更新 `importScripts`，原路径退出复制清单。测试 helper 扩展到两个编译入口；本轮不增加依赖。之后优先评估备份核心的 TS 迁移，再推进设置页；存储客户端先梳理消息通信与界面职责。
 
 ## 兼容、类型与验收要求
 
