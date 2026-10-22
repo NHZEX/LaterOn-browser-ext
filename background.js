@@ -1,4 +1,4 @@
-importScripts("url-utils.js", "modules/storage/coordinator.js", "backup-core.js", "modules/backup/background.js", "collection-picker.js", "reading-position-background.js");
+importScripts("url-utils.js", "storage-coordinator.js", "backup-core.js", "modules/backup/background.js", "collection-picker.js", "reading-position-background.js");
 const normalizeUrl = LaterOnUrl.normalize;
 const unwrapSuspendedTab = LaterOnUrl.unwrapSuspendedTab;
 

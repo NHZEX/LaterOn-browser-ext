@@ -212,7 +212,7 @@ for (const file of ["url-utils.js", "collection-picker.js"]) {
 }
 
 const start = Date.now();
-vm.runInContext(fs.readFileSync(path.join(path.dirname(SOURCE), 'modules/storage/coordinator.js'), 'utf8'), sandbox);
+vm.runInContext(require('./helpers/read-runtime.cjs')('storage-coordinator.js'), sandbox);
 vm.runInContext(src, sandbox, { filename: "background.js" });
 
 let failures = 0;

@@ -89,13 +89,14 @@ async function verifyBuiltWorker(directory = builtDirectory) {
   const event = () => ({ addListener() {} });
   const saved = { id: "existing", url: "https://example.com/existing", title: "Existing collection", status: "unread", savedAt: Date.now() };
   const store = { laterOnItems: [saved], laterOnProjects: [], laterOnSettings: {}, laterOnCleanupV165: true };
+  const listeners = [];
   const chrome = {
     storage: { local: {
       async get(keys) { return clone(Object.fromEntries((Array.isArray(keys) ? keys : [keys]).filter((key) => key in store).map((key) => [key, store[key]]))); },
       async set(patch) { Object.assign(store, clone(patch)); },
       async remove(keys) { (Array.isArray(keys) ? keys : [keys]).forEach((key) => delete store[key]); }
     }, onChanged: event() },
-    runtime: { onInstalled: event(), onStartup: event(), onMessage: event(), getURL: (name) => `chrome-extension://fixture/${name}` },
+    runtime: { onInstalled: event(), onStartup: event(), onMessage: { addListener(listener) { listeners.push(listener); } }, getURL: (name) => `chrome-extension://fixture/${name}` },
     alarms: { create() {}, onAlarm: event() }, commands: { onCommand: event() },
     contextMenus: { removeAll(callback) { callback?.(); }, create() {}, onClicked: event() },
     tabs: { onUpdated: event(), onRemoved: event(), onCreated: event(), onActivated: event() },
@@ -123,12 +124,25 @@ async function verifyBuiltWorker(directory = builtDirectory) {
   const result = await context.LaterOnCollection.execute({ action: "mutateItems", operation: "update", ids: [saved.id], patch: { status: "reading" } });
   assert.equal(result.ok, true);
   assert.equal(store.laterOnItems[0].status, "reading", "Built classic worker retains existing storage and collection operations");
+  chrome.runtime.sendMessage = message => new Promise((resolve, reject) => {
+    if (!listeners.some(listener => listener(message, {}, resolve) === true)) reject(Error("No handler"));
+  });
+  const page = vm.createContext({ chrome, location: { pathname: "/library.html", reload() {} }, localStorage: { removeItem() {} } });
+  page.window = page;
+  vm.runInContext(fs.readFileSync(path.join(directory, "storage-client.js"), "utf8"), page);
+  page.LaterOnStorage.initialize(store);
+  await page.LaterOnStorage.run("mutateItems", { operation: "update", ids: [saved.id], patch: { status: "unread" } });
+  assert.equal(store.laterOnItems[0].status, "unread", "Compiled page client sends commands to the compiled worker coordinator");
+  store.laterOnCollectionEpoch = "restored";
+  await assert.rejects(page.LaterOnStorage.run("mutateItems", { operation: "delete", ids: [saved.id] }), /STALE_COLLECTION/);
+  assert.equal(store.laterOnItems.length, 1);
   await verifyBuiltNavigation(directory);
 }
 
 async function verifyBuiltNavigation(directory) {
   for (const page of ["library.html", "sidepanel.html"]) {
     assert.match(fs.readFileSync(path.join(directory, page), "utf8"), /<script\b[^>]*\bsrc="tab-navigation\.js"/);
+    assert.match(fs.readFileSync(path.join(directory, page), "utf8"), /<script\b[^>]*\bsrc="storage-client\.js"/);
   }
   const original = "https://example.com/a%2Fb?q=C++&b=2#/article/1";
   const frozen = `chrome-extension://fixture/suspended.html#ttl=Example&pos=0&uri=${original}`;

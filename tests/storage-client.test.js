@@ -1,9 +1,7 @@
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
 const vm = require('node:vm');
 const { webcrypto } = require('node:crypto');
-const read = name => fs.readFileSync(path.join(__dirname, '..', name), 'utf8');
+const read = require('./helpers/read-runtime.cjs');
 const clone = value => JSON.parse(JSON.stringify(value));
 const store = { laterOnItems: [], laterOnProjects: [], laterOnCovers: {}, laterOnOrder: {}, laterOnReadingPositions: {} };
 const changed = [], listeners = [];
@@ -13,9 +11,9 @@ const local = {
   async set(patch) { if (failWrite) throw Error('write failure'); Object.assign(store, clone(patch)); }
 };
 const chrome = { storage: { local, onChanged: { addListener(fn) { changed.push(fn); } } },
-  runtime: { onMessage: { addListener(fn) { listeners.push(fn); } } } };
+  runtime: { onMessage: { addListener(fn) { listeners.push(fn); } }, getURL: name => `chrome-extension://fixture/${name}` } };
 const backend = vm.createContext({ chrome, crypto: webcrypto });
-vm.runInContext(read('modules/storage/coordinator.js'), backend);
+vm.runInContext(read('storage-coordinator.js'), backend);
 chrome.runtime.sendMessage = message => new Promise((resolve, reject) => {
   if (!listeners.some(fn => fn(message, {}, resolve) === true)) reject(Error('No handler'));
 });
@@ -25,7 +23,7 @@ function page() {
     localStorage: { removeItem() { state.cacheCleared++; } },
     LaterOnDialog: { async alert(config) { state.alerts.push(config); } }, LaterOnI18n: { t: key => key } });
   ctx.window = ctx;
-  vm.runInContext(read('modules/storage/client.js'), ctx);
+  vm.runInContext(read('storage-client.js'), ctx);
   return { api: ctx.LaterOnStorage, state };
 }
 (async () => {
@@ -104,5 +102,21 @@ function page() {
   await assert.rejects(backend.LaterOnCollection.execute({ action: 'commit', patch: { laterOnItems: [] } }), /INVALID_OPERATION/);
   const invalid = await chrome.runtime.sendMessage({ type: 'COLLECTION_COMMAND', action: 'deleteProject', id: one.id });
   assert.equal(invalid.ok, false, 'page commands must carry an epoch');
+  const sendFrom = (message, sender) => new Promise(resolve => listeners[0](message, sender, resolve));
+  const latest = clone(store), readsBefore = reads;
+  for (const command of [
+    { action: 'commit', patch: {} },
+    { action: 'updateProject', id: one.id, changes: { archived: 'false' } },
+    { action: 'mutateItems', operation: 'update', ids: [1] }
+  ]) {
+    const response = await sendFrom({ ...command, type: 'COLLECTION_COMMAND', epoch: 'restored' }, {});
+    assert.equal(response.ok, false);
+    assert.equal(response.error, 'INVALID_OPERATION');
+  }
+  const denied = await sendFrom({ type: 'COLLECTION_COMMAND', action: 'deleteProject', id: one.id, epoch: 'restored' },
+    { tab: { id: 9 }, url: 'https://example.com' });
+  assert.equal(denied.error, 'INVALID_SENDER');
+  assert.equal(reads, readsBefore, 'Malformed commands and external senders are rejected before storage reads');
+  assert.deepEqual(store, latest);
   console.log('PASS semantic commands: concurrent edits, latest-data ordering, pinned groups, epoch rejection, failure retry; no writable snapshots');
 })().catch(error => { console.error(error); process.exitCode = 1; });

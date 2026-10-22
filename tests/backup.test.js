@@ -244,7 +244,7 @@ const apply = token => send({ type: 'BACKUP_APPLY', token, ...previews.get(token
   // Worker restarts discard all JS state; a reviewed file can still be applied.
   response = await preview(data(), 'replace');
   listeners.length = 0;
-  ctx.importScripts('modules/storage/coordinator.js', 'modules/backup/background.js');
+  ctx.importScripts('storage-coordinator.js', 'modules/backup/background.js');
   assert.equal((await apply(response.token)).ok, true);
   assert.equal((await send({ type: 'COLLECTION_WIPE' })).ok, true);
   assert.deepEqual(store.laterOnItems, []);

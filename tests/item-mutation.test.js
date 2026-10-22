@@ -30,7 +30,7 @@ const chrome = {
 };
 const ctx = vm.createContext({ chrome, console, URL, crypto: webcrypto, setTimeout, clearTimeout, setInterval, clearInterval, importScripts() {} });
 vm.runInContext(require("./helpers/read-runtime.cjs")("url-utils.js"), ctx);
-vm.runInContext(fs.readFileSync(path.join(root, 'modules/storage/coordinator.js'), 'utf8'), ctx);
+vm.runInContext(require('./helpers/read-runtime.cjs')('storage-coordinator.js'), ctx);
 vm.runInContext(fs.readFileSync(path.join(root, 'background.js'), 'utf8'), ctx);
 ctx.showActionFeedback = async () => {};
 ctx.notifyTab = async () => {};

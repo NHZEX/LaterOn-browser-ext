@@ -1,9 +1,7 @@
 // Exercise both page mutation handlers against the real command backend.
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
 const vm = require('node:vm');
-const read = name => fs.readFileSync(path.join(__dirname, '..', name), 'utf8');
+const read = require('./helpers/read-runtime.cjs');
 const clone = value => JSON.parse(JSON.stringify(value));
 const oldCover = 'data:image/jpeg;base64,T0xE', newCover = 'data:image/jpeg;base64,TkVX';
 (async () => {
@@ -18,7 +16,7 @@ const oldCover = 'data:image/jpeg;base64,T0xE', newCover = 'data:image/jpeg;base
       async set(patch) { if (fail) throw Error('write failure'); writes++; Object.assign(store, clone(patch)); }
     };
     const backend = vm.createContext({ chrome: { storage: { local }, runtime: { onMessage: { addListener() {} } } } });
-    vm.runInContext(read('modules/storage/coordinator.js'), backend);
+    vm.runInContext(read('storage-coordinator.js'), backend);
     const context = vm.createContext({
       items: clone(store.laterOnItems), covers: clone(store.laterOnCovers),
       normalizeItems: value => value, render() {}, renderProjects() {}, renderProjectFilters() {},

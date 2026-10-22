@@ -5,8 +5,9 @@
 - `src/backup/core.ts`：备份格式、字段白名单、关联校验、本机数据正规化、合并与 ID 映射；无浏览器 API。`wxt/entrypoints/backup-core.ts` 编译为根级 `backup-core.js`，为旧后台保留 `LaterOnBackup` 接口。
 - `modules/backup/background.js`：导出、预览、确认提交、清空收藏。
 - `modules/backup/settings.js`：设置页的文件选择、下载、模式选择与确认交互。
-- `modules/storage/coordinator.js`：后台共享写入队列和具体业务操作；基于最新存储计算修改。
-- `modules/storage/client.js`：复用页面读取初始化数据代次，向后台发送具体操作，不保存可写快照。
+- `src/storage/coordinator.ts`：后台共享写入队列和具体业务操作；基于最新存储计算修改，通过 WXT 输出 `storage-coordinator.js`。
+- `src/storage/client.ts`：复用页面读取初始化数据代次，向后台发送具体操作，不保存可写快照；`wxt/entrypoints/storage-client.ts` 保留缓存清理、页面刷新和提示交互，输出 `storage-client.js`。
+- `src/storage/contracts.ts`：共享存储键、命令与结果类型及消息结构校验；本机旧记录类型与严格备份格式分开建模。
 
 已迁移的纯逻辑放入 `src/`，通过 WXT 编译；旧模块按资源清单复制，现有页面和内容脚本暂时保留原路径。测试与文档不打包。
 
