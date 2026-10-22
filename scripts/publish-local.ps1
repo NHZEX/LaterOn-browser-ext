@@ -1,8 +1,8 @@
 #Requires -Version 7.2
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][string] $Archive,
-    [Parameter(Mandatory)][string] $Destination
+    [string] $Archive,
+    [Parameter(Mandatory)][Alias('dir')][string] $Destination
 )
 
 $ErrorActionPreference = 'Stop'
@@ -10,6 +10,10 @@ $target = [IO.Path]::GetFullPath($Destination).TrimEnd([IO.Path]::DirectorySepar
 $parent = [IO.Path]::GetDirectoryName($target)
 $leaf = [IO.Path]::GetFileName($target)
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+if (-not $Archive) {
+    $version = (Get-Content -LiteralPath (Join-Path $projectRoot 'manifest.json') -Raw | ConvertFrom-Json).version
+    $Archive = Join-Path $projectRoot ".output/LaterOn-$version.zip"
+}
 if (-not $parent -or -not $leaf) { throw 'Destination must name an extension directory' }
 if ($projectRoot.Equals($target, [StringComparison]::OrdinalIgnoreCase) -or
     $projectRoot.StartsWith($target + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {

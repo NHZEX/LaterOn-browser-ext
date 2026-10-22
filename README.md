@@ -93,7 +93,7 @@ Chrome 内部页面、扩展商店、浏览器内置 PDF 查看器等受保护�
 
 ## 项目开发
 
-开发环境：Node.js 24、pnpm 12、Python 3.12、PowerShell 7.2+（`pwsh`）。Node.js 和 pnpm 的具体版本见 [package.json](package.json)；Volta 按项目配置选择 Node.js 版本。
+开发环境：Node.js 24、pnpm 12、PowerShell 7.2+（`pwsh`）。Node.js 和 pnpm 的具体版本见 [package.json](package.json)；Volta 按项目配置选择 Node.js 版本。
 
 安装依赖：
 
@@ -106,7 +106,8 @@ pnpm install --frozen-lockfile
 | 命令 | 用途 |
 | --- | --- |
 | `pnpm test` | 运行全部测试 |
-| `pnpm build` | 使用 WXT 构建扩展并生成 `dist/LaterOn-<版本>.zip` |
+| `pnpm build` | 使用 WXT 构建扩展到 `.output/chrome-mv3` |
+| `pnpm zip` | 使用 WXT 构建并打包为 `.output/LaterOn-<版本>.zip` |
 | `pnpm release:check` | 校验构建未过期，且 ZIP 与构建产物一致 |
 | `pnpm run release:local --dir "<安装目录>"` | 构建并安装到指定目录，备份旧版本 |
 

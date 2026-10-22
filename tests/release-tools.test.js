@@ -1,16 +1,16 @@
-// Exercise the artifact and deployment boundary using only disposable dist files.
+// Exercise the artifact and deployment boundary using ignored .output files.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const vm = require("node:vm");
 const { createHash, webcrypto } = require("node:crypto");
+const { unzipSync, zipSync, Zip, ZipDeflate } = require("fflate");
 
 const root = path.resolve(__dirname, "..");
-const dist = path.join(root, "dist");
-fs.mkdirSync(dist, { recursive: true });
-const temporary = fs.mkdtempSync(path.join(dist, "release-tools-"));
-const output = path.join(temporary, "archives");
+const output = path.join(root, ".output");
+fs.mkdirSync(output, { recursive: true });
+const temporary = fs.mkdtempSync(path.join(output, "release-tools-"));
 const destination = path.join(temporary, "LaterOn");
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
 const archive = path.join(output, `LaterOn-${manifest.version}.zip`);
@@ -25,7 +25,9 @@ function command(executable, args, expected = 0) {
   return result;
 }
 
-const release = (args, expected) => command(process.execPath, ["scripts/release.cjs", ...args], expected);
+const wxtCli = path.resolve(path.dirname(require.resolve("wxt")), "../bin/wxt.mjs");
+const wxt = (args) => command(process.execPath, [wxtCli, ...args]);
+const check = (expected) => command(process.execPath, ["scripts/check-release.mjs"], expected);
 const publish = (target, expected) => command("pwsh", [
   "-NoProfile", "-File", "scripts/publish-local.ps1", "-Archive", archive, "-Destination", target
 ], expected);
@@ -63,17 +65,17 @@ function verifyBuildGuards() {
   const state = JSON.parse(originalState);
   try {
     fs.writeFileSync(statePath, JSON.stringify({ ...state, inputs: { ...state.inputs, "wxt/entrypoints/background.js": "stale" } }));
-    assert.match(release(["check", "--output-dir", output], 1).stderr, /WXT build is stale/);
+    assert.match(check(1).stderr, /WXT build is stale/);
   } finally { fs.writeFileSync(statePath, originalState); }
 
   const runtime = path.join(builtDirectory, "url-utils.js");
   const originalRuntime = fs.readFileSync(runtime);
   try {
     fs.appendFileSync(runtime, "\n// altered output\n");
-    assert.match(release(["check", "--output-dir", output], 1).stderr, /WXT build output was modified/);
+    assert.match(check(1).stderr, /WXT build output was modified/);
     const digest = createHash("sha256").update(fs.readFileSync(runtime)).digest("hex");
     fs.writeFileSync(statePath, JSON.stringify({ ...state, outputs: { ...state.outputs, "url-utils.js": digest } }));
-    assert.match(release(["check", "--output-dir", output], 1).stderr, /WXT changed legacy runtime files: url-utils.js/);
+    assert.match(check(1).stderr, /WXT changed legacy runtime files: url-utils.js/);
   } finally {
     fs.writeFileSync(runtime, originalRuntime);
     fs.writeFileSync(statePath, originalState);
@@ -82,27 +84,72 @@ function verifyBuildGuards() {
   const unexpected = path.join(builtDirectory, "unexpected.js");
   try {
     fs.writeFileSync(unexpected, "unexpected runtime file");
-    assert.match(release(["check", "--output-dir", output], 1).stderr, /WXT output differs from allowlist/);
+    assert.match(check(1).stderr, /WXT output differs from allowlist/);
   } finally { fs.unlinkSync(unexpected); }
+
+  const manifestPath = path.join(builtDirectory, "manifest.json");
+  const originalManifest = fs.readFileSync(manifestPath);
+  try {
+    fs.writeFileSync(manifestPath, JSON.stringify({ ...manifest, permissions: [...manifest.permissions, "bookmarks"] }));
+    const digest = createHash("sha256").update(fs.readFileSync(manifestPath)).digest("hex");
+    fs.writeFileSync(statePath, JSON.stringify({ ...state, outputs: { ...state.outputs, "manifest.json": digest } }));
+    assert.match(check(1).stderr, /WXT manifest differs/);
+  } finally {
+    fs.writeFileSync(manifestPath, originalManifest);
+    fs.writeFileSync(statePath, originalState);
+  }
+}
+
+function verifyArchiveGuards() {
+  const original = fs.readFileSync(archive);
+  const files = unzipSync(original);
+  try {
+    fs.writeFileSync(archive, zipSync({ ...files, "url-utils.js": Buffer.concat([files["url-utils.js"], Buffer.from("\n// stale")]) }));
+    assert.match(check(1).stderr, /differs from current build: url-utils\.js/);
+    fs.writeFileSync(archive, zipSync({ ...files, "tests/leaked.js": Buffer.from("unwanted") }));
+    assert.match(check(1).stderr, /Release ZIP differs from allowlist/);
+    const { "url-utils.js": omitted, ...missing } = files;
+    fs.writeFileSync(archive, zipSync(missing));
+    assert.match(check(1).stderr, /Release ZIP differs from allowlist/);
+
+    const chunks = [];
+    const duplicate = new Zip((error, data) => { assert.ifError(error); chunks.push(data); });
+    [files["url-utils.js"], files["url-utils.js"]].forEach((data) => {
+      const entry = new ZipDeflate("url-utils.js");
+      duplicate.add(entry);
+      entry.push(data, true);
+    });
+    duplicate.end();
+    fs.writeFileSync(archive, Buffer.concat(chunks));
+    assert.match(check(1).stderr, /Release ZIP contains duplicate entries/);
+    fs.writeFileSync(archive, "not a ZIP");
+    check(1);
+  } finally { fs.writeFileSync(archive, original); }
 }
 
 async function main() {
   try {
-    release(["build", "--output-dir", output]);
+    const priorArchive = fs.existsSync(archive) ? fs.readFileSync(archive) : undefined;
+    try {
+      fs.rmSync(archive, { force: true });
+      wxt(["build"]);
+      assert.equal(fs.existsSync(archive), false, "WXT build compiles without creating a ZIP");
+    } finally { if (priorArchive) fs.writeFileSync(archive, priorArchive); }
+    wxt(["zip"]);
     const firstBuild = fs.readFileSync(archive);
-    release(["build", "--output-dir", output]);
+    wxt(["zip"]);
     assert.deepEqual(fs.readFileSync(archive), firstBuild, "Identical runtime sources produce an identical ZIP");
     fs.writeFileSync(archive, "outdated archive");
-    release(["build", "--output-dir", output]);
+    wxt(["zip"]);
     assert.deepEqual(fs.readFileSync(archive), firstBuild, "Rebuilding replaces an outdated ZIP");
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(builtDirectory, "manifest.json"), "utf8")), manifest);
     assert.deepEqual(fs.readFileSync(path.join(builtDirectory, "background-runtime.js")), fs.readFileSync(path.join(root, "background.js")));
     await verifyBuiltWorker();
     verifyBuildGuards();
-    release(["check", "--output-dir", output]);
-    release(["publish"], 1);
+    verifyArchiveGuards();
+    check();
 
-    publish(destination);
+    command("pwsh", ["-NoProfile", "-File", "scripts/publish-local.ps1", "--dir", destination]);
     assert.equal(JSON.parse(fs.readFileSync(path.join(destination, "manifest.json"), "utf8")).version, manifest.version);
     const installedUrl = path.join(destination, "url-utils.js");
     fs.appendFileSync(installedUrl, "\n// previous local installation\n");
@@ -123,19 +170,9 @@ async function main() {
     assert.equal(fs.readFileSync(path.join(unrelated, "keep.txt"), "utf8"), "unrelated data");
     publish(root, 1);
 
-    const python = process.platform === "win32" ? "py" : "python3";
-    command(python, [...(process.platform === "win32" ? ["-3.12"] : []), "-B", "-c", [
-      "import pathlib, sys, zipfile",
-      "archive = pathlib.Path(sys.argv[1])",
-      "with zipfile.ZipFile(archive) as package: entries = [(i, package.read(i)) for i in package.infolist()]",
-      "with zipfile.ZipFile(archive, 'w') as package:",
-      "    for info, data in entries: package.writestr(info, data + b'\\n// stale' if info.filename == 'url-utils.js' else data)"
-    ].join("\n"), archive]);
-    const stale = release(["check", "--output-dir", output], 1);
-    assert.match(stale.stderr, /differs from current source: url-utils\.js/);
-    console.log("PASS WXT classic worker, manifest and storage compatibility, build guards, reproducible packaging and local deployment");
+    console.log("PASS WXT ZIP, classic worker and storage compatibility, build and ZIP guards, reproducible packaging and local deployment without Python");
   } finally {
-    assert.equal(path.dirname(temporary), dist);
+    assert.equal(path.dirname(temporary), output);
     assert.ok(path.basename(temporary).startsWith("release-tools-"));
     fs.rmSync(temporary, { recursive: true, force: true });
   }

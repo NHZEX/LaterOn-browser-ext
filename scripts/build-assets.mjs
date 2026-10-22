@@ -13,21 +13,24 @@ export function runtimeFiles(root) {
       .map((entry) => relative(root, resolve(entry.parentPath, entry.name)).replaceAll("\\", "/")))];
 }
 
-function hashes(root, names) {
-  return Object.fromEntries(names.sort().map((name) => [name,
+export function fileHashes(root, names) {
+  return Object.fromEntries(names.toSorted().map((name) => [name,
     createHash("sha256").update(readFileSync(resolve(root, name))).digest("hex")]));
 }
 
 export function inputHashes(root) {
-  return hashes(root, [...runtimeFiles(root), ...specification.buildInputs]);
+  return fileHashes(root, [...runtimeFiles(root), ...specification.buildInputs]);
+}
+
+export function outputFiles(root) {
+  return [...legacyAssets(root).map((asset) => asset.relativeDest), "manifest.json", "background.js"].toSorted();
 }
 
 export function recordBuild(root, outputDirectory, inputs) {
-  const names = [...legacyAssets(root).map((asset) => asset.relativeDest), "manifest.json", "background.js"];
   writeFileSync(resolve(root, ".wxt/compat-build.json"), JSON.stringify({
     directory: relative(root, outputDirectory).replaceAll("\\", "/"),
     inputs,
-    outputs: hashes(outputDirectory, names)
+    outputs: fileHashes(outputDirectory, outputFiles(root))
   }, null, 2) + "\n");
 }
 

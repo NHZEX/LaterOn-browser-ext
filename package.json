@@ -10,11 +10,13 @@
   },
   "scripts": {
     "test": "node scripts/test.cjs",
-    "build": "node scripts/release.cjs build",
-    "release:check": "node scripts/release.cjs check",
-    "release:local": "node scripts/release.cjs publish"
+    "build": "wxt build",
+    "zip": "wxt zip",
+    "release:check": "node scripts/check-release.mjs",
+    "release:local": "pnpm zip && pwsh -NoProfile -File scripts/publish-local.ps1"
   },
   "devDependencies": {
+    "fflate": "0.8.3",
     "jsdom": "26.1.0",
     "vite": "8.3.5",
     "wxt": "0.21.4"
