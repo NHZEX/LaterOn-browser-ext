@@ -4,7 +4,7 @@ import { relative, resolve } from "node:path";
 export const projectRoot = new URL("../", import.meta.url);
 const specification = JSON.parse(readFileSync(new URL("runtime-files.json", import.meta.url), "utf8"));
 
-export function runtimeFiles(root) {
+function runtimeFiles(root) {
   const { files, directories } = specification;
   return [...files, ...directories.flatMap((directory) =>
     readdirSync(resolve(root, directory), { recursive: true, withFileTypes: true })
@@ -14,7 +14,6 @@ export function runtimeFiles(root) {
 
 export function legacyAssets(root) {
   return runtimeFiles(root)
-    .filter((name) => name !== "manifest.json")
     .map((name) => ({
       absoluteSrc: resolve(root, name),
       relativeDest: name === "background.js" ? "background-runtime.js" : name

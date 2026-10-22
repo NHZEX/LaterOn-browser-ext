@@ -1,7 +1,6 @@
 {
   "files": [
     "LICENSE",
-    "manifest.json",
     "article-cover-placeholder.png",
     "background.js",
     "save-project-picker.html",

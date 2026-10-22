@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { isDeepStrictEqual, parseArgs } from "node:util";
+import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { readReleaseArchive } from "./check-release.mjs";
 
 const root = fs.realpathSync(fileURLToPath(new URL("../", import.meta.url)));
@@ -46,22 +46,14 @@ function destinationPath(destination) {
   return canonical;
 }
 
-function swapDirectories(target, stage, backup, previous, expected) {
-  let archived = false;
-  let installed = false;
+function swapDirectories(target, stage, backup, hasPrevious) {
+  if (hasPrevious) fs.renameSync(target, backup);
   try {
-    if (previous) {
-      fs.renameSync(target, backup);
-      archived = true;
-      assertInventory(backup, previous);
-    }
     fs.renameSync(stage, target);
-    installed = true;
-    assertInventory(target, expected);
   } catch (error) {
+    if (!hasPrevious) throw error;
     try {
-      if (installed) fs.renameSync(target, stage);
-      if (archived) fs.renameSync(backup, target);
+      fs.renameSync(backup, target);
     } catch (rollbackError) {
       throw Object.assign(new Error(`Deployment failed: ${error.message}; rollback failed: ${rollbackError.message}. Inspect ${backup} and ${stage}`), { rollbackFailed: true });
     }
@@ -104,21 +96,12 @@ export function publishLocal({ archive, destination }) {
     });
     assertInventory(stage, expected);
     if (existing) fs.mkdirSync(backupRoot, { recursive: true });
-    swapDirectories(target, stage, backup, previous, expected);
+    swapDirectories(target, stage, backup, Boolean(previous));
   } catch (error) {
     // Preserve both directories for recovery when rollback itself cannot finish.
     if (!error.rollbackFailed && exists(stage)) fs.rmSync(stage, { recursive: true, force: true });
     throw error;
   }
   console.log(`Published: ${target} (${manifest.version}, ${Object.keys(files).length} files, SHA-256 verified against ZIP)`);
-  if (previous) console.log(`Backup: ${backup} (old files and SHA-256 verified)`);
-}
-
-if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
-  try {
-    const { values } = parseArgs({ options: { dir: { type: "string" }, archive: { type: "string" } } });
-    if (!values.dir?.trim()) throw new Error('Usage: pnpm run release:local --dir "<installation directory>"');
-    const { version } = readJson(join(root, "manifest.json"));
-    publishLocal({ archive: values.archive ?? join(root, ".output", `LaterOn-${version}.zip`), destination: values.dir });
-  } catch (error) { console.error(error.message); process.exitCode = 1; }
+  if (previous) console.log(`Backup: ${backup} (previous directory preserved)`);
 }

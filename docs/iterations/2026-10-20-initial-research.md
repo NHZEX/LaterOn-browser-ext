@@ -347,6 +347,16 @@
 - 发布专项移除构建快照与重复构建一致性测试，保留构建后台初始化和已有收藏更新、允许编译生成文件及 manifest 合法差异、最终 ZIP 异常拒绝，以及安装、备份、幂等、回滚和目录保护回归。全量 `pnpm test`（61/61 文件）通过；实际 `pnpm run release:local --dir <含中文与空格的临时目录>` 与 `pnpm release:check` 通过，临时目录返回 `Already installed`。未修改业务运行代码、版本号或实际安装目录；远端 CI 尚未运行。
 - 提交与试装：实现提交 `b548cea` 后，按用户要求执行 `pnpm run release:local --dir "D:\浏览器扩展\LaterOn"` 和 `pnpm release:check`，均成功。WXT 重新生成 `.output/chrome-mv3` 和 `.output/LaterOn-1.69.2.zip`；目标目录的 46 个文件与新 ZIP 一致，Node 发布脚本返回 `Already installed`，未重复覆盖或新增备份。版本保持 `1.69.2`，等待用户重新加载既有扩展试用。
 
+### 2026-10-22：ITER-018 WXT 按环境模式发布
+
+- 通过 WXT 原生 `--mode` 选择环境配置，由 `LATERON_PUBLISH` 与 `LATERON_RELEASE_DIR` 决定是否部署及部署目录。在 `zip:extension:done` 钩子执行时读取 WXT 已加载的环境变量，使用钩子提供的实际 ZIP 路径；移除发布模块中的环境加载、参数解析和独立 CLI，模块仅负责安装、备份、幂等、回滚及目录保护。
+- `.env`、`.env.local` 与 `.env.*.local` 加入 Git 忽略，仓库提供默认关闭发布的 [环境配置示例](../../.env.example)，未设置开关时同样不部署。本机部署配置移至 `.env.production.local`（启用，目标 `D:/浏览器扩展/LaterOn`）和 `.env.test.local`（启用，目标 `.output/LaterOn-test`）。仅精确值 `true` 开启部署，启用时缺少目录报错；相对目录以项目根目录为基准，最终 ZIP 检查拒绝混入 `.env` 文件。
+- `pnpm zip --mode test` 加载 test 环境，默认 `pnpm zip` 使用 production 环境；production 本机发布开关启用时，默认打包同样会部署。删除与原生命令重复的 `release:local` 别名。`pnpm build` 不触发部署，不增加自定义命令行参数。
+- ZIP 名称采用 WXT 的 `{{modeSuffix}}`：production 保持 `.output/LaterOn-<版本>.zip`，test 使用 `.output/LaterOn-<版本>-test.zip`；扩展目录对应 `.output/chrome-mv3` 和 `.output/chrome-mv3-test`。自定义模式不覆盖生产归档，`release:check` 继续检查 production ZIP。
+- 继续精简：资源清单不再列出由 WXT 生成的 manifest，移除复制阶段的对应过滤及内部函数导出；部署只在暂存写入后校验内容，移除目录改名后的重复哈希扫描，保留旧目录完整备份和失败回滚。
+- 发布专项的真实 WXT 构建由 6 次减为 3 次，保留原生模式文件加载及覆盖、仅 build 不部署、模式 ZIP 分离和 production / 自定义模式后台运行验证；开关与目录校验直接调用钩子，异常 ZIP 使用私有样例直接调用校验函数，不再反复启动进程或改写生产 ZIP。备份、幂等、回滚与目录保护回归保留，并补充回滚本身失败时保留恢复目录的验证。
+- 验证：精简后的 `node tests/release-tools.test.js` 通过，覆盖上述构建、发布及故障分支。此前实际 `pnpm zip --mode test` 成功生成 `.output/LaterOn-1.69.2-test.zip` 并安装至 `.output/LaterOn-test`（46 个文件），`pnpm release:check` 通过。未更新 `D:\浏览器扩展\LaterOn`；本轮未提交，扩展版本保持 `1.69.2`，远端 CI 未运行。
+
 ## 来源与后续维护
 
 - [上游实时仓库元信息 API](https://api.github.com/repos/gaoyiiiii/LaterOn)、[贡献者 API](https://api.github.com/repos/gaoyiiiii/LaterOn/contributors)、[forks API](https://api.github.com/repos/gaoyiiiii/LaterOn/forks?per_page=100)。上述链接返回实时状态，本文表格分别保留 2026-10-20 与 2026-10-22 的快照。

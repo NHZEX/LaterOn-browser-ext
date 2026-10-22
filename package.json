@@ -12,8 +12,7 @@
     "test": "node scripts/test.cjs",
     "build": "wxt build",
     "zip": "wxt zip",
-    "release:check": "node scripts/check-release.mjs",
-    "release:local": "pnpm zip && node scripts/publish-local.mjs"
+    "release:check": "node scripts/check-release.mjs"
   },
   "devDependencies": {
     "fflate": "0.8.3",

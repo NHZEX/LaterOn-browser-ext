@@ -16,23 +16,75 @@ const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "u
 const archive = path.join(output, `LaterOn-${manifest.version}.zip`);
 const builtDirectory = path.join(root, ".output/chrome-mv3");
 
-function command(executable, args, expected = 0) {
+function command(executable, args, env = {}) {
   const result = spawnSync(executable, args, {
-    cwd: root, encoding: "utf8", timeout: 60_000, windowsHide: true
+    cwd: root, env: { ...process.env, LATERON_PUBLISH: undefined, LATERON_RELEASE_DIR: undefined, ...env },
+    encoding: "utf8", timeout: 60_000, windowsHide: true
   });
   assert.ifError(result.error);
-  assert.equal(result.status, expected, `${executable}: ${result.stdout}\n${result.stderr}`);
+  assert.equal(result.status, 0, `${executable}: ${result.stdout}\n${result.stderr}`);
   return result;
 }
 
 const wxtCli = path.resolve(path.dirname(require.resolve("wxt")), "../bin/wxt.mjs");
-const wxt = (args) => command(process.execPath, [wxtCli, ...args]);
-const check = (expected) => command(process.execPath, ["scripts/check-release.mjs"], expected);
-const publish = (target, expected, source = archive) => command(process.execPath, [
-  "scripts/publish-local.mjs", "--archive", source, "--dir", target
-], expected);
+const wxt = (args, env = {}) => command(process.execPath, [wxtCli, ...args], { LATERON_PUBLISH: "false", ...env });
+const check = () => command(process.execPath, ["scripts/check-release.mjs"]);
 
-async function verifyBuiltWorker() {
+async function verifyModePublishing(hook) {
+  const mode = path.basename(temporary);
+  const base = path.join(temporary, "模式基础目录");
+  const local = path.join(temporary, "模式 本机目录");
+  const override = path.join(temporary, "系统 覆盖目录");
+  const modeOutput = path.join(output, `chrome-mv3-${mode}`);
+  const modeArchive = path.join(output, `LaterOn-${manifest.version}-${mode}.zip`);
+  const created = [];
+  const previousEnvironment = { LATERON_PUBLISH: process.env.LATERON_PUBLISH, LATERON_RELEASE_DIR: process.env.LATERON_RELEASE_DIR };
+  const configure = (suffix, target) => {
+    const file = path.join(root, `.env.${mode}${suffix}`);
+    const relative = path.relative(root, target).replaceAll("\\", "/");
+    fs.writeFileSync(file, `LATERON_PUBLISH=true\nLATERON_RELEASE_DIR="${relative}"\n`, { flag: "wx" });
+    created.push(file);
+  };
+  try {
+    configure("", base);
+    configure(".local", local);
+    const fromFiles = { LATERON_PUBLISH: undefined };
+    wxt(["build", "--mode", mode], fromFiles);
+    assert.equal(fs.existsSync(local), false, "Build never deploys, even with publishing enabled");
+    assert.equal(fs.existsSync(modeArchive), false);
+    const result = wxt(["zip", "--mode", mode], fromFiles);
+    assert.match(result.stdout, /Published:/);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(local, "manifest.json"), "utf8")).version, manifest.version);
+    assert.equal(fs.existsSync(base), false, "Mode-local configuration overrides the mode configuration");
+    assert.ok(fs.existsSync(modeArchive), "Mode archives have a separate filename");
+    assert.ok(fs.existsSync(archive), "The production archive remains available");
+    await verifyBuiltWorker(modeOutput);
+
+    // These branches consume the loaded environment; they do not need another compilation.
+    process.env.LATERON_PUBLISH = "false";
+    process.env.LATERON_RELEASE_DIR = override;
+    hook({ config: { root } }, modeArchive);
+    assert.equal(fs.existsSync(override), false, "The environment can disable publishing");
+    process.env.LATERON_PUBLISH = "true";
+    process.env.LATERON_RELEASE_DIR = "   ";
+    assert.throws(() => hook({ config: { root } }, modeArchive), /LATERON_RELEASE_DIR is required/);
+    process.env.LATERON_RELEASE_DIR = override;
+    hook({ config: { root } }, modeArchive);
+    assert.ok(fs.existsSync(path.join(override, "manifest.json")), "The hook uses the explicit environment directory");
+  } finally {
+    Object.entries(previousEnvironment).forEach(([key, value]) => {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    });
+    created.forEach((file) => fs.unlinkSync(file));
+    assert.equal(path.dirname(modeOutput), output);
+    assert.equal(path.basename(modeOutput), `chrome-mv3-${path.basename(temporary)}`);
+    fs.rmSync(modeOutput, { recursive: true, force: true });
+    fs.rmSync(modeArchive, { force: true });
+  }
+}
+
+async function verifyBuiltWorker(directory = builtDirectory) {
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const event = () => ({ addListener() {} });
   const saved = { id: "existing", url: "https://example.com/existing", title: "Existing collection", status: "unread", savedAt: Date.now() };
@@ -50,7 +102,7 @@ async function verifyBuiltWorker() {
     action: {}, sidePanel: { setPanelBehavior() {} }
   };
   const context = vm.createContext({ chrome, URL, TextEncoder, crypto: webcrypto, console, setTimeout, clearTimeout, setInterval, clearInterval });
-  context.importScripts = (...names) => names.forEach((name) => vm.runInContext(fs.readFileSync(path.join(builtDirectory, name), "utf8"), context, { filename: name }));
+  context.importScripts = (...names) => names.forEach((name) => vm.runInContext(fs.readFileSync(path.join(directory, name), "utf8"), context, { filename: name }));
   context.importScripts("background.js");
   assert.equal(typeof context.LaterOnUrl.normalize, "function");
   assert.equal(typeof context.LaterOnBackup.parse, "function");
@@ -59,54 +111,60 @@ async function verifyBuiltWorker() {
   assert.equal(store.laterOnItems[0].status, "reading", "Built classic worker retains existing storage and collection operations");
 }
 
-function verifyArchiveChecks() {
-  const original = fs.readFileSync(archive);
-  const files = unzipSync(original);
+function verifyArchiveChecks(readReleaseArchive) {
+  const fixture = path.join(temporary, "validation.zip");
+  const write = (files) => fs.writeFileSync(fixture, zipSync(files));
+  const files = unzipSync(fs.readFileSync(archive));
   const builtManifest = JSON.parse(Buffer.from(files["manifest.json"]).toString("utf8"));
-  try {
-    // A package can contain compiler changes without matching source or build snapshots.
-    const compiledManifest = { ...builtManifest, permissions: [...builtManifest.permissions, "bookmarks"],
-      action: { ...builtManifest.action, default_icon: "icon16.png" },
-      web_accessible_resources: [...(builtManifest.web_accessible_resources ?? []),
-        { resources: ["chunks/*.js"], matches: ["https://example.com/*"] }] };
-    fs.writeFileSync(archive, zipSync({ ...files,
-      "url-utils.js": Buffer.concat([files["url-utils.js"], Buffer.from("\n// compiler transformation\n")]),
-      "manifest.json": Buffer.from(JSON.stringify(compiledManifest)),
-      "chunks/compiled.js": Buffer.from("console.log('compiled chunk');")
-    }));
-    check();
+  // A package can contain compiler changes without matching source or build snapshots.
+  const compiledManifest = { ...builtManifest, permissions: [...builtManifest.permissions, "bookmarks"],
+    action: { ...builtManifest.action, default_icon: "icon16.png" },
+    web_accessible_resources: [...(builtManifest.web_accessible_resources ?? []),
+      { resources: ["chunks/*.js"], matches: ["https://example.com/*"] }] };
+  write({ ...files,
+    "url-utils.js": Buffer.concat([files["url-utils.js"], Buffer.from("\n// compiler transformation\n")]),
+    "manifest.json": Buffer.from(JSON.stringify(compiledManifest)),
+    "chunks/compiled.js": Buffer.from("console.log('compiled chunk');")
+  });
+  assert.equal(readReleaseArchive(fixture).manifest.version, manifest.version);
 
-    fs.writeFileSync(archive, zipSync({ ...files, "tests/leaked.js": Buffer.from("unwanted") }));
-    assert.match(check(1).stderr, /Development-only or invalid release file/);
-    const { [builtManifest.background.service_worker]: omitted, ...missing } = files;
-    fs.writeFileSync(archive, zipSync(missing));
-    assert.match(check(1).stderr, /Manifest references missing package files/);
-    fs.writeFileSync(archive, zipSync({ ...files, "manifest.json": Buffer.from(JSON.stringify({ ...builtManifest, manifest_version: 2 })) }));
-    assert.match(check(1).stderr, /Expected a named, versioned MV3 package/);
+  ["tests/leaked.js", ".env", ".env.local"].forEach((name) => {
+    write({ ...files, [name]: Buffer.from("unwanted") });
+    assert.throws(() => readReleaseArchive(fixture), /Development-only or invalid release file/);
+  });
+  const { [builtManifest.background.service_worker]: omitted, ...missing } = files;
+  write(missing);
+  assert.throws(() => readReleaseArchive(fixture), /Manifest references missing package files/);
+  write({ ...files, "manifest.json": Buffer.from(JSON.stringify({ ...builtManifest, manifest_version: 2 })) });
+  assert.throws(() => readReleaseArchive(fixture), /Expected a named, versioned MV3 package/);
 
-    const chunks = [];
-    const duplicate = new Zip((error, data) => { assert.ifError(error); chunks.push(data); });
-    [files["url-utils.js"], files["url-utils.js"]].forEach((data) => {
-      const entry = new ZipDeflate("url-utils.js");
-      duplicate.add(entry);
-      entry.push(data, true);
-    });
-    duplicate.end();
-    fs.writeFileSync(archive, Buffer.concat(chunks));
-    assert.match(check(1).stderr, /Release ZIP contains duplicate entries/);
-    fs.writeFileSync(archive, "not a ZIP");
-    check(1);
-  } finally { fs.writeFileSync(archive, original); }
+  const chunks = [];
+  const duplicate = new Zip((error, data) => { assert.ifError(error); chunks.push(data); });
+  [files["url-utils.js"], files["url-utils.js"]].forEach((data) => {
+    const entry = new ZipDeflate("url-utils.js");
+    duplicate.add(entry);
+    entry.push(data, true);
+  });
+  duplicate.end();
+  fs.writeFileSync(fixture, Buffer.concat(chunks));
+  assert.throws(() => readReleaseArchive(fixture), /Release ZIP contains duplicate entries/);
+  fs.writeFileSync(fixture, "not a ZIP");
+  assert.throws(() => readReleaseArchive(fixture));
 }
 
 async function main() {
   try {
+    const { publishLocal } = await import("../scripts/publish-local.mjs");
+    const { readReleaseArchive } = await import("../scripts/check-release.mjs");
+    const { default: config } = await import("../wxt.config.mjs");
+    const publish = (target) => publishLocal({ archive, destination: target });
     wxt(["zip"]);
     await verifyBuiltWorker();
-    verifyArchiveChecks();
+    verifyArchiveChecks(readReleaseArchive);
     check();
+    await verifyModePublishing(config.hooks["zip:extension:done"]);
 
-    command(process.execPath, ["scripts/publish-local.mjs", "--dir", destination]);
+    publish(destination);
     assert.equal(JSON.parse(fs.readFileSync(path.join(destination, "manifest.json"), "utf8")).version, manifest.version);
     const installedUrl = path.join(destination, "url-utils.js");
     fs.appendFileSync(installedUrl, "\n// previous local installation\n");
@@ -117,28 +175,27 @@ async function main() {
     const entries = fs.readdirSync(backups);
     assert.equal(entries.length, 1);
     assert.deepEqual(fs.readFileSync(path.join(backups, entries[0], "url-utils.js")), oldContents, "Backup preserves the prior installation");
-    assert.match(publish(destination).stdout, /Already installed/);
+    publish(destination);
     assert.deepEqual(fs.readdirSync(backups), entries, "Identical releases do not create redundant backups");
 
     const unrelated = path.join(temporary, "unrelated");
     fs.mkdirSync(unrelated);
     fs.writeFileSync(path.join(unrelated, "keep.txt"), "unrelated data");
-    publish(unrelated, 1);
+    assert.throws(() => publish(unrelated), /ENOENT/);
     assert.equal(fs.readFileSync(path.join(unrelated, "keep.txt"), "utf8"), "unrelated data");
-    publish(root, 1);
-    publish(path.dirname(root), 1);
-    publish(path.parse(root).root, 1);
+    assert.throws(() => publish(root), /project directory or its ancestors/);
+    assert.throws(() => publish(path.dirname(root)), /project directory or its ancestors/);
+    assert.throws(() => publish(path.parse(root).root), /must name an extension directory/);
     const linked = path.join(temporary, "linked");
     fs.symlinkSync(destination, linked, process.platform === "win32" ? "junction" : "dir");
-    assert.match(publish(linked, 1).stderr, /normal directory/);
+    assert.throws(() => publish(linked), /normal directory/);
     fs.unlinkSync(linked);
 
     const malicious = path.join(temporary, "malicious.zip");
     fs.writeFileSync(malicious, zipSync({ "../escape.txt": Buffer.from("outside") }));
-    assert.match(publish(destination, 1, malicious).stderr, /invalid release file/);
+    assert.throws(() => publishLocal({ archive: malicious, destination }), /invalid release file/);
     assert.equal(fs.existsSync(path.join(temporary, "escape.txt")), false);
 
-    const { publishLocal } = await import("../scripts/publish-local.mjs");
     fs.appendFileSync(installedUrl, "\n// previous version for rollback\n");
     const beforeFailure = fs.readFileSync(installedUrl);
     const rename = fs.renameSync;
@@ -153,7 +210,20 @@ async function main() {
     assert.deepEqual(fs.readdirSync(backups), entries, "Rolled back deployment does not leave a duplicate backup");
     assert.equal(fs.readdirSync(temporary).some((name) => name.includes("-stage-")), false);
 
-    console.log("PASS built worker, final ZIP checks, Node deployment, backup, rollback and directory protection");
+    try {
+      fs.renameSync = (source, target) => {
+        if (target === destination) throw new Error("simulated install and rollback failure");
+        return rename(source, target);
+      };
+      assert.throws(() => publishLocal({ archive, destination }), (error) => error.rollbackFailed === true);
+    } finally { fs.renameSync = rename; }
+    const recoveryBackup = fs.readdirSync(backups).find((name) => !entries.includes(name));
+    const recoveryStage = fs.readdirSync(temporary).find((name) => name.startsWith(".LaterOn-stage-"));
+    assert.ok(recoveryBackup && recoveryStage, "A failed rollback preserves both recovery directories");
+    assert.deepEqual(fs.readFileSync(path.join(backups, recoveryBackup, "url-utils.js")), beforeFailure);
+    assert.deepEqual(fs.readFileSync(path.join(temporary, recoveryStage, "url-utils.js")), fs.readFileSync(path.join(builtDirectory, "url-utils.js")));
+
+    console.log("PASS WXT mode-based publishing hook, built worker, final ZIP checks, backup, rollback and directory protection");
   } finally {
     assert.equal(path.dirname(temporary), output);
     assert.ok(path.basename(temporary).startsWith("release-tools-"));

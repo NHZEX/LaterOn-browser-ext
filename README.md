@@ -107,10 +107,28 @@ pnpm install --frozen-lockfile
 | --- | --- |
 | `pnpm test` | 运行全部测试 |
 | `pnpm build` | 使用 WXT 构建扩展到 `.output/chrome-mv3` |
-| `pnpm zip` | 使用 WXT 构建并打包为 `.output/LaterOn-<版本>.zip` |
+| `pnpm zip` | 按默认 production 模式构建、打包，并按环境开关决定是否发布 |
+| `pnpm zip --mode test` | 按 test 模式加载环境配置、打包并按开关发布 |
 | `pnpm release:check` | 检查已有 ZIP 的 manifest、引用文件及开发文件混入 |
-| `pnpm run release:local --dir "<安装目录>"` | 构建并安装到指定目录，备份旧版本 |
 
-扩展版本由 `manifest.json` 定义。发布前先运行测试；`release:local` 会重新构建打包并检查 ZIP 后安装。安装目录的父目录须已存在，已有目录必须为同一扩展。旧版本保存在安装目录同级的 `<目录名>-backups/` 中，发布后需在浏览器中重新加载扩展。
+未设置发布开关时只打包。需要发布时，将 `.env.example` 复制为 `.env.<mode>.local`，启用发布并设置目录，例如：
+
+```dotenv
+# .env.test.local
+LATERON_PUBLISH=true
+LATERON_RELEASE_DIR=".output/LaterOn-test"
+```
+
+```dotenv
+# .env.production.local
+LATERON_PUBLISH=true
+LATERON_RELEASE_DIR="D:/浏览器扩展/LaterOn"
+```
+
+环境由 WXT 的 `--mode` 选择，常用配置按 `.env` → `.env.local` → `.env.<mode>` → `.env.<mode>.local` 覆盖，系统环境变量优先。`.env`、`.env.local` 和 `.env.*.local` 均已忽略，仓库提供 `.env.example` 示例；相对目录以项目根目录为基准。仅当 `LATERON_PUBLISH` 为 `true` 时，打包完成钩子才执行部署，此时缺少目录会报错。
+
+production 模式的产物为 `.output/chrome-mv3` 和 `.output/LaterOn-<版本>.zip`；test 模式为 `.output/chrome-mv3-test` 和 `.output/LaterOn-<版本>-test.zip`。默认 `pnpm zip` 使用 production 配置，因此本机 production 开关启用时也会部署；关闭开关即可只打包。`pnpm release:check` 检查默认 production ZIP。
+
+扩展版本由 `manifest.json` 定义。发布前先运行测试；`pnpm build` 仅构建，即使发布开关开启也不部署。部署前检查 ZIP，安装目录的父目录须已存在，已有目录必须为同一扩展。旧版本保存在安装目录同级的 `<目录名>-backups/` 中，发布后需在浏览器中重新加载扩展。
 
 GitHub Actions 在 Windows / Ubuntu 上执行依赖安装、测试、构建和产物校验。

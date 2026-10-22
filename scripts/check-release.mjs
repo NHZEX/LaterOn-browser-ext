@@ -6,12 +6,12 @@ import { unzipSync } from "fflate";
 const projectRoot = new URL("../", import.meta.url);
 const readJson = (file) => JSON.parse(readFileSync(file, "utf8"));
 
-function validateNames(names) {
-  const forbidden = names.find((name) =>
-    !name || name.endsWith("/") || /(^\/|\\|:|(^|\/)\.\.?(\/|$))/.test(name) || name.endsWith(".md") ||
+function validateName(name) {
+  if (
+    !name || name.endsWith("/") || /(^\/|\\|:|(^|\/)\.\.?(\/|$))/.test(name) || name.endsWith(".md") || /^\.env($|\.)/.test(basename(name)) ||
     [".DS_Store", ".gitignore", "package.json", "pnpm-lock.yaml"].includes(basename(name)) ||
-    /^(tests|design|docs|scripts|dist|node_modules|\.git|\.wxt|\.output)\//.test(name));
-  if (forbidden) throw new Error(`Development-only or invalid release file: ${forbidden}`);
+    /^(tests|design|docs|scripts|dist|node_modules|\.git|\.wxt|\.output)\//.test(name)
+  ) throw new Error(`Development-only or invalid release file: ${name}`);
 }
 
 function validateManifest(manifest, names) {
@@ -39,7 +39,7 @@ export function readReleaseArchive(archive) {
       const key = name.toLowerCase();
       if (seen.has(key)) throw new Error(`Release ZIP contains duplicate entries: ${name}`);
       seen.add(key);
-      validateNames([name]);
+      validateName(name);
       return true;
     }
   });
