@@ -345,6 +345,7 @@
 - [发布检查](../../scripts/check-release.mjs) 只读取最终 ZIP，检查 MV3 名称和版本、manifest 明确引用的文件、开发文件混入，以及损坏 ZIP、重复条目和非法路径；不依赖构建目录或快照，不比较源码、构建目录与 ZIP 的字节一致性。它不承诺旧包新鲜度或功能正确性；正常发布通过 `pnpm zip` 重新构建，功能由测试与浏览器验收确认。
 - CI 在 `pnpm zip` 后执行一次 `pnpm release:check`；本地发布则在安装前复用相同的 ZIP 读取检查，避免额外执行一次 CLI 检查。部署仍保留路径保护、暂存完整性、旧目录统一备份、失败回滚及重复发布跳过；此处内容哈希仅服务安装核验和幂等，不约束编译输出。
 - 发布专项移除构建快照与重复构建一致性测试，保留构建后台初始化和已有收藏更新、允许编译生成文件及 manifest 合法差异、最终 ZIP 异常拒绝，以及安装、备份、幂等、回滚和目录保护回归。全量 `pnpm test`（61/61 文件）通过；实际 `pnpm run release:local --dir <含中文与空格的临时目录>` 与 `pnpm release:check` 通过，临时目录返回 `Already installed`。未修改业务运行代码、版本号或实际安装目录；远端 CI 尚未运行。
+- 提交与试装：实现提交 `b548cea` 后，按用户要求执行 `pnpm run release:local --dir "D:\浏览器扩展\LaterOn"` 和 `pnpm release:check`，均成功。WXT 重新生成 `.output/chrome-mv3` 和 `.output/LaterOn-1.69.2.zip`；目标目录的 46 个文件与新 ZIP 一致，Node 发布脚本返回 `Already installed`，未重复覆盖或新增备份。版本保持 `1.69.2`，等待用户重新加载既有扩展试用。
 
 ## 来源与后续维护
 
