@@ -1,0 +1,23 @@
+{
+  "name": "lateron-browser-ext",
+  "private": true,
+  "description": "LaterOn browser extension development tools",
+  "license": "MIT",
+  "packageManager": "pnpm@12.14.0",
+  "engines": {
+    "node": "24.x",
+    "pnpm": "12.x"
+  },
+  "scripts": {
+    "test": "node scripts/test.cjs",
+    "build": "node scripts/release.cjs build",
+    "release:check": "node scripts/release.cjs check",
+    "release:local": "node scripts/release.cjs publish"
+  },
+  "devDependencies": {
+    "jsdom": "26.1.0"
+  },
+  "volta": {
+    "node": "24.22.1"
+  }
+}

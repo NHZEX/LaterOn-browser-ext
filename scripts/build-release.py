@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 import zipfile
@@ -133,11 +134,19 @@ def validate_archive(archive: Path, expected: set[str]) -> None:
         json.loads(package.read("manifest.json").decode("utf-8"))
 
 
-def build() -> Path:
+def validate_sources(archive: Path, files: list[Path]) -> None:
+    validate_archive(archive, {relative_name(path) for path in files})
+    with zipfile.ZipFile(archive) as package:
+        stale = [relative_name(path) for path in files if package.read(relative_name(path)) != path.read_bytes()]
+    if stale:
+        raise RuntimeError("Release ZIP differs from current source: " + ", ".join(stale))
+
+
+def build(output_dir: Path = DIST) -> Path:
     files = release_files()
     version = validate_manifest(files)
-    DIST.mkdir(exist_ok=True)
-    archive = DIST / f"LaterOn-{version}.zip"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    archive = output_dir / f"LaterOn-{version}.zip"
     temporary = archive.with_suffix(".zip.tmp")
 
     try:
@@ -158,8 +167,19 @@ def build() -> Path:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true", help="Verify an existing ZIP against current runtime files")
+    parser.add_argument("--output-dir", type=Path, default=DIST, help="Archive output directory (default: dist)")
+    args = parser.parse_args()
     try:
-        archive = build()
+        output_dir = args.output_dir.resolve()
+        if args.check:
+            files = release_files()
+            version = validate_manifest(files)
+            archive = output_dir / f"LaterOn-{version}.zip"
+            validate_sources(archive, files)
+        else:
+            archive = build(output_dir)
     except Exception as error:
         print(f"Release build failed: {error}", file=sys.stderr)
         return 1
@@ -167,7 +187,8 @@ def main() -> int:
     with zipfile.ZipFile(archive) as package:
         count = len(package.namelist())
     size_kb = archive.stat().st_size / 1024
-    print(f"Built {archive.relative_to(ROOT)} ({count} files, {size_kb:.1f} KB)")
+    display_path = archive.relative_to(ROOT) if archive.is_relative_to(ROOT) else archive
+    print(f"{'Verified' if args.check else 'Built'} {display_path} ({count} files, {size_kb:.1f} KB)")
     print("Verified: no tests, design drafts, previews, documentation, .DS_Store or icon.svg")
     return 0
 
