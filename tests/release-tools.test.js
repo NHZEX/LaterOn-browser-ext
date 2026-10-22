@@ -116,6 +116,10 @@ async function verifyBuiltWorker(directory = builtDirectory) {
   assert.equal(context.LaterOnUrl.normalize(suspended), context.LaterOnUrl.normalize(original));
   assert.notEqual(context.LaterOnUrl.normalize(original), context.LaterOnUrl.normalize(original.replace("/1", "/2")), "Compiled helper keeps hash routes distinct");
   assert.equal(typeof context.LaterOnBackup.parse, "function");
+  const backup = context.LaterOnBackup.create(store, "1.69.3", "2026-10-23T00:00:00Z");
+  assert.equal(backup.format, "lateron.collection");
+  assert.equal(context.LaterOnBackup.parse(backup).items[0].url, saved.url, "Built worker exports and validates the same collection");
+  assert.throws(() => context.LaterOnBackup.parse({ ...backup, version: 99 }), /UNSUPPORTED_BACKUP/);
   const result = await context.LaterOnCollection.execute({ action: "mutateItems", operation: "update", ids: [saved.id], patch: { status: "reading" } });
   assert.equal(result.ok, true);
   assert.equal(store.laterOnItems[0].status, "reading", "Built classic worker retains existing storage and collection operations");

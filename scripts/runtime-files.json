@@ -37,7 +37,6 @@
     "translation.css",
     "modules/storage/coordinator.js",
     "modules/storage/client.js",
-    "modules/backup/core.js",
     "modules/backup/background.js",
     "modules/backup/settings.js"
   ],

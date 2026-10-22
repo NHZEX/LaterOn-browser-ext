@@ -1,5 +1,7 @@
 // Collection commands read and modify current data inside one shared worker queue.
 /**
+ * @typedef {import('../../src/backup/core').BackupItem} BackupItem
+ * @typedef {import('../../src/backup/core').BackupProject} BackupProject
  * @typedef {{title?:string, description?:string, titleEdited?:boolean,
  * descriptionEdited?:boolean, imageEdited?:boolean, status?:'unread'|'reading'|'done',
  * projectId?:string|null, cover?:string}} ItemChanges

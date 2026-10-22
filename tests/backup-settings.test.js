@@ -27,7 +27,7 @@ async function run(language) {
     }
   };
   const backend = vm.createContext({ chrome, URL, TextEncoder, crypto: webcrypto });
-  for (const file of ['url-utils.js', 'modules/storage/coordinator.js', 'modules/backup/core.js', 'modules/backup/background.js']) vm.runInContext(read(file), backend);
+  for (const file of ['url-utils.js', 'modules/storage/coordinator.js', 'backup-core.js', 'modules/backup/background.js']) vm.runInContext(read(file), backend);
   window.chrome = chrome;
   window.eval(read('i18n.js'));
   await window.LaterOnI18n.getLanguage();

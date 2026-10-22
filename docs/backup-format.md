@@ -2,13 +2,13 @@
 
 运行时代码按职责归档：
 
-- `modules/backup/core.js`：备份格式、字段白名单、关联校验、本机数据正规化、合并与 ID 映射；无浏览器 API。
+- `src/backup/core.ts`：备份格式、字段白名单、关联校验、本机数据正规化、合并与 ID 映射；无浏览器 API。`wxt/entrypoints/backup-core.ts` 编译为根级 `backup-core.js`，为旧后台保留 `LaterOnBackup` 接口。
 - `modules/backup/background.js`：导出、预览、确认提交、清空收藏。
 - `modules/backup/settings.js`：设置页的文件选择、下载、模式选择与确认交互。
 - `modules/storage/coordinator.js`：后台共享写入队列和具体业务操作；基于最新存储计算修改。
 - `modules/storage/client.js`：复用页面读取初始化数据代次，向后台发送具体操作，不保存可写快照。
 
-新模块继续放在相应目录；现有页面和内容脚本暂时保留原路径。发布脚本显式列入运行时文件，测试与文档不打包。
+已迁移的纯逻辑放入 `src/`，通过 WXT 编译；旧模块按资源清单复制，现有页面和内容脚本暂时保留原路径。测试与文档不打包。
 
 ## 文件格式
 

@@ -6,7 +6,7 @@ const read = require("./helpers/read-runtime.cjs");
 const clone = value => JSON.parse(JSON.stringify(value));
 const tick = () => new Promise(resolve => setTimeout(resolve, 10));
 const context = vm.createContext({ URL });
-vm.runInContext(read('modules/backup/core.js'), context);
+vm.runInContext(read('backup-core.js'), context);
 const core = context.LaterOnBackup;
 const image = 'data:image/png;base64,AAAA';
 const source = {
