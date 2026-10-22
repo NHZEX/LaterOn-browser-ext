@@ -68,6 +68,15 @@ vm.runInContext(navigationSource, context, { filename: "tab-navigation.js" });
   assert.strictEqual(JSON.stringify(tabUpdates.at(-1).patch), JSON.stringify({ active: true }), "只聚焦冻结页，不强制导航或恢复");
   assert.strictEqual((await context.LaterOnTabs.findOpen("https://suspended.test/a%2Fb?q=C++&part=3")), null, "不同参数不能误复用");
 
+  tabs.push({ id: 7, windowId: 10, active: false, url: "https://routes.test/app#/article/1?b=2&a=1" });
+  tabs.push({ id: 8, windowId: 20, active: false, url: "https://routes.test/app#/article/2?a=1&b=2" });
+  assert.strictEqual((await context.LaterOnTabs.findOpen("https://routes.test/app#/article/1?a=1&b=2"))?.id, 7);
+  assert.strictEqual((await context.LaterOnTabs.findOpen("https://routes.test/app#/article/2?b=2&a=1"))?.id, 8, "不同 hash 页面不能激活错误标签");
+  assert.strictEqual(await context.LaterOnTabs.findOpen("https://routes.test/app#!/article/1?a=1&b=2"), null);
+  const frozenRoute = "https://routes.test/app#/article/3?q=C++&part=2";
+  tabs.push({ id: 9, windowId: 40, active: false, url: `chrome-extension://noogafoofpebimajpfpamcfhoaifemoa/suspended.html#ttl=Route&pos=0&uri=${frozenRoute}` });
+  assert.strictEqual((await context.LaterOnTabs.findOpen("https://routes.test/app#/article/3?part=2&q=C++"))?.id, 9);
+
   assert.match(librarySource, /LaterOnTabs\.findOpen\(target, \{ excludeTabId: libraryTabId \}\)/);
   assert.match(sidepanelSource, /LaterOnTabs\.findOpen\(target\)/);
   console.log("PASS 已打开页面会被复用并聚焦其窗口");

@@ -378,6 +378,26 @@ function bigStore(currentIndex, overrides = {}) {
   await tick(100);
   check("旧冻结页的迟到资料不会恢复共享高亮", envFrozen.store.laterOnCurrentItem === null && !envFrozen.isHighlighted("frozen"));
 
+  const envRoutes = boot({
+    store: {
+      laterOnItems: [
+        makeItem({ id: "route-a", projectId: "work", url: "https://routes.test/app#/article/1?b=2&a=1" }),
+        makeItem({ id: "route-b", projectId: "read", url: "https://routes.test/app#/article/2?a=1&b=2" })
+      ],
+      laterOnProjects: [{ id: "work", name: "工作" }, { id: "read", name: "阅读" }],
+      laterOnActiveProject: "unfiled", laterOnSettings: {}, laterOnCovers: {}
+    },
+    activeTab: { id: 30, url: "https://routes.test/app#/article/1?a=1&b=2" }
+  });
+  await tick(200);
+  check("hash 路由首篇能识别所属项目与收藏", envRoutes.store.laterOnActiveProject === "work" && envRoutes.isHighlighted("route-a"));
+  envRoutes.updateTab({ url: "https://routes.test/app#/article/2?b=2&a=1" }, { url: "https://routes.test/app#/article/2?b=2&a=1" });
+  await tick(200);
+  check("同一标签切换 hash 后识别另一篇及其项目", envRoutes.store.laterOnActiveProject === "read" && envRoutes.isHighlighted("route-b"));
+  envRoutes.updateTab({ url: "https://routes.test/app#/article/3" }, { url: "https://routes.test/app#/article/3" });
+  await tick(150);
+  check("未收藏路由不能误显示已添加或沿用阅读标记", !envRoutes.document.querySelector("#saveCurrent").disabled && envRoutes.store.laterOnCurrentItem === null);
+
   // ═══ ⑧ 侧栏拖宽 / 顶部栏变高后仍然不会遮住卡片 ═══
   console.log("\n── ⑧ 顶部吸顶区变高 → 按实际可见区域重新居中 ──");
   const wideStickyBottom = 96;

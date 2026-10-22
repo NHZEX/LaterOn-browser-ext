@@ -58,6 +58,24 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 30));
   await new Promise((resolve) => listeners.runtime[0]({ type: "SAVE_READING_POSITION", itemId: "a", y: 965 }, {}, resolve));
   check("后台只保存纵向像素位置", store.laterOnReadingPositions.a === 965, JSON.stringify(store.laterOnReadingPositions));
 
+  store.laterOnItems = [
+    { id: "route-a", url: "https://routes.test/app#/article/1?b=2&a=1" },
+    { id: "route-b", url: "https://routes.test/app#/article/2?a=1&b=2" }
+  ];
+  store.laterOnReadingPositions = { "route-a": 320, "route-b": 640 };
+  tab.url = "https://routes.test/app#/article/1?a=1&b=2";
+  listeners.updated(tab.id, { url: tab.url }, tab);
+  await tick();
+  check("同一路由参数换序仍定位自身阅读位置", sent.at(-1)?.message?.itemId === "route-a" && sent.at(-1)?.message?.y === 320);
+  tab.url = "https://routes.test/app#/article/2?b=2&a=1";
+  listeners.updated(tab.id, { url: tab.url }, tab);
+  await tick();
+  check("hash 路由变化后读取另一篇的位置", sent.at(-1)?.message?.itemId === "route-b" && sent.at(-1)?.message?.y === 640);
+  tab.url = "https://routes.test/app#/article/3?a=1&b=2";
+  listeners.updated(tab.id, { url: tab.url }, tab);
+  await tick();
+  check("未收藏的 hash 页面取消旧位置关联", sent.at(-1)?.message?.itemId === null);
+
   store.laterOnItems = [];
   listeners.storage.forEach((fn) => fn({ laterOnItems: { newValue: [] } }, "local"));
   await tick();

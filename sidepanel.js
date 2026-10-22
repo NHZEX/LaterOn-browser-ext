@@ -547,8 +547,8 @@ function fallbackMetadata(tab) {
   };
 }
 
-// 当前标签页和收藏条目用同一套网址归一化规则比较：忽略 www、末尾斜杠、追踪参数和 hash，
-// 避免同一篇文章因为分享链接参数不同而匹配不上。
+// 当前标签页和收藏条目共用网址比较规则：忽略 www、末尾斜杠、追踪参数和普通锚点，
+// 保留 #/、#!/ 业务路由，避免分享参数影响匹配或不同页面被误认为同一篇。
 function syncCurrentTabItem(url, { followProject = true } = {}) {
   const normalize = globalThis.LaterOnUrl?.normalize || ((value) => String(value || "").trim().toLowerCase());
   const normalized = normalize(url);

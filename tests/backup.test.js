@@ -172,6 +172,21 @@ const apply = token => send({ type: 'BACKUP_APPLY', token, ...previews.get(token
   assert.equal(merged.data.covers.a, image);
   assert.equal(merged.data.readingPositions.a, 321);
 
+  // Merge uses the same hash-route identity as collection and navigation.
+  const routeA = 'https://routes.test/app#/article/1?b=2&a=1';
+  const routeB = 'https://routes.test/app#/article/2?a=1&b=2';
+  const localRoute = core.fromStorage({ laterOnItems: [item('route-local', null, { url: routeA })], laterOnReadingPositions: { 'route-local': 123 } });
+  const routeImport = core.parse(payload({ items: [
+    item('route-duplicate', null, { url: 'https://routes.test/app#/article/1?a=1&b=2' }),
+    item('route-new', null, { url: routeB })
+  ], projects: [], covers: {}, order: { all: ['route-duplicate', 'route-new'] }, readingPositions: { 'route-duplicate': 999, 'route-new': 456 } }));
+  const routeMerged = core.merge(localRoute, routeImport, ctx.LaterOnUrl.normalize, () => webcrypto.randomUUID());
+  assert.equal(routeMerged.added, 1);
+  assert.equal(routeMerged.duplicates, 1);
+  assert.deepEqual(clone(routeMerged.data.items.map(entry => entry.url)), [routeA, routeB], '合并保留不同 hash 页面及其原网址');
+  assert.deepEqual(clone(routeMerged.data.readingPositions), { 'route-local': 123, 'route-new': 456 });
+  assert.equal(core.merge(routeMerged.data, routeImport, ctx.LaterOnUrl.normalize, () => webcrypto.randomUUID()).added, 0, '重复导入路由备份仍幂等');
+
   // Merge re-reads the latest collection after preview; replace requires a fresh preview.
   response = await preview(data());
   await ctx.saveItem(item('during-preview'), { silent: true });

@@ -1,4 +1,4 @@
-// Shared URL canonicalization for matching the active tab with saved items.
+// Shared URL identity for collection, backup, navigation and reading position matching.
 (function () {
   /** @param {string} value @returns {boolean} */
   function isHttpUrl(value) {
@@ -53,9 +53,33 @@
     return { ...tab, url: page.url, title: page.title || tab.title || page.url, favIconUrl: favicon, suspended: true };
   }
 
+  /** @param {string} left @param {string} right @returns {number} */
+  const compareKeys = (left, right) => left < right ? -1 : left > right ? 1 : 0;
+
+  /** Preserve explicit hash routes; ordinary document anchors share a page identity.
+   * Route values stay raw: decoding can change +, %2F or an application's own syntax.
+   * @param {string} hash @returns {string}
+   */
+  function routeIdentity(hash) {
+    if (!/^#!?\//.test(hash)) return "";
+    const nestedHash = hash.indexOf("#", 1);
+    const end = nestedHash < 0 ? hash.length : nestedHash;
+    const query = hash.indexOf("?");
+    if (query < 0 || query >= end) return hash;
+    const params = hash.slice(query + 1, end).split("&")
+      .map((value) => ({ key: value.split("=", 1)[0], value }))
+      .sort((left, right) => compareKeys(left.key, right.key))
+      .map(({ value }) => value).join("&");
+    return `${hash.slice(0, query + 1)}${params}${hash.slice(end)}`;
+  }
+
+  /** Build a comparison key only; callers keep the original URL for storage/opening.
+   * @param {string} url @returns {string}
+   */
   function normalize(url) {
     try {
-      const parsed = new URL(url);
+      const parsed = new URL(unwrapSuspendedUrl(url));
+      const route = routeIdentity(parsed.hash);
       // 同一 YouTube 视频可能来自稍后观看、播放列表、短链接或移动端。
       // 用视频 ID 匹配；保留原始网址用于实际打开，不改变播放时间或列表。
       const hostname = parsed.hostname.toLowerCase();
@@ -71,17 +95,17 @@
         }
       }
       if (/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
-        return `https://youtube.com/watch?v=${videoId}`;
+        return `https://youtube.com/watch?v=${videoId}${route}`;
       }
       const host = parsed.host.toLowerCase().replace(/^www\./, "");
       const path = parsed.pathname.replace(/\/+$/, "") || "/";
       const keep = [...parsed.searchParams.entries()]
-        .filter(([key]) => !/^(utm_|fbclid|gclid|mc_|ref|spm|igshid)/i.test(key))
-        .sort(([a], [b]) => a.localeCompare(b));
+        .filter(([key]) => !/^(?:utm_|mc_|(?:fbclid|gclid|ref|spm|igshid)$)/i.test(key))
+        .sort(([a], [b]) => compareKeys(a, b));
       const search = keep.length
         ? "?" + keep.map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`).join("&")
         : "";
-      return `${parsed.protocol}//${host}${path}${search}`;
+      return `${parsed.protocol}//${host}${path}${search}${route}`;
     } catch {
       return String(url || "").trim().toLowerCase();
     }

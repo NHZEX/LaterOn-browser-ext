@@ -194,5 +194,33 @@ function worker() {
   assert.equal(unavailable.session.laterOnPendingBatch, undefined);
   assert.equal(unavailable.local.laterOnItems.length, 0, "选择器打不开时不擅自保存到默认项目");
 
+  const routes = worker();
+  routes.offline();
+  await routes.ctx.ensureLegacyCleanup();
+  const routeA = "https://routes.test/app#/article/1?q=C++&part=2";
+  const routeAReordered = "https://routes.test/app#/article/1?part=2&q=C++";
+  const routeB = "https://routes.test/app#/article/2?part=2&q=C++";
+  const bangRoute = "https://routes.test/app#!/article/1?part=2&q=C++";
+  routes.tabs[0].url = frozenUrl(routeA);
+  assert.equal((await routes.send({ type: "QUICK_SAVE_TAB", tabId: 1 })).ok, true);
+  routes.tabs[0].url = frozenUrl(routeAReordered);
+  assert.equal((await routes.send({ type: "QUICK_SAVE_TAB", tabId: 1 })).duplicated, true, "单篇按同一路由身份去重");
+  assert.equal(routes.local.laterOnItems[0].url, routeA, "比较键不覆写已收藏的原网址");
+  routes.tabs.push(
+    { id: 2, windowId: 1, active: false, url: frozenUrl(routeB) },
+    { id: 3, windowId: 1, active: false, url: routeB, discarded: true },
+    { id: 4, windowId: 1, active: false, url: frozenUrl(bangRoute) }
+  );
+  const routeBatch = await routes.ctx.saveAllTabsInWindow();
+  assert.equal(routeBatch.added, 2, "批量新增独立 hash 路由，普通页和冻结页不重复");
+  assert.equal(routeBatch.duplicated, 2);
+  assert.deepEqual(routes.local.laterOnItems.map(item => item.url).sort(), [routeA, routeB, bangRoute].sort());
+  routes.local.laterOnSettings.askFolderOnBatch = true;
+  const routePicker = await routes.ctx.saveAllTabsInWindow();
+  assert.equal(routePicker.pending, true);
+  const routePickerPayload = await routes.send({ type: "GET_PENDING_PICKER", batchId: routes.session.laterOnPendingBatch.batchId });
+  assert.equal(routePickerPayload.payload.savedCount, 3, "选择项目前的已收藏计数按同一身份去重");
+  assert.equal(routes.updates.length, 0, "收集路由网址不改变任何标签页");
+
   console.log("PASS 冻结网址无损解析、收藏入口、降级、去重、项目选择与批次隔离");
 })().catch((error) => { console.error(error); process.exitCode = 1; });
