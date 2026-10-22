@@ -132,3 +132,5 @@ production 模式的产物为 `.output/chrome-mv3` 和 `.output/LaterOn-<版本>
 扩展版本由 `manifest.json` 定义。发布前先运行测试；`pnpm build` 仅构建，即使发布开关开启也不部署。部署前检查 ZIP，安装目录的父目录须已存在，已有目录必须为同一扩展。旧版本保存在安装目录同级的 `<目录名>-backups/` 中，发布后需在浏览器中重新加载扩展。
 
 GitHub Actions 在 Windows / Ubuntu 上执行依赖安装、测试、构建和产物校验。
+
+任务路线、迁移方案、调研和实施记录见 [项目文档](docs/README.md)。
