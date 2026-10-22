@@ -105,6 +105,11 @@ async function verifyBuiltWorker(directory = builtDirectory) {
   context.importScripts = (...names) => names.forEach((name) => vm.runInContext(fs.readFileSync(path.join(directory, name), "utf8"), context, { filename: name }));
   context.importScripts("background.js");
   assert.equal(typeof context.LaterOnUrl.normalize, "function");
+  const original = "https://example.com/a%2Fb?q=C++&b=2#/article/1";
+  const suspended = `chrome-extension://fixture/suspended.html#ttl=Example&pos=0&uri=${original}`;
+  assert.equal(context.LaterOnUrl.suspendedPage(suspended).url, original, "Compiled helper preserves the raw suspended URL");
+  assert.equal(context.LaterOnUrl.normalize(suspended), context.LaterOnUrl.normalize(original));
+  assert.notEqual(context.LaterOnUrl.normalize(original), context.LaterOnUrl.normalize(original.replace("/1", "/2")), "Compiled helper keeps hash routes distinct");
   assert.equal(typeof context.LaterOnBackup.parse, "function");
   const result = await context.LaterOnCollection.execute({ action: "mutateItems", operation: "update", ids: [saved.id], patch: { status: "reading" } });
   assert.equal(result.ok, true);

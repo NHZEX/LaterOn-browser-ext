@@ -4,8 +4,7 @@ import { relative, resolve } from "node:path";
 export const projectRoot = new URL("../", import.meta.url);
 const specification = JSON.parse(readFileSync(new URL("runtime-files.json", import.meta.url), "utf8"));
 const destinations = {
-  "background.js": "background-runtime.js",
-  "src/shared/url-utils.js": "url-utils.js"
+  "background.js": "background-runtime.js"
 };
 
 function runtimeFiles(root) {

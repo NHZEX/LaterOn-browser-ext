@@ -28,6 +28,8 @@ jobs:
           cache: true
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
+      - name: Check TypeScript
+        run: pnpm typecheck
       - name: Run tests
         run: pnpm test
       - name: Build release archive

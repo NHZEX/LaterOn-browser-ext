@@ -106,6 +106,7 @@ pnpm install --frozen-lockfile
 | 命令 | 用途 |
 | --- | --- |
 | `pnpm test` | 运行全部测试 |
+| `pnpm typecheck` | 生成 WXT 类型配置并检查已迁移的 TypeScript 代码 |
 | `pnpm build` | 使用 WXT 构建扩展到 `.output/chrome-mv3` |
 | `pnpm zip` | 按默认 production 模式构建、打包，并按环境开关决定是否发布 |
 | `pnpm zip --mode test` | 按 test 模式加载环境配置、打包并按开关发布 |

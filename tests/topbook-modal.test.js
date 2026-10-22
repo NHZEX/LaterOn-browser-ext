@@ -117,7 +117,7 @@ function makeBareSandbox(extra = {}) {
     ...extra
   };
   vm.createContext(sandbox);
-  vm.runInContext(fs.readFileSync(path.join(ROOT, "src/shared/url-utils.js"), "utf8"), sandbox);
+  vm.runInContext(require("./helpers/read-runtime.cjs")("url-utils.js"), sandbox);
   sandbox.unwrapSuspendedTab = sandbox.LaterOnUrl.unwrapSuspendedTab;
   vm.runInContext(BACKGROUND_SOURCE, sandbox);
   return sandbox;
@@ -154,7 +154,7 @@ function makeSandbox({ injected, serverHtml, tab }) {
     }
   };
   vm.createContext(sandbox);
-  vm.runInContext(fs.readFileSync(path.join(ROOT, "src/shared/url-utils.js"), "utf8"), sandbox);
+  vm.runInContext(require("./helpers/read-runtime.cjs")("url-utils.js"), sandbox);
   sandbox.unwrapSuspendedTab = sandbox.LaterOnUrl.unwrapSuspendedTab;
   vm.runInContext(BACKGROUND_SOURCE, sandbox);
   return { sandbox, state };

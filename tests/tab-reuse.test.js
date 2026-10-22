@@ -4,7 +4,7 @@ const path = require("path");
 const vm = require("vm");
 
 const ROOT = path.resolve(__dirname, "..");
-const urlSource = fs.readFileSync(path.join(ROOT, "src/shared/url-utils.js"), "utf8");
+const urlSource = require("./helpers/read-runtime.cjs")("url-utils.js");
 const navigationSource = fs.readFileSync(path.join(ROOT, "tab-navigation.js"), "utf8");
 const librarySource = fs.readFileSync(path.join(ROOT, "library.js"), "utf8");
 const sidepanelSource = fs.readFileSync(path.join(ROOT, "sidepanel.js"), "utf8");
@@ -30,7 +30,7 @@ const context = vm.createContext({
   }
 });
 context.globalThis = context;
-vm.runInContext(urlSource, context, { filename: "src/shared/url-utils.js" });
+vm.runInContext(urlSource, context, { filename: "url-utils.js" });
 vm.runInContext(navigationSource, context, { filename: "tab-navigation.js" });
 
 (async () => {

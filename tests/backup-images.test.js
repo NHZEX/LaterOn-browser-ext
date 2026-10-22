@@ -1,11 +1,8 @@
 // Render an image-free backup through the real library and sidepanel pages.
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
 const vm = require('node:vm');
 const { JSDOM, VirtualConsole } = require('jsdom');
-const root = path.resolve(__dirname, '..');
-const read = name => fs.readFileSync(path.join(root, name), 'utf8');
+const read = require("./helpers/read-runtime.cjs");
 const clone = value => JSON.parse(JSON.stringify(value));
 const tick = () => new Promise(resolve => setTimeout(resolve, 10));
 const context = vm.createContext({ URL });
@@ -51,7 +48,7 @@ async function checkPage(page) {
     runtime: { getURL: name => `chrome-extension://lateron/${name}`, sendMessage: async () => ({ ok: false }), onMessage: event() }
   };
   try {
-    for (const name of ['src/shared/url-utils.js', 'tab-navigation.js', 'i18n.js', 'dialog.js', 'modules/storage/client.js', `${page}.js`]) window.eval(read(name));
+    for (const name of ['url-utils.js', 'tab-navigation.js', 'i18n.js', 'dialog.js', 'modules/storage/client.js', `${page}.js`]) window.eval(read(name));
     const itemSelector = page === 'library' ? '.board-card[data-project="p"]' : '.item[data-id="a"]';
     for (let attempt = 0; attempt < 100 && !document.querySelector(itemSelector); attempt++) await tick();
     assert(document.querySelector(itemSelector), `${page} renders the restored collection`);

@@ -1,10 +1,7 @@
 // 两个真实页面使用隔离 storage，检查普通搜索隐藏归档、归档视图搜索与恢复同步。
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
 const { JSDOM, VirtualConsole } = require('jsdom');
-const root = path.resolve(__dirname, '..');
-const read = name => fs.readFileSync(path.join(root, name), 'utf8');
+const read = require("./helpers/read-runtime.cjs");
 const clone = value => JSON.parse(JSON.stringify(value));
 const wait = ms => new Promise(r => setTimeout(r, ms));
 function mount(page) {
@@ -33,7 +30,7 @@ function mount(page) {
     windows: {getCurrent: async () => ({id:1})}
   };
   require('./helpers/item-mutation')(w);
-  for (const file of ['i18n.js','dialog.js','picker-ui.js','src/shared/url-utils.js','tab-navigation.js',page+'.js']) w.eval(read(file));
+  for (const file of ['i18n.js','dialog.js','picker-ui.js','url-utils.js','tab-navigation.js',page+'.js']) w.eval(read(file));
   return { dom, w, store, errors, cache };
 }
 async function search(ctx) {

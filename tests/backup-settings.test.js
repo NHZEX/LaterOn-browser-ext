@@ -1,11 +1,8 @@
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
 const vm = require('node:vm');
 const { webcrypto } = require('node:crypto');
 const { JSDOM } = require('jsdom');
-const root = path.resolve(__dirname, '..');
-const read = name => fs.readFileSync(path.join(root, name), 'utf8');
+const read = require("./helpers/read-runtime.cjs");
 const clone = value => JSON.parse(JSON.stringify(value));
 const tick = () => new Promise(resolve => setTimeout(resolve, 5));
 
@@ -30,7 +27,7 @@ async function run(language) {
     }
   };
   const backend = vm.createContext({ chrome, URL, TextEncoder, crypto: webcrypto });
-  for (const file of ['src/shared/url-utils.js', 'modules/storage/coordinator.js', 'modules/backup/core.js', 'modules/backup/background.js']) vm.runInContext(read(file), backend);
+  for (const file of ['url-utils.js', 'modules/storage/coordinator.js', 'modules/backup/core.js', 'modules/backup/background.js']) vm.runInContext(read(file), backend);
   window.chrome = chrome;
   window.eval(read('i18n.js'));
   await window.LaterOnI18n.getLanguage();
