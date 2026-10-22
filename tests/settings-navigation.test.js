@@ -9,9 +9,9 @@ const { JSDOM, VirtualConsole } = require("jsdom");
 const ROOT = path.resolve(__dirname, "..");
 const libraryHtml = fs.readFileSync(`${ROOT}/library.html`, "utf8");
 const librarySource = fs.readFileSync(`${ROOT}/library.js`, "utf8");
-const settingsHtml = fs.readFileSync(`${ROOT}/settings.html`, "utf8");
-const settingsSource = fs.readFileSync(`${ROOT}/settings.js`, "utf8");
-const settingsCss = fs.readFileSync(`${ROOT}/settings.css`, "utf8");
+const settingsHtml = fs.readFileSync(`${ROOT}/wxt/entrypoints/settings/index.html`, "utf8");
+const settingsSource = require("./helpers/read-runtime.cjs")("settings-page.js");
+const settingsCss = fs.readFileSync(`${ROOT}/wxt/entrypoints/settings/style.css`, "utf8");
 const themeSource = require("./helpers/read-runtime.cjs")("theme.js");
 
 let failures = 0;

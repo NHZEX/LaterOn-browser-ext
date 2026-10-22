@@ -1,4 +1,7 @@
-const settings = window.LaterOnSettings;
+import "../../../i18n.js";
+import "../../../dialog.js";
+import "../../../modules/backup/settings.js";
+import * as settings from "../../../src/settings/store";
 // 翻译助手：设置页的动态文字（拼出来的句子、对话框、诊断行）统一走 i18n 词典。
 // 兜底：个别环境（如测试）没加载 i18n.js 时，直接返回词条 key，不让页面崩掉。
 const t = (...args) => (window.LaterOnI18n ? window.LaterOnI18n.t(...args) : String(args[0] ?? ""));

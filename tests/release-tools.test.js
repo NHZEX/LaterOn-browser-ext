@@ -142,7 +142,7 @@ async function verifyBuiltWorker(directory = builtDirectory) {
 
 async function verifyBuiltSettings(directory) {
   for (const name of ["library.html", "settings.html", "sidepanel.html", "save-project-picker.html"]) {
-    assert.match(fs.readFileSync(path.join(directory, name), "utf8"), /<script\b[^>]*\bsrc="theme\.js"/);
+    assert.match(fs.readFileSync(path.join(directory, name), "utf8"), /<script\b[^>]*\bsrc="\/?theme\.js"/);
   }
   const store = { laterOnSettings: { theme: "dark", libraryView: "boards" } };
   const listeners = [];
@@ -165,6 +165,7 @@ async function verifyBuiltSettings(directory) {
   assert.equal(page.document.documentElement.dataset.theme, "light");
   assert.equal(store.laterOnSettings.askFolderOnSingleOptIn, true);
   assert.equal(store.laterOnSettings.libraryView, "boards");
+  await require("./helpers/verify-settings-page.cjs")(directory);
 }
 
 async function verifyBuiltNavigation(directory) {

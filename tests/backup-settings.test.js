@@ -7,7 +7,7 @@ const clone = value => JSON.parse(JSON.stringify(value));
 const tick = () => new Promise(resolve => setTimeout(resolve, 5));
 
 async function run(language) {
-  const dom = new JSDOM(read('settings.html'), { runScripts: 'outside-only', url: 'chrome-extension://fixture/settings.html' });
+  const dom = new JSDOM(read('wxt/entrypoints/settings/index.html'), { runScripts: 'outside-only', url: 'chrome-extension://fixture/settings.html' });
   const { window } = dom;
   const store = { laterOnItems: [], laterOnProjects: [], laterOnSettings: { language, theme: 'dark' } };
   const handlers = [], changes = [], messages = [], alerts = [], confirms = [], downloads = [];

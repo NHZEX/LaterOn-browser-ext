@@ -2,11 +2,11 @@
 
 记录日期：2026-10-22；更新日期：2026-10-23。已确认尝试 Vue + TypeScript + Reka UI，并先通过文件移动整理程序结构、将底层逻辑 TS 化和模块化。本文记录技术方向及分阶段实施边界。
 
-状态：ITER-019 A–G 已完成、提交并通过本机验证。以上迁移均尚未发布。后续 ITER-020 待实施。优先级与进度统一维护在 [roadmap](../roadmap.md)，执行结果见 [月度实施记录](../iterations/2026-10.md)。
+状态：ITER-019 A–G 已完成、提交并通过本机验证。ITER-020 A 已完成本机验证，随本次提交；B Vue 设置页待实施。以上迁移均尚未发布。优先级与进度统一维护在 [roadmap](../roadmap.md)，执行结果见 [月度实施记录](../iterations/2026-10.md)。
 
 ## 现有边界与技术选择
 
-- 当前 WXT 编译后台适配入口，旧页面及多数脚本通过资源清单复制；后台依赖 `importScripts`，页面依赖普通 `<script>` 和全局接口，部分测试直接读取并执行源码。移动文件需要同步处理加载路径、资源清单与测试引用。
+- 当前 WXT 编译后台适配入口及设置页；其他旧页面及多数脚本通过资源清单复制。后台依赖 `importScripts`，旧页面依赖普通 `<script>` 和全局接口，部分测试直接读取并执行源码。移动文件需要同步处理加载路径、资源清单与测试引用。
 - 采用 Vue + TypeScript + Reka UI 作为页面试点方向，继续复用现有 CSS 变量和视觉风格。Reka UI 提供无预设样式的交互组件及键盘、焦点管理基础，样式由项目维护，参见 [官方介绍](https://reka-ui.com/docs/overview/introduction)。本轮不同时引入 Tailwind 或调整整体视觉。
 - 底层领域规则使用普通 TS 函数模块；Vue 组件负责界面，composable 负责响应式状态与业务接口的连接。公共类型随实际调用关系提取，避免提前建立复杂分层或通用组件体系。
 
@@ -37,6 +37,10 @@ ITER-019 E 将 [标签导航](../../src/tabs/navigation.ts) 迁为 TS 模块，�
 ITER-019 F 将 [存储协调器](../../src/storage/coordinator.ts)、[客户端通信与代次管理](../../src/storage/client.ts) 和 [共享契约](../../src/storage/contracts.ts) 放入 `src/storage/`。WXT 分别输出根级 `storage-coordinator.js` 与 `storage-client.js`，旧后台和页面同步更新路径并保留 `LaterOnCollection` / `LaterOnStorage`。后台继续单队列读改写；消息从 `unknown` 经结构校验后进入业务操作。本机记录允许旧字段缺省，严格备份校验继续留在备份核心；客户端的提示、缓存清理和页面刷新放在 WXT 兼容入口，便于后续 Vue 复用通信逻辑。
 
 ITER-019 G 将 [设置类型、默认值与纯规则](../../src/settings/shared.ts) 和 [存储读写、变更监听](../../src/settings/store.ts) 分开；设置页后续可直接导入存储模块。[WXT 兼容入口](../../wxt/entrypoints/theme.ts) 保留自动应用主题、系统深浅色监听及 `LaterOnSettings` 全局接口，继续输出根级 `theme.js`。原文件退出复制清单，HTML 的普通脚本与 defer 时序不变。保留 `get()` 的旧版单篇收藏 opt-in 规则；`watch()` 仍提供默认值叠加原始变更值，不套用该规则，因此回调保留原始存储边界的 `unknown` 字段类型。读写不删除其他页面保存的额外设置。
+
+ITER-020 A 将设置页收纳到 [wxt/entrypoints/settings/](../../wxt/entrypoints/settings/index.html)：HTML 采用 [WXT 普通页面入口](https://wxt.dev/guide/essentials/entrypoints.html#unlisted-pages)，继续输出 `settings.html`，清单沿用 `options_page`。原设置 CSS 移至同目录 `style.css`；[main.js](../../wxt/entrypoints/settings/main.js) 保留原有 DOM 逻辑，直接导入设置 store，以及国际化、弹窗和备份交互脚本。Vite 编译页面模块与 CSS 依赖，输出到 `chunks/` 和 `assets/`；原设置 HTML、JS、CSS 及备份交互脚本退出复制清单。共享国际化、弹窗脚本与样式仍供其他旧页面使用，因此保留它们的经典产物；逐页迁移期间会有部分包体重复。
+
+设置页仍在 `<head>` 使用经典 `theme.js` 提前应用主题，并用 `vite-ignore` 保留该独立构建脚本及公共图标的根级路径；国际化、弹窗和备份交互随页面模块在 DOM 解析后初始化。开发模式验证原生页面、模块依赖、样式及本地重载脚本可访问；production 产物回归执行实际编译模块图，覆盖中英文设置、主题同步、旧 opt-in、备份交互和导航。A 阶段保留 JS 与原生 DOM，Vue、TypeScript 页面重写和 Reka UI 留在 B 阶段。
 
 ## 兼容、类型与验收要求
 

@@ -30,7 +30,7 @@ assert.match(dictionaries["zh-CN"].guideStepReadHint, /30 天后自动清除/);
 
 const libraryHtml = read("library.html");
 const sidepanelHtml = read("sidepanel.html");
-const settingsHtml = read("settings.html");
+const settingsHtml = read("wxt/entrypoints/settings/index.html");
 assert.match(libraryHtml, /onboarding\.css/);
 assert.match(libraryHtml, /onboarding\.js/);
 assert.match(sidepanelHtml, /onboarding\.css/);
@@ -41,7 +41,7 @@ assert.match(libraryHtml, /data-i18n="allProjectsOverview"/);
 assert.strictEqual(dictionaries["zh-CN"].allProjectsOverview, "全部项目");
 assert.strictEqual(dictionaries.en.allProjectsOverview, "All projects");
 assert.match(settingsHtml, /id="replayOnboarding"/);
-assert.match(read("settings.js"), /getURL\("library\.html"\)[^\n]*\?guide=1/);
+assert.match(read("wxt/entrypoints/settings/main.js"), /getURL\("library\.html"\)[^\n]*\?guide=1/);
 
 const manifest = JSON.parse(read("manifest.json"));
 assert.strictEqual(manifest.default_locale, "zh_CN");

@@ -4,8 +4,8 @@ const path = require("path");
 
 const ROOT = path.resolve(__dirname, "..");
 const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "manifest.json"), "utf8"));
-const settings = fs.readFileSync(path.join(ROOT, "settings.js"), "utf8");
-const settingsHtml = fs.readFileSync(path.join(ROOT, "settings.html"), "utf8");
+const settings = fs.readFileSync(path.join(ROOT, "wxt/entrypoints/settings/main.js"), "utf8");
+const settingsHtml = fs.readFileSync(path.join(ROOT, "wxt/entrypoints/settings/index.html"), "utf8");
 const { DEFAULTS } = require("../src/settings/shared.ts");
 const background = fs.readFileSync(path.join(ROOT, "background.js"), "utf8");
 const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
