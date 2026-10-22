@@ -19,7 +19,7 @@ const html = fs.readFileSync(`${ROOT}/sidepanel.html`, "utf8");
 const i18nSource = fs.readFileSync(`${ROOT}/i18n.js`, "utf8");
 const sidepanelSource = fs.readFileSync(`${ROOT}/sidepanel.js`, "utf8");
 const urlSource = require("./helpers/read-runtime.cjs")("url-utils.js");
-const tabNavigationSource = fs.readFileSync(`${ROOT}/tab-navigation.js`, "utf8");
+const tabNavigationSource = require("./helpers/read-runtime.cjs")("tab-navigation.js");
 
 let failures = 0;
 const check = (label, ok, extra = "") => {

@@ -123,6 +123,35 @@ async function verifyBuiltWorker(directory = builtDirectory) {
   const result = await context.LaterOnCollection.execute({ action: "mutateItems", operation: "update", ids: [saved.id], patch: { status: "reading" } });
   assert.equal(result.ok, true);
   assert.equal(store.laterOnItems[0].status, "reading", "Built classic worker retains existing storage and collection operations");
+  await verifyBuiltNavigation(directory);
+}
+
+async function verifyBuiltNavigation(directory) {
+  for (const page of ["library.html", "sidepanel.html"]) {
+    assert.match(fs.readFileSync(path.join(directory, page), "utf8"), /<script\b[^>]*\bsrc="tab-navigation\.js"/);
+  }
+  const original = "https://example.com/a%2Fb?q=C++&b=2#/article/1";
+  const frozen = `chrome-extension://fixture/suspended.html#ttl=Example&pos=0&uri=${original}`;
+  const updates = [];
+  const chrome = {
+    tabs: {
+      async query() { return [{ id: 7, windowId: 8, active: true, url: frozen }]; },
+      async update(id, patch) { updates.push({ type: "tab", id, patch }); }
+    },
+    windows: { async update(id, patch) { updates.push({ type: "window", id, patch }); } }
+  };
+  const context = vm.createContext({ URL, chrome });
+  vm.runInContext(fs.readFileSync(path.join(directory, "tab-navigation.js"), "utf8"), context);
+  assert.equal(context.LaterOnUrl, undefined, "Compiled navigation imports URL rules without installing another global");
+  const match = await context.LaterOnTabs.findOpen(original);
+  assert.equal(match?.id, 7, "Compiled navigation matches a frozen hash-route tab");
+  assert.equal(await context.LaterOnTabs.findOpen(original.replace("/1", "/2")), null);
+  assert.equal(await context.LaterOnTabs.findOpen(original, { excludeTabId: 7 }), null);
+  assert.equal(await context.LaterOnTabs.activate(match), true);
+  assert.deepEqual(JSON.parse(JSON.stringify(updates)), [
+    { type: "tab", id: 7, patch: { active: true } },
+    { type: "window", id: 8, patch: { focused: true } }
+  ], "Compiled navigation focuses an existing tab and window without navigating it");
 }
 
 function verifyArchiveChecks(readReleaseArchive) {

@@ -2,7 +2,7 @@
 
 记录日期：2026-10-22；更新日期：2026-10-23。已确认尝试 Vue + TypeScript + Reka UI，并先通过文件移动整理程序结构、将底层逻辑 TS 化和模块化。本文记录技术方向及分阶段实施边界。
 
-状态：ITER-019 A、B、C、D 已完成、提交并通过本机验证，均尚未发布。后续 ITER-020 待实施。优先级与进度统一维护在 [roadmap](../roadmap.md)，执行结果见 [月度实施记录](../iterations/2026-10.md)。
+状态：ITER-019 A、B、C、D、E 已完成、提交并通过本机验证。以上迁移均尚未发布。后续 ITER-020 待实施。优先级与进度统一维护在 [roadmap](../roadmap.md)，执行结果见 [月度实施记录](../iterations/2026-10.md)。
 
 ## 现有边界与技术选择
 
@@ -18,6 +18,7 @@
 | ITER-019 B：纯逻辑 TS 试点 | 将 `src/shared/url-utils.js` 转为 TS 模块，明确参数、返回值及模块导出；按需提供新旧入口兼容适配 | 独立提交 TS 与模块接入；新旧调用方共用一份实现，URL 身份、TMS、查询编码、hash 路由等既有行为回归通过 |
 | ITER-019 C：项目选择数据 TS 化 | 将 `modules/collection/picker.js` 迁至 `src/collection/picker.ts`，明确快照、请求及结果类型；接入 WXT 兼容入口 | 保持项目顺序、归档过滤、数量、封面优先级、语言和批次信息；纯模块、旧后台和构建产物回归通过 |
 | ITER-019 D：备份核心 TS 化 | 将 `modules/backup/core.js` 迁至 `src/backup/core.ts`，导入值从 `unknown` 校验为明确类型；接入 WXT 兼容入口 | 保持备份格式、字段白名单、旧版 v2 兼容、关联校验与合并规则；导出、预览、合并及覆盖恢复回归通过 |
+| ITER-019 E：标签导航 TS 化 | 将 `tab-navigation.js` 迁至 `src/tabs/navigation.ts`，明确查询选项与标签类型，显式导入共享 URL 规则；接入 WXT 兼容入口 | 保留 `LaterOnTabs` 和根级脚本路径；全屏与侧栏标签复用、TMS、hash 路由、排除标签和窗口聚焦回归通过 |
 | ITER-020 A：设置页原生构建入口 | 将设置页接入 WXT 页面构建，复用现有功能 | 保留 `settings.html` 对外路径，验证资源、主题初始化及脚本加载；与 Vue 重写分开审查 |
 | ITER-020 B：Vue 设置页 | 将表单与 DOM 操作逐步迁为 Vue + TS，按需使用 Reka UI；优先确认弹窗和开关 | 设置保存、主题、语言、快捷键信息、备份预览及导入导出行为保持一致；完成开发模式及 production 包验收 |
 
@@ -28,6 +29,8 @@ ITER-019 B 将 URL 实现转为 [TS 模块](../../src/shared/url-utils.ts)，直
 ITER-019 C 延续单模块迁移，纯实现放在 [src/collection/picker.ts](../../src/collection/picker.ts)，[WXT 兼容入口](../../wxt/entrypoints/collection-picker.ts) 保留 `LaterOnPicker.buildPayload` 接口。产物采用 WXT 默认根级路径 `collection-picker.js`，后台同步更新 `importScripts`，原路径退出复制清单；不增加依赖。
 
 ITER-019 D 将 [备份核心](../../src/backup/core.ts) 转为纯 TS 模块，明确收藏、项目、备份文档、存储快照与合并结果类型。导入入口接收 `unknown`，保留运行时白名单与关联校验；类型检查不代替数据校验。[WXT 兼容入口](../../wxt/entrypoints/backup-core.ts) 保留 `LaterOnBackup`，输出根级 `backup-core.js`，测试 helper 接入第三个编译入口。备份格式、消息协议和存储协调器的业务实现保持不变；存储客户端后续先梳理消息通信与界面职责。
+
+ITER-019 E 将 [标签导航](../../src/tabs/navigation.ts) 迁为 TS 模块，通过 `wxt/browser` 访问带类型的扩展 API，并显式导入 URL 实现，取消对 `LaterOnUrl` 全局加载顺序的依赖。[WXT 兼容入口](../../wxt/entrypoints/tab-navigation.ts) 继续输出根级 `tab-navigation.js` 并保留 `LaterOnTabs`；旧页面引用不变，该脚本退出复制清单。迁移范围仅含网址比较、已有标签查询及激活，不增加事件监听或 DOM 操作。
 
 ## 兼容、类型与验收要求
 

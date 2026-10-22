@@ -5,7 +5,7 @@ const vm = require("vm");
 
 const ROOT = path.resolve(__dirname, "..");
 const urlSource = require("./helpers/read-runtime.cjs")("url-utils.js");
-const navigationSource = fs.readFileSync(path.join(ROOT, "tab-navigation.js"), "utf8");
+const navigationSource = require("./helpers/read-runtime.cjs")("tab-navigation.js");
 const librarySource = fs.readFileSync(path.join(ROOT, "library.js"), "utf8");
 const sidepanelSource = fs.readFileSync(path.join(ROOT, "sidepanel.js"), "utf8");
 
@@ -76,6 +76,37 @@ vm.runInContext(navigationSource, context, { filename: "tab-navigation.js" });
   const frozenRoute = "https://routes.test/app#/article/3?q=C++&part=2";
   tabs.push({ id: 9, windowId: 40, active: false, url: `chrome-extension://noogafoofpebimajpfpamcfhoaifemoa/suspended.html#ttl=Route&pos=0&uri=${frozenRoute}` });
   assert.strictEqual((await context.LaterOnTabs.findOpen("https://routes.test/app#/article/3?part=2&q=C++"))?.id, 9);
+
+  tabs.push({ id: 10, active: false, url: "https://priority.test/page" });
+  tabs.push({ id: 11, active: true, url: "https://priority.test/page#section" });
+  assert.strictEqual((await context.LaterOnTabs.findOpen("https://priority.test/page"))?.id, 11, "多个匹配项优先复用活跃标签");
+  assert.strictEqual((await context.LaterOnTabs.findOpen("https://priority.test/page", { excludeTabId: 11 }))?.id, 10);
+  tabs.at(-1).active = false;
+  assert.strictEqual((await context.LaterOnTabs.findOpen("https://priority.test/page"))?.id, 10, "没有活跃匹配时保留浏览器返回顺序");
+
+  delete context.LaterOnUrl;
+  assert.strictEqual((await context.LaterOnTabs.findOpen(frozenRoute))?.id, 9, "显式导入 URL 模块，不依赖页面全局对象或加载顺序");
+  let queries = 0;
+  context.chrome.tabs.query = async () => { queries++; throw new Error("Query failed"); };
+  for (const target of ["", "invalid", "javascript:alert(1)", "file:///test.pdf", "chrome://settings", "chrome-extension://fixture/library.html"]) {
+    assert.strictEqual(await context.LaterOnTabs.findOpen(target), null);
+  }
+  assert.strictEqual(queries, 0, "无效或非 HTTP(S) 地址不查询标签页");
+  assert.strictEqual(context.LaterOnTabs.comparable(undefined), "");
+  assert.strictEqual(await context.LaterOnTabs.findOpen("https://example.com"), null, "查询失败按无匹配处理");
+  assert.strictEqual(queries, 1);
+
+  const updatesBefore = tabUpdates.length;
+  for (const tab of [null, undefined, {}, { id: 0 }]) assert.strictEqual(await context.LaterOnTabs.activate(tab), false);
+  assert.strictEqual(tabUpdates.length, updatesBefore, "没有有效标签 ID 时不调用激活接口");
+  const windowsBefore = windowUpdates.length;
+  assert.strictEqual(await context.LaterOnTabs.activate({ id: 10 }), true);
+  assert.strictEqual(windowUpdates.length, windowsBefore, "没有窗口 ID 时仅激活标签");
+  context.chrome.tabs.update = async () => { throw new Error("Tab closed"); };
+  context.chrome.windows.update = async () => { throw new Error("Window closed"); };
+  assert.strictEqual(await context.LaterOnTabs.activate({ id: 10, windowId: 40 }), true, "保留旧接口语义：失效标签或窗口不向调用方抛错");
+  delete context.chrome.windows;
+  assert.strictEqual(await context.LaterOnTabs.activate({ id: 10, windowId: 40 }), true, "窗口 API 不可用时仍兼容");
 
   assert.match(librarySource, /LaterOnTabs\.findOpen\(target, \{ excludeTabId: libraryTabId \}\)/);
   assert.match(sidepanelSource, /LaterOnTabs\.findOpen\(target\)/);

@@ -16,7 +16,7 @@ const librarySource = fs.readFileSync(`${ROOT}/library.js`, "utf8");
 const i18nSource = fs.readFileSync(`${ROOT}/i18n.js`, "utf8");
 const dialogSource = fs.readFileSync(`${ROOT}/dialog.js`, "utf8");
 const urlSource = require("./helpers/read-runtime.cjs")("url-utils.js");
-const tabNavigationSource = fs.readFileSync(`${ROOT}/tab-navigation.js`, "utf8");
+const tabNavigationSource = require("./helpers/read-runtime.cjs")("tab-navigation.js");
 
 const errors = [];
 const virtualConsole = new VirtualConsole();

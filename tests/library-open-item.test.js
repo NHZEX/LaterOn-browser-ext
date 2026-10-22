@@ -15,7 +15,7 @@ const { JSDOM, VirtualConsole } = require("jsdom");
 const ROOT = path.resolve(__dirname, "..");
 const html = fs.readFileSync(`${ROOT}/library.html`, "utf8");
 const librarySource = fs.readFileSync(`${ROOT}/library.js`, "utf8");
-const tabNavigationSource = fs.readFileSync(`${ROOT}/tab-navigation.js`, "utf8");
+const tabNavigationSource = require("./helpers/read-runtime.cjs")("tab-navigation.js");
 const i18nSource = fs.readFileSync(`${ROOT}/i18n.js`, "utf8");
 
 const errors = [];
