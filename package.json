@@ -13,7 +13,7 @@
     "build": "wxt build",
     "zip": "wxt zip",
     "release:check": "node scripts/check-release.mjs",
-    "release:local": "pnpm zip && pwsh -NoProfile -File scripts/publish-local.ps1"
+    "release:local": "pnpm zip && node scripts/publish-local.mjs"
   },
   "devDependencies": {
     "fflate": "0.8.3",

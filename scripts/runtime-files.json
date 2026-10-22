@@ -46,14 +46,5 @@
   ],
   "directories": [
     "_locales"
-  ],
-  "buildInputs": [
-    "package.json",
-    "pnpm-lock.yaml",
-    "wxt.config.mjs",
-    "wxt/entrypoints/background.js",
-    "scripts/build-assets.mjs",
-    "scripts/check-release.mjs",
-    "scripts/runtime-files.json"
   ]
 }

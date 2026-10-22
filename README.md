@@ -93,7 +93,7 @@ Chrome 内部页面、扩展商店、浏览器内置 PDF 查看器等受保护�
 
 ## 项目开发
 
-开发环境：Node.js 24、pnpm 12、PowerShell 7.2+（`pwsh`）。Node.js 和 pnpm 的具体版本见 [package.json](package.json)；Volta 按项目配置选择 Node.js 版本。
+开发环境：Node.js 24、pnpm 12。具体版本见 [package.json](package.json)；Volta 按项目配置选择 Node.js 版本。
 
 安装依赖：
 
@@ -108,9 +108,9 @@ pnpm install --frozen-lockfile
 | `pnpm test` | 运行全部测试 |
 | `pnpm build` | 使用 WXT 构建扩展到 `.output/chrome-mv3` |
 | `pnpm zip` | 使用 WXT 构建并打包为 `.output/LaterOn-<版本>.zip` |
-| `pnpm release:check` | 校验构建未过期，且 ZIP 与构建产物一致 |
+| `pnpm release:check` | 检查已有 ZIP 的 manifest、引用文件及开发文件混入 |
 | `pnpm run release:local --dir "<安装目录>"` | 构建并安装到指定目录，备份旧版本 |
 
-扩展版本由 `manifest.json` 定义。发布前先运行测试；安装目录的父目录须已存在，已有目录必须为同一扩展。旧版本保存在安装目录同级的 `<目录名>-backups/` 中，发布后需在浏览器中重新加载扩展。
+扩展版本由 `manifest.json` 定义。发布前先运行测试；`release:local` 会重新构建打包并检查 ZIP 后安装。安装目录的父目录须已存在，已有目录必须为同一扩展。旧版本保存在安装目录同级的 `<目录名>-backups/` 中，发布后需在浏览器中重新加载扩展。
 
 GitHub Actions 在 Windows / Ubuntu 上执行依赖安装、测试、构建和产物校验。

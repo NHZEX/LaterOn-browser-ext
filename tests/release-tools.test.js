@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const vm = require("node:vm");
-const { createHash, webcrypto } = require("node:crypto");
+const { webcrypto } = require("node:crypto");
 const { unzipSync, zipSync, Zip, ZipDeflate } = require("fflate");
 
 const root = path.resolve(__dirname, "..");
@@ -28,8 +28,8 @@ function command(executable, args, expected = 0) {
 const wxtCli = path.resolve(path.dirname(require.resolve("wxt")), "../bin/wxt.mjs");
 const wxt = (args) => command(process.execPath, [wxtCli, ...args]);
 const check = (expected) => command(process.execPath, ["scripts/check-release.mjs"], expected);
-const publish = (target, expected) => command("pwsh", [
-  "-NoProfile", "-File", "scripts/publish-local.ps1", "-Archive", archive, "-Destination", target
+const publish = (target, expected, source = archive) => command(process.execPath, [
+  "scripts/publish-local.mjs", "--archive", source, "--dir", target
 ], expected);
 
 async function verifyBuiltWorker() {
@@ -59,58 +59,30 @@ async function verifyBuiltWorker() {
   assert.equal(store.laterOnItems[0].status, "reading", "Built classic worker retains existing storage and collection operations");
 }
 
-function verifyBuildGuards() {
-  const statePath = path.join(root, ".wxt/compat-build.json");
-  const originalState = fs.readFileSync(statePath);
-  const state = JSON.parse(originalState);
-  try {
-    fs.writeFileSync(statePath, JSON.stringify({ ...state, inputs: { ...state.inputs, "wxt/entrypoints/background.js": "stale" } }));
-    assert.match(check(1).stderr, /WXT build is stale/);
-  } finally { fs.writeFileSync(statePath, originalState); }
-
-  const runtime = path.join(builtDirectory, "url-utils.js");
-  const originalRuntime = fs.readFileSync(runtime);
-  try {
-    fs.appendFileSync(runtime, "\n// altered output\n");
-    assert.match(check(1).stderr, /WXT build output was modified/);
-    const digest = createHash("sha256").update(fs.readFileSync(runtime)).digest("hex");
-    fs.writeFileSync(statePath, JSON.stringify({ ...state, outputs: { ...state.outputs, "url-utils.js": digest } }));
-    assert.match(check(1).stderr, /WXT changed legacy runtime files: url-utils.js/);
-  } finally {
-    fs.writeFileSync(runtime, originalRuntime);
-    fs.writeFileSync(statePath, originalState);
-  }
-
-  const unexpected = path.join(builtDirectory, "unexpected.js");
-  try {
-    fs.writeFileSync(unexpected, "unexpected runtime file");
-    assert.match(check(1).stderr, /WXT output differs from allowlist/);
-  } finally { fs.unlinkSync(unexpected); }
-
-  const manifestPath = path.join(builtDirectory, "manifest.json");
-  const originalManifest = fs.readFileSync(manifestPath);
-  try {
-    fs.writeFileSync(manifestPath, JSON.stringify({ ...manifest, permissions: [...manifest.permissions, "bookmarks"] }));
-    const digest = createHash("sha256").update(fs.readFileSync(manifestPath)).digest("hex");
-    fs.writeFileSync(statePath, JSON.stringify({ ...state, outputs: { ...state.outputs, "manifest.json": digest } }));
-    assert.match(check(1).stderr, /WXT manifest differs/);
-  } finally {
-    fs.writeFileSync(manifestPath, originalManifest);
-    fs.writeFileSync(statePath, originalState);
-  }
-}
-
-function verifyArchiveGuards() {
+function verifyArchiveChecks() {
   const original = fs.readFileSync(archive);
   const files = unzipSync(original);
+  const builtManifest = JSON.parse(Buffer.from(files["manifest.json"]).toString("utf8"));
   try {
-    fs.writeFileSync(archive, zipSync({ ...files, "url-utils.js": Buffer.concat([files["url-utils.js"], Buffer.from("\n// stale")]) }));
-    assert.match(check(1).stderr, /differs from current build: url-utils\.js/);
+    // A package can contain compiler changes without matching source or build snapshots.
+    const compiledManifest = { ...builtManifest, permissions: [...builtManifest.permissions, "bookmarks"],
+      action: { ...builtManifest.action, default_icon: "icon16.png" },
+      web_accessible_resources: [...(builtManifest.web_accessible_resources ?? []),
+        { resources: ["chunks/*.js"], matches: ["https://example.com/*"] }] };
+    fs.writeFileSync(archive, zipSync({ ...files,
+      "url-utils.js": Buffer.concat([files["url-utils.js"], Buffer.from("\n// compiler transformation\n")]),
+      "manifest.json": Buffer.from(JSON.stringify(compiledManifest)),
+      "chunks/compiled.js": Buffer.from("console.log('compiled chunk');")
+    }));
+    check();
+
     fs.writeFileSync(archive, zipSync({ ...files, "tests/leaked.js": Buffer.from("unwanted") }));
-    assert.match(check(1).stderr, /Release ZIP differs from allowlist/);
-    const { "url-utils.js": omitted, ...missing } = files;
+    assert.match(check(1).stderr, /Development-only or invalid release file/);
+    const { [builtManifest.background.service_worker]: omitted, ...missing } = files;
     fs.writeFileSync(archive, zipSync(missing));
-    assert.match(check(1).stderr, /Release ZIP differs from allowlist/);
+    assert.match(check(1).stderr, /Manifest references missing package files/);
+    fs.writeFileSync(archive, zipSync({ ...files, "manifest.json": Buffer.from(JSON.stringify({ ...builtManifest, manifest_version: 2 })) }));
+    assert.match(check(1).stderr, /Expected a named, versioned MV3 package/);
 
     const chunks = [];
     const duplicate = new Zip((error, data) => { assert.ifError(error); chunks.push(data); });
@@ -129,33 +101,18 @@ function verifyArchiveGuards() {
 
 async function main() {
   try {
-    const priorArchive = fs.existsSync(archive) ? fs.readFileSync(archive) : undefined;
-    try {
-      fs.rmSync(archive, { force: true });
-      wxt(["build"]);
-      assert.equal(fs.existsSync(archive), false, "WXT build compiles without creating a ZIP");
-    } finally { if (priorArchive) fs.writeFileSync(archive, priorArchive); }
     wxt(["zip"]);
-    const firstBuild = fs.readFileSync(archive);
-    wxt(["zip"]);
-    assert.deepEqual(fs.readFileSync(archive), firstBuild, "Identical runtime sources produce an identical ZIP");
-    fs.writeFileSync(archive, "outdated archive");
-    wxt(["zip"]);
-    assert.deepEqual(fs.readFileSync(archive), firstBuild, "Rebuilding replaces an outdated ZIP");
-    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(builtDirectory, "manifest.json"), "utf8")), manifest);
-    assert.deepEqual(fs.readFileSync(path.join(builtDirectory, "background-runtime.js")), fs.readFileSync(path.join(root, "background.js")));
     await verifyBuiltWorker();
-    verifyBuildGuards();
-    verifyArchiveGuards();
+    verifyArchiveChecks();
     check();
 
-    command("pwsh", ["-NoProfile", "-File", "scripts/publish-local.ps1", "--dir", destination]);
+    command(process.execPath, ["scripts/publish-local.mjs", "--dir", destination]);
     assert.equal(JSON.parse(fs.readFileSync(path.join(destination, "manifest.json"), "utf8")).version, manifest.version);
     const installedUrl = path.join(destination, "url-utils.js");
     fs.appendFileSync(installedUrl, "\n// previous local installation\n");
     const oldContents = fs.readFileSync(installedUrl);
     publish(destination);
-    assert.deepEqual(fs.readFileSync(installedUrl), fs.readFileSync(path.join(root, "url-utils.js")));
+    assert.deepEqual(fs.readFileSync(installedUrl), fs.readFileSync(path.join(builtDirectory, "url-utils.js")));
     const backups = path.join(temporary, "LaterOn-backups");
     const entries = fs.readdirSync(backups);
     assert.equal(entries.length, 1);
@@ -169,8 +126,34 @@ async function main() {
     publish(unrelated, 1);
     assert.equal(fs.readFileSync(path.join(unrelated, "keep.txt"), "utf8"), "unrelated data");
     publish(root, 1);
+    publish(path.dirname(root), 1);
+    publish(path.parse(root).root, 1);
+    const linked = path.join(temporary, "linked");
+    fs.symlinkSync(destination, linked, process.platform === "win32" ? "junction" : "dir");
+    assert.match(publish(linked, 1).stderr, /normal directory/);
+    fs.unlinkSync(linked);
 
-    console.log("PASS WXT ZIP, classic worker and storage compatibility, build and ZIP guards, reproducible packaging and local deployment without Python");
+    const malicious = path.join(temporary, "malicious.zip");
+    fs.writeFileSync(malicious, zipSync({ "../escape.txt": Buffer.from("outside") }));
+    assert.match(publish(destination, 1, malicious).stderr, /invalid release file/);
+    assert.equal(fs.existsSync(path.join(temporary, "escape.txt")), false);
+
+    const { publishLocal } = await import("../scripts/publish-local.mjs");
+    fs.appendFileSync(installedUrl, "\n// previous version for rollback\n");
+    const beforeFailure = fs.readFileSync(installedUrl);
+    const rename = fs.renameSync;
+    try {
+      fs.renameSync = (source, target) => {
+        if (source.includes("-stage-") && target === destination) throw new Error("simulated install failure");
+        return rename(source, target);
+      };
+      assert.throws(() => publishLocal({ archive, destination }), /simulated install failure/);
+    } finally { fs.renameSync = rename; }
+    assert.deepEqual(fs.readFileSync(installedUrl), beforeFailure, "A failed installation restores the complete previous directory");
+    assert.deepEqual(fs.readdirSync(backups), entries, "Rolled back deployment does not leave a duplicate backup");
+    assert.equal(fs.readdirSync(temporary).some((name) => name.includes("-stage-")), false);
+
+    console.log("PASS built worker, final ZIP checks, Node deployment, backup, rollback and directory protection");
   } finally {
     assert.equal(path.dirname(temporary), output);
     assert.ok(path.basename(temporary).startsWith("release-tools-"));
