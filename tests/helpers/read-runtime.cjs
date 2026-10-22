@@ -6,8 +6,7 @@ const root = resolve(__dirname, "../..");
 // Compile actual compatibility entries in memory; standalone tests need no prior build.
 const entries = [
   ...["url-utils", "collection-picker", "backup-core", "tab-navigation", "storage-coordinator", "storage-client", "theme"].map(entry =>
-    [`${entry}.js`, `import entry from "./wxt/entrypoints/${entry}"; entry.main();`]),
-  ["settings-page.js", 'import "./wxt/entrypoints/settings/main.js";']
+    [`${entry}.js`, `import entry from "./wxt/entrypoints/${entry}"; entry.main();`])
 ];
 const scripts = Object.fromEntries(entries.map(([name, contents]) => {
   const { outputFiles } = buildSync({

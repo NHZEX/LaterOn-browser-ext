@@ -7,7 +7,6 @@ import type { CollectionCommandResult } from "../../src/storage/contracts";
 
 declare global {
   var LaterOnStorage: Pick<StorageClient, "initialize" | "run">;
-  var LaterOnI18n: { t: (key: string) => string } | undefined;
   var LaterOnDialog: { alert: (config: { tone: "danger"; title: string; message: string }) => Promise<unknown> } | undefined;
   var showToast: ((message: string) => void) | undefined;
 }

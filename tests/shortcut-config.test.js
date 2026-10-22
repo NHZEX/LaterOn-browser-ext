@@ -4,8 +4,6 @@ const path = require("path");
 
 const ROOT = path.resolve(__dirname, "..");
 const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "manifest.json"), "utf8"));
-const settings = fs.readFileSync(path.join(ROOT, "wxt/entrypoints/settings/main.js"), "utf8");
-const settingsHtml = fs.readFileSync(path.join(ROOT, "wxt/entrypoints/settings/index.html"), "utf8");
 const { DEFAULTS } = require("../src/settings/shared.ts");
 const background = fs.readFileSync(path.join(ROOT, "background.js"), "utf8");
 const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
@@ -20,10 +18,7 @@ assert.strictEqual(
   undefined,
   "macOS 不应再覆盖为旧的 Command+Shift+E"
 );
-assert.match(settings, /def:\s*"Alt\+Shift\+1"/);
 assert.match(readme, /按 `Alt\+Shift\+1`/);
-assert.match(settingsHtml, /默认关闭/);
-assert.doesNotMatch(settingsHtml, /默认开启/);
 assert.equal(DEFAULTS.askFolderOnSingle, false);
 assert.equal(DEFAULTS.askFolderOnSingleOptIn, false);
 assert.match(background, /settings\.askFolderOnSingle\s*===\s*true\s*&&\s*settings\.askFolderOnSingleOptIn\s*===\s*true/);

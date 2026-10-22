@@ -12,6 +12,7 @@ export default defineConfig({
   entrypointsDir: "wxt/entrypoints",
   modulesDir: "wxt/modules",
   publicDir: "wxt/public",
+  modules: ["@wxt-dev/module-vue"],
   imports: false,
   manifestVersion,
   targetBrowsers: ["chrome"],
