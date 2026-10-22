@@ -2,7 +2,7 @@
 
 记录日期：2026-10-20（Asia/Shanghai）。用途：保存当前架构、上游社区与相关 fork 的调研结果，作为自维护版本的迭代依据。
 
-实施进展（更新至 2026-10-22）：已在现有代码基线上完成数据写入、备份恢复、侧栏布局与调宽改进，并支持 The Marvellous Suspender 冻结页；当前自维护版本为 `1.69.2`，包含当前阅读标记残留修复及 ITER-003 的 hash 路由比较规则。未整体切换到其他 fork，也未移植其 WebDAV、网址列表导入或标签收集功能。下文架构与社区数据保留 2026-10-20 调研快照；实施结果见「迭代实施记录」，后续评估社区现状时应重新查询。
+实施进展（更新至 2026-10-22）：已在现有代码基线上完成数据写入、备份恢复、侧栏布局与调宽改进，并支持 The Marvellous Suspender 冻结页；当前自维护版本为 `1.69.2`，包含当前阅读标记残留修复及 ITER-003 的 hash 路由比较规则。未整体切换到其他 fork，也未移植其 WebDAV、网址列表导入或标签收集功能。下文架构与社区数据保留 2026-10-20 调研快照，另增 2026-10-22 的公开分支与 AI 方案补查；实施结果见「迭代实施记录」，后续评估社区现状时应重新查询。
 
 ## 项目与版本基线
 
@@ -108,6 +108,44 @@
 - [Issue 3](https://github.com/gaoyiiiii/LaterOn/issues/3)：允许已读内容不自动删除。
 - [Issue 5](https://github.com/gaoyiiiii/LaterOn/issues/5)：区分 hash 路由不同的页面，避免错误去重。
 
+## 上游与公开分支补查（2026-10-22）
+
+本次通过 GitHub API 查询全部 issues（含已关闭项）、PR 和 fork 列表，并用 `git ls-remote --heads` 检查各外部 fork 的公开分支，再按不同分支头与上游比较。比较基线仍为上游 `a1a531325e4237f94a74a626296261991b16b4e0`。此处补齐原记录未覆盖的内容，不改写前述 2026-10-20 快照。
+
+| 指标 | 2026-10-22 补查结果 |
+| --- | --- |
+| Stars / Forks | 281 / 22，fork 数包含本项目 |
+| Issues / PR | 5 个 issue、2 个 PR，均未关闭；issue 数不包含 PR |
+| 扫描范围 | 排除自身 NHZEX 后的全部 21 个 fork，共 24 条公开分支 |
+| 非默认分支 | Hyacehila 的两个功能分支、PossibleXone 的 `m-dev`，共 3 条 |
+| 上游最近推送 | 2026-10-12；本次补查未发现上游主分支新增提交 |
+
+| 补查对象 | 分支头及内容 | 与现有记录的关系 |
+| --- | --- | --- |
+| [Hyacehila：AI 功能 PR #6](https://github.com/gaoyiiiii/LaterOn/pull/6) | `codex/ai-tab-organization`，`bdea434`，领先上游 1 个提交；网页提取与新收藏自动归类 | 原记录未覆盖，新增 ITER-015 评估 |
+| [Issue #7：AI 预览版](https://github.com/gaoyiiiii/LaterOn/issues/7) | PR #6 的功能介绍、试用包与数据发送说明 | 与 PR #6 合并记录，不重复计为独立功能 |
+| [PossibleXone：m-dev](https://github.com/gaoyiiiii/LaterOn/compare/main...PossibleXone:m-dev) | `37a28015`，领先上游 2 个提交；侧栏先选项目再收藏 | 补充实现参考，与已记录的 zye3776 方案重叠 |
+| [Hyacehila：搜索修复 PR #4](https://github.com/gaoyiiiii/LaterOn/pull/4) | `fix/library-initial-project-selection`，`1ccbd155`，领先上游 1 个提交 | 已记录为 ITER-011，本次确认位于非默认分支 |
+
+其余默认分支的独立改动仍来自已记录的 pasiooooo、zye3776、wudhlgers；其他可见分支头与上游已有提交相同或落后。除上述 AI 方向和侧栏实现参考外，本次未发现更多尚未收集的独立功能方向。后续扫描应包含非默认分支，避免只比较默认分支而漏掉功能 PR。
+
+### AI 方案的价值与接入判断
+
+审查对象为 [PR #6 的固定提交 `bdea4343796f3b4729495560e6bfcfde5c323001`](https://github.com/Hyacehila/LaterOn/commit/bdea4343796f3b4729495560e6bfcfde5c323001)，基于上游 `a1a5313`。以下为源码初查及作者提供的验收说明，未在本项目中实现或运行该 fork。
+
+- **产品行为：** 先保存新收藏，再根据网页内容、已有项目名称和简介判断归属；没有合适项目、低置信度或失败时保留在“等待整理”。不自动创建项目、不批量重新整理历史收藏、不改写摘要，保留界面手动选项目的入口。
+- **可选能力：** 网页提取与归类渠道分开配置；支持浏览器本地 Readability、DeepSeek Fetch、Tavily，以及 OpenAI / Anthropic 兼容接口和决策接口。可保存多个渠道并测试、启用组合，提供分类历史及候选分数。
+- **值得借鉴的实现：** 最多同时执行两个任务；应用结果前复核配置、项目和条目归属，减少覆盖用户操作的风险。远程提取可回退本地；判断失败不自动换模型或重试，结果不明的付费请求不自动重发。见 [ai-background.js 的上下文校验与结果提交](https://github.com/Hyacehila/LaterOn/blob/bdea4343796f3b4729495560e6bfcfde5c323001/ai-background.js#L214)。
+- **架构适配：** AI 结果通过原 `queueItemWrite` 提交，但该 PR 另增 [data-background.js](https://github.com/Hyacehila/LaterOn/blob/bdea4343796f3b4729495560e6bfcfde5c323001/data-background.js#L4) 处理其他数据写入。本项目已有共享存储协调器和新版备份恢复流程，接入时应沿用当前入口，重新核对导入、清空、删除、项目归档与在途任务的关系；不直接整体合并旧架构。
+- **数据范围与保留：** 远程提取接收 URL，归类服务接收清理后的网页内容和项目定义；不发送浏览器 Cookie。配置、密钥和记录保存在本地且未加密，不进入收藏备份。源码任务记录含原始 URL 与简介；成功路径删除简介，失败路径保留，终态任务的七天清理仅在后续任务入队时触发。接入前需明确敏感参数处理、记录保留与主动清理规则。见 [任务入队](https://github.com/Hyacehila/LaterOn/blob/bdea4343796f3b4729495560e6bfcfde5c323001/ai-background.js#L162)及[结果与失败处理](https://github.com/Hyacehila/LaterOn/blob/bdea4343796f3b4729495560e6bfcfde5c323001/ai-background.js#L235)。
+- **验证边界：** 作者报告 60 个测试文件通过，并使用本地模拟服务完成组合、任务恢复和真实扩展交互验收；PR 明确说明未调用真实服务 API。这些结果不能证明真实模型的分类准确率、实际费用或各服务兼容性。本次未复跑其测试，不能将作者结果视为本项目验收。
+
+建议将其作为可选 AI 辅助归类方案单独评估，优先借鉴本地提取、结果复核和请求恢复策略；具体渠道范围、交互和数据保留另行设计。
+
+### 已收集需求的新增反馈
+
+[Issue #3 的 2026-10-21 评论](https://github.com/gaoyiiiii/LaterOn/issues/3#issuecomment-6310874023)进一步表达了替代书签、永久保留收藏的需求。它增强了 ITER-008 的需求依据，尚不构成另一项独立功能。建议推进顺序为 ITER-004 测试入口、ITER-008 关闭自动删除，再评估 ITER-015；此为排期建议，未开始实现。
+
 ## pasiooooo 版本详细调研
 
 比较基线为上游 `a1a531325e4237f94a74a626296261991b16b4e0`，fork 主分支为 `d12e7293270a8822ffe54b0b54dae13cb5f1c9fa`，扩展版本 1.67.4。差异共 30 个文件，新增 1,515 行、删除 368 行。以下为源码分析，未连接真实 WebDAV 服务，也未执行该 fork 的浏览器验收。
@@ -177,15 +215,16 @@
 | ITER-005 | P1 | 评估移植网址列表导入 | 不抢占标签页；可恢复队列；明确失败重试；保留手动编辑 | 待排期 |
 | ITER-006 | P1 | 增加选中标签与标签组收集 | 范围与窗口边界准确；任务快照稳定；决定是否保留翻译及快捷键 | 待排期 |
 | ITER-007 | P1 | 评估 WebDAV 同步方案 | 覆盖双设备并发、离线修改、删除传播、首次接入与备份恢复；明确冲突处理 | 待排期 |
-| ITER-008 | P1 | 支持关闭已读自动删除 | 永久保留策略明确，归档与已读清理行为一致 | 待排期 |
+| ITER-008 | P1 | 支持关闭已读自动删除 | 永久保留策略明确，归档与已读清理行为一致 | 待排期；2026-10-21 上游评论补充永久保留需求，见补查记录 |
 | ITER-009 | P2 | 抽取全屏与侧栏公共业务逻辑 | 状态、封面、筛选和操作规则共享，保留明确的界面差异 | 部分完成：已共享数据写入客户端；其余业务与渲染逻辑仍待梳理 |
 | ITER-010 | P2 | 吸收封面修复与自动发布 | 显示回退正确；版本和说明校验通过；发布前有测试检查 | 部分完成：缺图与加载失败回退已完善；透明封面专项验收、自动发布仍待办 |
 | ITER-011 | P2 | 评估吸收 PR 4 | 首次搜索时卡片所属项目显示正确 | 待排期；冻结标签支持拆至 ITER-014 |
 | ITER-012 | P2 | 明确本地 PDF 支持边界 | 确认是否纳入产品范围，以及权限、保存与重新打开方式 | 待排期 |
 | ITER-013 | P2 | 改善全屏项目列表与侧栏调宽 | 长名称可读、数量独立对齐；支持调宽、记忆宽度与非拖动操作，窄窗口保留内容空间 | 已完成，`1.68.0` |
 | ITER-014 | P1 | 支持 The Marvellous Suspender 冻结页 | 按原始 HTTP(S) 网址收集、去重和识别当前页，不依赖冻结扩展打开收藏；元数据不足时合理降级，收藏时不唤醒标签 | 已完成，`1.69.0`；验证范围见下文 |
+| ITER-015 | P2 | 评估可选 AI 辅助归类 | 明确新收藏与手动操作边界、数据发送与记录保留；适配共享写入队列；验证任务取消、恢复、失败降级及真实服务效果 | 候选，未实现；参考 PR #6，需按当前架构设计 |
 
-后续倾向：优先评估 ITER-004 的测试依赖与统一执行入口，再选择性评估网址导入、批量收集及小范围修复。继续观察日常使用中的 The Marvellous Suspender 适配。WebDAV 有实际价值，但暂不把该 fork 的实现视为已验证的多设备并发同步方案；当前版本继续保留翻译。
+后续倾向：优先推进 ITER-004 的测试依赖与统一执行入口、ITER-008 的永久保留策略，再评估 ITER-015 的可选 AI 辅助归类；网址导入、批量收集及小范围修复按实际需求选择。继续观察日常使用中的 The Marvellous Suspender 适配。WebDAV 有实际价值，但暂不把该 fork 的实现视为已验证的多设备并发同步方案；当前版本继续保留翻译。
 
 ## 本轮确认的支持范围（2026-10-22）
 
@@ -252,7 +291,8 @@
 
 ## 来源与后续维护
 
-- [上游实时仓库元信息 API](https://api.github.com/repos/gaoyiiiii/LaterOn)、[贡献者 API](https://api.github.com/repos/gaoyiiiii/LaterOn/contributors)、[forks API](https://api.github.com/repos/gaoyiiiii/LaterOn/forks?per_page=100)。上述链接返回实时状态，本文表格保留 2026-10-20 快照。
+- [上游实时仓库元信息 API](https://api.github.com/repos/gaoyiiiii/LaterOn)、[贡献者 API](https://api.github.com/repos/gaoyiiiii/LaterOn/contributors)、[forks API](https://api.github.com/repos/gaoyiiiii/LaterOn/forks?per_page=100)。上述链接返回实时状态，本文表格分别保留 2026-10-20 与 2026-10-22 的快照。
+- [全部 issues API（含 PR）](https://api.github.com/repos/gaoyiiiii/LaterOn/issues?state=all&per_page=100)、[全部 PR API](https://api.github.com/repos/gaoyiiiii/LaterOn/pulls?state=all&per_page=100)。2026-10-22 补查分别统计 issue 和 PR，并结合公开分支头比较，未将 PR 重复计入 issue 数。
 - [上游提交基线](https://github.com/gaoyiiiii/LaterOn/tree/a1a531325e4237f94a74a626296261991b16b4e0)。
 - [pasiooooo 完整比较](https://github.com/gaoyiiiii/LaterOn/compare/a1a531325e4237f94a74a626296261991b16b4e0...pasiooooo:d12e7293270a8822ffe54b0b54dae13cb5f1c9fa)。
 - [pasiooooo README](https://github.com/pasiooooo/LaterOn/blob/d12e7293270a8822ffe54b0b54dae13cb5f1c9fa/README.md)、[CHANGELOG](https://github.com/pasiooooo/LaterOn/blob/d12e7293270a8822ffe54b0b54dae13cb5f1c9fa/CHANGELOG.md)。历史版本说明中的 1.2 秒同步、临时标签补抓已被后续版本替换，以本记录对应提交的实现为准。
