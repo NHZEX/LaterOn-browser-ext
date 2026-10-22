@@ -2,7 +2,7 @@
 
 记录日期：2026-10-22；更新日期：2026-10-23。已确认尝试 Vue + TypeScript + Reka UI，并先通过文件移动整理程序结构、将底层逻辑 TS 化和模块化。本文记录技术方向及分阶段实施边界。
 
-状态：ITER-019 A–F 已完成、提交并通过本机验证。以上迁移均尚未发布。后续 ITER-020 待实施。优先级与进度统一维护在 [roadmap](../roadmap.md)，执行结果见 [月度实施记录](../iterations/2026-10.md)。
+状态：ITER-019 A–G 已完成、提交并通过本机验证。以上迁移均尚未发布。后续 ITER-020 待实施。优先级与进度统一维护在 [roadmap](../roadmap.md)，执行结果见 [月度实施记录](../iterations/2026-10.md)。
 
 ## 现有边界与技术选择
 
@@ -20,6 +20,7 @@
 | ITER-019 D：备份核心 TS 化 | 将 `modules/backup/core.js` 迁至 `src/backup/core.ts`，导入值从 `unknown` 校验为明确类型；接入 WXT 兼容入口 | 保持备份格式、字段白名单、旧版 v2 兼容、关联校验与合并规则；导出、预览、合并及覆盖恢复回归通过 |
 | ITER-019 E：标签导航 TS 化 | 将 `tab-navigation.js` 迁至 `src/tabs/navigation.ts`，明确查询选项与标签类型，显式导入共享 URL 规则；接入 WXT 兼容入口 | 保留 `LaterOnTabs` 和根级脚本路径；全屏与侧栏标签复用、TMS、hash 路由、排除标签和窗口聚焦回归通过 |
 | ITER-019 F：存储层 TS 化 | 将后台协调器、客户端迁至 `src/storage/`，共享命令类型；客户端通信与界面副作用分开 | 保留存储键、消息协议、全局接口及共享队列；并发修改、失败重试、旧数据迁移、导入后代次失效与构建产物通信回归通过 |
+| ITER-019 G：设置与主题 TS 化 | 将设置类型、默认值与存储接口迁至 `src/settings/`；主题 DOM 和系统媒体监听放入 WXT 兼容入口 | 保留 `LaterOnSettings`、根级 `theme.js`、四个页面的加载时序、旧单篇收藏启用标记和额外设置字段；设置读写与跨页主题同步回归通过 |
 | ITER-020 A：设置页原生构建入口 | 将设置页接入 WXT 页面构建，复用现有功能 | 保留 `settings.html` 对外路径，验证资源、主题初始化及脚本加载；与 Vue 重写分开审查 |
 | ITER-020 B：Vue 设置页 | 将表单与 DOM 操作逐步迁为 Vue + TS，按需使用 Reka UI；优先确认弹窗和开关 | 设置保存、主题、语言、快捷键信息、备份预览及导入导出行为保持一致；完成开发模式及 production 包验收 |
 
@@ -34,6 +35,8 @@ ITER-019 D 将 [备份核心](../../src/backup/core.ts) 转为纯 TS 模块，�
 ITER-019 E 将 [标签导航](../../src/tabs/navigation.ts) 迁为 TS 模块，通过 `wxt/browser` 访问带类型的扩展 API，并显式导入 URL 实现，取消对 `LaterOnUrl` 全局加载顺序的依赖。[WXT 兼容入口](../../wxt/entrypoints/tab-navigation.ts) 继续输出根级 `tab-navigation.js` 并保留 `LaterOnTabs`；旧页面引用不变，该脚本退出复制清单。迁移范围仅含网址比较、已有标签查询及激活，不增加事件监听或 DOM 操作。
 
 ITER-019 F 将 [存储协调器](../../src/storage/coordinator.ts)、[客户端通信与代次管理](../../src/storage/client.ts) 和 [共享契约](../../src/storage/contracts.ts) 放入 `src/storage/`。WXT 分别输出根级 `storage-coordinator.js` 与 `storage-client.js`，旧后台和页面同步更新路径并保留 `LaterOnCollection` / `LaterOnStorage`。后台继续单队列读改写；消息从 `unknown` 经结构校验后进入业务操作。本机记录允许旧字段缺省，严格备份校验继续留在备份核心；客户端的提示、缓存清理和页面刷新放在 WXT 兼容入口，便于后续 Vue 复用通信逻辑。
+
+ITER-019 G 将 [设置类型、默认值与纯规则](../../src/settings/shared.ts) 和 [存储读写、变更监听](../../src/settings/store.ts) 分开；设置页后续可直接导入存储模块。[WXT 兼容入口](../../wxt/entrypoints/theme.ts) 保留自动应用主题、系统深浅色监听及 `LaterOnSettings` 全局接口，继续输出根级 `theme.js`。原文件退出复制清单，HTML 的普通脚本与 defer 时序不变。保留 `get()` 的旧版单篇收藏 opt-in 规则；`watch()` 仍提供默认值叠加原始变更值，不套用该规则，因此回调保留原始存储边界的 `unknown` 字段类型。读写不删除其他页面保存的额外设置。
 
 ## 兼容、类型与验收要求
 

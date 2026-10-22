@@ -137,6 +137,34 @@ async function verifyBuiltWorker(directory = builtDirectory) {
   await assert.rejects(page.LaterOnStorage.run("mutateItems", { operation: "delete", ids: [saved.id] }), /STALE_COLLECTION/);
   assert.equal(store.laterOnItems.length, 1);
   await verifyBuiltNavigation(directory);
+  await verifyBuiltSettings(directory);
+}
+
+async function verifyBuiltSettings(directory) {
+  for (const name of ["library.html", "settings.html", "sidepanel.html", "save-project-picker.html"]) {
+    assert.match(fs.readFileSync(path.join(directory, name), "utf8"), /<script\b[^>]*\bsrc="theme\.js"/);
+  }
+  const store = { laterOnSettings: { theme: "dark", libraryView: "boards" } };
+  const listeners = [];
+  const chrome = { storage: {
+    local: {
+      async get(key) { return { [key]: store[key] }; },
+      async set(patch) {
+        Object.assign(store, patch);
+        listeners.forEach(listener => listener({ laterOnSettings: { newValue: store.laterOnSettings } }, "local"));
+      }
+    },
+    onChanged: { addListener(listener) { listeners.push(listener); } }
+  } };
+  const page = vm.createContext({ chrome, document: { documentElement: { dataset: {} } } });
+  page.window = page;
+  vm.runInContext(fs.readFileSync(path.join(directory, "theme.js"), "utf8"), page);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(page.document.documentElement.dataset.theme, "dark", "Built theme initializes through the existing classic script");
+  await page.LaterOnSettings.set({ theme: "light", askFolderOnSingle: true });
+  assert.equal(page.document.documentElement.dataset.theme, "light");
+  assert.equal(store.laterOnSettings.askFolderOnSingleOptIn, true);
+  assert.equal(store.laterOnSettings.libraryView, "boards");
 }
 
 async function verifyBuiltNavigation(directory) {

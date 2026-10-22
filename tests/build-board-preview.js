@@ -93,7 +93,7 @@ const script = `<script>
 
 // 样式和脚本全部内联成单文件：预览面板（以及 file:// 打开）不一定会去取同目录的
 // CSS/JS，之前踩过「只送 HTML、相对路径全 404 → 页面等于没样式」的坑。
-const read = (name) => fs.readFileSync(path.join(ROOT, name), "utf8");
+const read = require("./helpers/read-runtime.cjs");
 const inlineStyle = (name) => `<style>\n/* ${name} */\n${read(name)}\n</style>`;
 // 脚本里如果出现 </script> 会提前闭合标签，转义掉。
 const inlineScript = (name) => `<script>\n/* ${name} */\n${read(name).replace(/<\/script>/g, "<\\/script>")}\n<\/script>`;

@@ -4,7 +4,7 @@ const { buildSync } = require("esbuild");
 
 const root = resolve(__dirname, "../..");
 // Compile actual compatibility entries in memory; standalone tests need no prior build.
-const scripts = Object.fromEntries(["url-utils", "collection-picker", "backup-core", "tab-navigation", "storage-coordinator", "storage-client"].map((entry) => {
+const scripts = Object.fromEntries(["url-utils", "collection-picker", "backup-core", "tab-navigation", "storage-coordinator", "storage-client", "theme"].map((entry) => {
   const { outputFiles } = buildSync({
     stdin: {
       contents: `import entry from "./wxt/entrypoints/${entry}"; entry.main();`,

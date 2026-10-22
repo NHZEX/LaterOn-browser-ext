@@ -32,7 +32,6 @@
     "sidepanel.html",
     "sidepanel.js",
     "theme-vars.css",
-    "theme.js",
     "translation.css",
     "modules/backup/background.js",
     "modules/backup/settings.js"

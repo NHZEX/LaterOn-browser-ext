@@ -12,7 +12,7 @@ const librarySource = fs.readFileSync(`${ROOT}/library.js`, "utf8");
 const settingsHtml = fs.readFileSync(`${ROOT}/settings.html`, "utf8");
 const settingsSource = fs.readFileSync(`${ROOT}/settings.js`, "utf8");
 const settingsCss = fs.readFileSync(`${ROOT}/settings.css`, "utf8");
-const themeSource = fs.readFileSync(`${ROOT}/theme.js`, "utf8");
+const themeSource = require("./helpers/read-runtime.cjs")("theme.js");
 
 let failures = 0;
 const check = (label, ok, extra = "") => {

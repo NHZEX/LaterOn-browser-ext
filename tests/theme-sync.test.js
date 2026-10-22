@@ -8,7 +8,7 @@ const path = require("path");
 const { JSDOM, VirtualConsole } = require("jsdom");
 
 const ROOT = path.resolve(__dirname, "..");
-const themeSource = fs.readFileSync(`${ROOT}/theme.js`, "utf8");
+const themeSource = require("./helpers/read-runtime.cjs")("theme.js");
 const sidepanelCss = fs.readFileSync(`${ROOT}/sidepanel.css`, "utf8");
 
 let failures = 0;

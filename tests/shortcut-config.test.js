@@ -6,7 +6,7 @@ const ROOT = path.resolve(__dirname, "..");
 const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "manifest.json"), "utf8"));
 const settings = fs.readFileSync(path.join(ROOT, "settings.js"), "utf8");
 const settingsHtml = fs.readFileSync(path.join(ROOT, "settings.html"), "utf8");
-const theme = fs.readFileSync(path.join(ROOT, "theme.js"), "utf8");
+const { DEFAULTS } = require("../src/settings/shared.ts");
 const background = fs.readFileSync(path.join(ROOT, "background.js"), "utf8");
 const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
 
@@ -24,8 +24,8 @@ assert.match(settings, /def:\s*"Alt\+Shift\+1"/);
 assert.match(readme, /按 `Alt\+Shift\+1`/);
 assert.match(settingsHtml, /默认关闭/);
 assert.doesNotMatch(settingsHtml, /默认开启/);
-assert.match(theme, /askFolderOnSingle:\s*false/);
-assert.match(theme, /askFolderOnSingleOptIn:\s*false/);
+assert.equal(DEFAULTS.askFolderOnSingle, false);
+assert.equal(DEFAULTS.askFolderOnSingleOptIn, false);
 assert.match(background, /settings\.askFolderOnSingle\s*===\s*true\s*&&\s*settings\.askFolderOnSingleOptIn\s*===\s*true/);
 
 console.log("PASS 收藏当前窗口所有标签页快捷键统一为 Alt+Shift+1");
