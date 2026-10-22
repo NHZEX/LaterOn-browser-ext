@@ -49,6 +49,8 @@ function createPage(chrome, mediaAPI = "addEventListener") {
 (async () => {
   assert.equal(globalThis.LaterOnSettings, undefined, "Importing pure settings rules does not initialize a page");
   assert.deepEqual(resolveSettings(), DEFAULTS);
+  assert.equal(resolveSettings({ autoCleanDays: 90 }).autoCleanEnabled, true, "Legacy settings keep automatic cleanup enabled");
+  assert.equal(resolveSettings({ autoCleanEnabled: false }).autoCleanEnabled, false);
   const legacy = { askFolderOnSingle: true, libraryView: "boards", sidebarWidth: 320 };
   const before = structuredClone(legacy);
   assert.equal(resolveSettings(legacy).askFolderOnSingle, false);
@@ -81,6 +83,12 @@ function createPage(chrome, mediaAPI = "addEventListener") {
   await second.settings.set({ askFolderOnSingle: false });
   assert.equal(store[KEY].askFolderOnSingleOptIn, true, "Explicitly disabling single-save also records opt-in");
 
+  await first.settings.set({ autoCleanDays: 90, autoCleanEnabled: false });
+  await second.settings.set({ theme: "light" });
+  assert.equal((await first.settings.get()).autoCleanEnabled, false, "Other preferences preserve disabled cleanup");
+  await first.settings.set({ autoCleanEnabled: true });
+  assert.equal(store[KEY].autoCleanDays, 90, "Re-enabling retains the previous day limit");
+
   const updates = [];
   first.settings.watch((current, previous) => updates.push({ current, previous }));
   const changed = { newValue: { theme: "light", askFolderOnSingle: true }, oldValue: { theme: "dark" } };
@@ -92,7 +100,8 @@ function createPage(chrome, mediaAPI = "addEventListener") {
   assert.equal(second.theme(), "light", "Storage notifications update both pages immediately");
   assert.equal(updates[0].current.askFolderOnSingle, true, "Watch preserves the historical raw change payload");
   assert.equal(updates[0].current.autoCleanDays, 30);
-  assert.equal(updates[0].previous.theme, "system");
+  assert.equal(updates[0].current.autoCleanEnabled, true);
+  assert.equal(updates[0].previous.theme, "light");
   assert.equal((await first.settings.get()).askFolderOnSingle, false, "Reads still apply the legacy opt-in rule");
   for (const raw of [null, ["legacy"], "old"]) {
     listeners.forEach(listener => listener({ [KEY]: { newValue: raw } }, "local"));

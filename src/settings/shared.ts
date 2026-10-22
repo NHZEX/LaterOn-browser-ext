@@ -8,6 +8,7 @@ export interface Settings {
   readonly askFolderOnBatch: boolean;
   readonly askFolderOnSingle: boolean;
   readonly askFolderOnSingleOptIn: boolean;
+  readonly autoCleanEnabled: boolean;
   readonly autoCleanDays: number;
   readonly language: "zh-CN" | "en";
   // Other pages also persist preferences (for example libraryView) under this key.
@@ -25,6 +26,7 @@ export const DEFAULTS: Settings = {
   askFolderOnSingle: false,
   // A legacy true value alone does not count as an explicit opt-in.
   askFolderOnSingleOptIn: false,
+  autoCleanEnabled: true,
   autoCleanDays: 30,
   language: "zh-CN"
 };

@@ -249,7 +249,7 @@ chrome.runtime.onStartup.addListener(() => {
 
 // ── 自动清除过期的「已读」收藏 ────────────────────────────────
 // 从「标为已读的那一天」起算，超过设定天数（默认 30 天，30–180 天可调）就自动删掉，
-// 免得读完的东西一直堆在收藏库里。
+// 默认开启；关闭时保留所有已读收藏（包括归档项目），不改动原有天数和 doneAt。
 const CLEAN_ALARM = "laterOnAutoClean";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const CLEAN_MIN_DAYS = 30;
@@ -276,8 +276,11 @@ async function purgeExpiredItems() {
 async function purgeExpiredItemsNow() {
   try {
     const stored = await chrome.storage.local.get([STORAGE_KEY, ORDER_KEY, SETTINGS_KEY, COVERS_KEY]);
+    const settings = stored[SETTINGS_KEY] || {};
+    // 缺少开关的旧设置仍沿用已开启的行为。
+    if (settings.autoCleanEnabled === false) return 0;
     const items = stored[STORAGE_KEY] || [];
-    const days = normalizeCleanDays((stored[SETTINGS_KEY] || {}).autoCleanDays);
+    const days = normalizeCleanDays(settings.autoCleanDays);
     const cutoff = Date.now() - days * DAY_MS;
     // 没有 doneAt 的（本版本之前就标成已读的老收藏）一律不动，避免升级后误删一片。
     const expiredIds = new Set(
@@ -297,6 +300,9 @@ async function purgeExpiredItemsNow() {
     for (const [id, data] of Object.entries(covers)) {
       if (!expiredIds.has(id)) nextCovers[id] = data;
     }
+    // 设置页不走收藏写队列：提交前重读策略，放弃已关闭或期限已改变的清理。
+    const latest = (await chrome.storage.local.get(SETTINGS_KEY))[SETTINGS_KEY] || {};
+    if (latest.autoCleanEnabled === false || normalizeCleanDays(latest.autoCleanDays) !== days) return 0;
     await chrome.storage.local.set({ [STORAGE_KEY]: kept, [ORDER_KEY]: nextOrders, [COVERS_KEY]: nextCovers });
     return expiredIds.size;
   } catch {
@@ -314,7 +320,7 @@ if (chrome.alarms) {
 }
 // 扩展启动 / service worker 每次被唤醒时也顺手扫一遍。
 purgeExpiredItems().catch(() => {});
-// 设置里把天数调小了立即生效（不用等下一次定时）。
+// 设置里重新开启或调整天数立即生效（不用等下一次定时）。
 chrome.storage.onChanged?.addListener((changes, area) => {
   if (area === "local" && changes[SETTINGS_KEY]) purgeExpiredItems().catch(() => {});
   if (area === "local" && changes[SETTINGS_KEY]) resetActionAppearance().catch(() => {});

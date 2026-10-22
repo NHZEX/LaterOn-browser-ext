@@ -14,6 +14,7 @@ import type { Settings, StoredSettings } from "../../../src/settings/shared";
 const dialog = useDialog();
 const current = shallowRef<Settings | null>(null);
 const saving = ref(false);
+const confirmingAutoClean = ref(false);
 const loadError = ref(false);
 // This page is still copied as a legacy public asset rather than a WXT entry.
 const libraryUrl = new URL("library.html", window.location.href).href;
@@ -40,6 +41,7 @@ function changeSort(event: Event): void {
   if (option) void save({ defaultSort: option.value });
 }
 function changeDays(event: Event): void {
+  if (!current.value?.autoCleanEnabled) return;
   if (!(event.target instanceof HTMLInputElement)) return;
   const days = clampDays(event.target.value);
   event.target.value = String(days);
@@ -47,6 +49,20 @@ function changeDays(event: Event): void {
 }
 function changeSingle(value: boolean): void { void save({ askFolderOnSingle: value }); }
 function changeBatch(value: boolean): void { void save({ askFolderOnBatch: value }); }
+async function changeAutoClean(value: boolean): Promise<void> {
+  if (!current.value || saving.value || confirmingAutoClean.value || value === current.value.autoCleanEnabled) return;
+  if (!value) { await save({ autoCleanEnabled: false }); return; }
+  confirmingAutoClean.value = true;
+  try {
+    const confirmed = await dialog.confirm({
+      tone: "danger",
+      title: t("autoCleanConfirmTitle"),
+      message: t("autoCleanConfirmMessage", { days: clampDays(current.value.autoCleanDays) }),
+      confirmText: t("autoCleanConfirmButton")
+    });
+    if (confirmed) await save({ autoCleanEnabled: true });
+  } finally { confirmingAutoClean.value = false; }
+}
 
 async function navigate(url: string): Promise<void> {
   const tab = await browser.tabs.getCurrent().catch(() => undefined);
@@ -127,9 +143,14 @@ onMounted(init);
             <SwitchRoot class="switch" data-setting="askFolderOnBatch" aria-labelledby="batchLabel" aria-describedby="batchHint" :model-value="current.askFolderOnBatch" :disabled="saving" @update:model-value="changeBatch"><SwitchThumb class="slider" /></SwitchRoot>
           </div>
           <div class="setting-row">
-            <div class="setting-label"><strong>{{ t('autoClean') }}</strong><span id="cleanHint">{{ t('autoCleanHint') }}</span></div>
-            <div class="setting-days"><input class="setting-number" type="number" min="30" max="180" step="1" data-setting="autoCleanDays" :value="clampDays(current.autoCleanDays)" :aria-label="t('autoCleanDaysLabel')" aria-describedby="cleanHint" :disabled="saving" @change="changeDays" /><span>{{ t('unitDays') }}</span></div>
+            <div class="setting-label"><strong id="cleanLabel">{{ t('autoClean') }}</strong><span id="cleanPolicyHint">{{ t('autoCleanPolicyHint') }}</span></div>
+            <SwitchRoot class="switch" data-setting="autoCleanEnabled" aria-labelledby="cleanLabel" aria-describedby="cleanPolicyHint cleanResumeHint" :model-value="current.autoCleanEnabled" :disabled="saving || confirmingAutoClean" @update:model-value="changeAutoClean"><SwitchThumb class="slider" /></SwitchRoot>
           </div>
+          <div class="setting-row">
+            <div class="setting-label"><strong>{{ t('autoCleanDaysLabel') }}</strong><span id="cleanHint">{{ t('autoCleanHint') }}</span></div>
+            <div class="setting-days"><input class="setting-number" type="number" min="30" max="180" step="1" data-setting="autoCleanDays" :value="clampDays(current.autoCleanDays)" :aria-label="t('autoCleanDaysLabel')" aria-describedby="cleanHint cleanResumeHint" :disabled="saving || !current.autoCleanEnabled" @change="changeDays" /><span>{{ t('unitDays') }}</span></div>
+          </div>
+          <p id="cleanResumeHint" class="setting-note">{{ t('autoCleanResumeHint') }}</p>
         </section>
         <ShortcutsPanel :dialog="dialog" />
         <BackupPanel :dialog="dialog" />

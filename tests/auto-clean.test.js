@@ -174,6 +174,36 @@ async function run() {
     check("自动清理不删除归档项目", store.laterOnProjects[0].archived === true);
   }
 
+  console.log("\n── ⑧ 关闭后永久保留，重新开启沿用已读时间与天数 ──");
+  {
+    store.laterOnSettings = { autoCleanEnabled: false, autoCleanDays: 90 };
+    store.laterOnItems = [
+      item("old", { status: "done", doneAt: ago(200) }),
+      item("archived-old", { projectId: "archived", status: "done", doneAt: ago(200) }),
+      item("fresh", { status: "done", doneAt: ago(40) }),
+      item("reading", { status: "reading" }), item("unread")
+    ];
+    store.laterOnOrder = { all: ["old", "archived-old", "fresh"] };
+    store.laterOnCovers = { old: "data:image/png;base64,AAAA" };
+    const before = JSON.stringify(store);
+    await purge();
+    listeners.onAlarm({ name: "laterOnAutoClean" });
+    await sandbox.purgeExpiredItems();
+    check("关闭时设置变更和定时触发均不修改收藏及关联数据", JSON.stringify(store) === before);
+
+    // 新 worker 的启动清理也必须遵守持久化的关闭设置。
+    const restarted = vm.createContext({ ...sandbox });
+    vm.runInContext(code, restarted, { filename: "background.js" });
+    await restarted.purgeExpiredItems();
+    check("worker 重启后仍保留所有已读网页", JSON.stringify(store) === before);
+
+    store.laterOnSettings = { ...store.laterOnSettings, autoCleanEnabled: true };
+    await purge();
+    const ids = store.laterOnItems.map(it => it.id);
+    check("重新开启立即清理普通及归档的到期已读", !ids.includes("old") && !ids.includes("archived-old"));
+    check("恢复原有 90 天期限，40 天已读及其他状态仍保留", ids.includes("fresh") && ids.includes("reading") && ids.includes("unread") && store.laterOnSettings.autoCleanDays === 90);
+  }
+
   console.log(failures ? `\n❌ 有 ${failures} 项没通过` : "\n🎉 全部通过");
   process.exit(failures ? 1 : 0);
 }

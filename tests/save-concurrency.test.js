@@ -103,6 +103,29 @@ function gateExtraction() {
   local.get = originalGet;
   assert.deepStrictEqual(titles(), ['during-purge'], '自动清理与保存不互相覆盖');
 
+  // 旧快照读取期间关闭或延长清理期限，提交前必须放弃旧策略。
+  for (const policy of [{ autoCleanEnabled: false }, { autoCleanDays: 180 }]) {
+    store.laterOnSettings = { autoCleanEnabled: true, autoCleanDays: 30 };
+    store.laterOnItems = [{ ...page('retained'), id: 'retained', status: 'done', doneAt: Date.now() - 60 * 86400000 }];
+    let releaseSnapshot, signalSnapshot;
+    const snapshotReady = new Promise(resolve => { signalSnapshot = resolve; });
+    const snapshotGate = new Promise(resolve => { releaseSnapshot = resolve; });
+    local.get = async keys => {
+      const result = await originalGet(keys);
+      if (Array.isArray(keys) && keys.includes('laterOnItems') && keys.includes('laterOnSettings')) {
+        signalSnapshot(); await snapshotGate;
+      }
+      return result;
+    };
+    const pendingPurge = ctx.purgeExpiredItems();
+    await snapshotReady;
+    await local.set({ laterOnSettings: { ...store.laterOnSettings, ...policy } });
+    releaseSnapshot();
+    assert.strictEqual(await pendingPurge, 0);
+    local.get = originalGet;
+    assert.deepStrictEqual(titles(), ['retained'], '清理不能继续提交已失效的策略');
+  }
+
   failWrite = true;
   await assert.rejects(ctx.saveItem(page('failed'), { silent: true }), /fixture write failure/);
   await ctx.saveItem(page('after-failure'), { silent: true });
