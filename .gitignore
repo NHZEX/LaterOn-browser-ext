@@ -6,3 +6,5 @@ tests/dialog-preview.html
 tests/picker-preview.html
 .agents
 node_modules/
+.output/
+.wxt/

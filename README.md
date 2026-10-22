@@ -101,13 +101,13 @@ Chrome 内部页面、扩展商店、浏览器内置 PDF 查看器等受保护�
 pnpm install --frozen-lockfile
 ```
 
-开发时在浏览器中加载仓库根目录，修改后重新加载扩展。
+运行 `pnpm build` 后，在浏览器中加载 `.output/chrome-mv3`；修改后重新构建并重新加载扩展。
 
 | 命令 | 用途 |
 | --- | --- |
 | `pnpm test` | 运行全部测试 |
-| `pnpm build` | 生成 `dist/LaterOn-<版本>.zip` |
-| `pnpm release:check` | 校验已有 ZIP 与当前运行源码一致 |
+| `pnpm build` | 使用 WXT 构建扩展并生成 `dist/LaterOn-<版本>.zip` |
+| `pnpm release:check` | 校验构建未过期，且 ZIP 与构建产物一致 |
 | `pnpm run release:local --dir "<安装目录>"` | 构建并安装到指定目录，备份旧版本 |
 
 扩展版本由 `manifest.json` 定义。发布前先运行测试；安装目录的父目录须已存在，已有目录必须为同一扩展。旧版本保存在安装目录同级的 `<目录名>-backups/` 中，发布后需在浏览器中重新加载扩展。
