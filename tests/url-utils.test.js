@@ -3,9 +3,9 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 
-const source = fs.readFileSync(path.resolve(__dirname, "..", "url-utils.js"), "utf8");
+const source = fs.readFileSync(path.resolve(__dirname, "..", "src/shared/url-utils.js"), "utf8");
 const context = vm.createContext({ URL, globalThis: {} });
-vm.runInContext(source, context, { filename: "url-utils.js" });
+vm.runInContext(source, context, { filename: "src/shared/url-utils.js" });
 const normalize = context.globalThis.LaterOnUrl.normalize;
 
 assert.strictEqual(

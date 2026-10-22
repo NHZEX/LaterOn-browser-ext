@@ -23,7 +23,7 @@ const chrome = {
   tabs: { onUpdated: event(), onRemoved: event(), onCreated: event(), onActivated: event() }, action: {}, sidePanel: { setPanelBehavior() {} }
 };
 const ctx = vm.createContext({ chrome, URL, TextEncoder, crypto: webcrypto, console, setTimeout, clearTimeout, setInterval, clearInterval });
-ctx.importScripts = (...names) => names.forEach(name => vm.runInContext(fs.readFileSync(path.join(root, name), 'utf8'), ctx, { filename: name }));
+ctx.importScripts = (...names) => names.forEach(name => vm.runInContext(fs.readFileSync(path.join(root, name === 'url-utils.js' ? 'src/shared/url-utils.js' : name), 'utf8'), ctx, { filename: name }));
 ctx.importScripts('background.js');
 const core = ctx.LaterOnBackup;
 const send = message => new Promise((resolve, reject) => {

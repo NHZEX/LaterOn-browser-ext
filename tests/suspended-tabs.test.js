@@ -20,7 +20,7 @@ const samples = [
   "https://example.com/%252F?q=%25+%2B&empty=&empty=2"
 ];
 const utils = vm.createContext({ URL });
-vm.runInContext(source("url-utils.js"), utils);
+vm.runInContext(source("src/shared/url-utils.js"), utils);
 const { suspendedPage, unwrapSuspendedUrl, unwrapSuspendedTab, normalize } = utils.LaterOnUrl;
 for (const url of samples) {
   assert.equal(unwrapSuspendedUrl(frozenUrl(url)), url, "原网址逐字符保留");
@@ -95,7 +95,7 @@ function worker() {
       if (fetchMode === "fail") throw new Error("OFFLINE");
       return { ok: true, headers: { get: () => "text/html" }, text: async () => '<html><head><title>Example Domain</title><meta property="og:description" content="后台摘要"><meta property="og:image" content="https://example.com/cover.jpg"></head></html>' };
     },
-    importScripts(...files) { for (const file of files) vm.runInContext(source(file), ctx, { filename: file }); }
+    importScripts(...files) { for (const file of files) vm.runInContext(source(file === "url-utils.js" ? "src/shared/url-utils.js" : file), ctx, { filename: file }); }
   });
   vm.runInContext(source("background.js"), ctx, { filename: "background.js" });
   ctx.showActionFeedback = async () => {};

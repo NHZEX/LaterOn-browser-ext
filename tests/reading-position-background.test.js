@@ -4,7 +4,7 @@ const path = require("path");
 const vm = require("vm");
 
 const ROOT = path.join(__dirname, "..");
-const urlSource = fs.readFileSync(path.join(ROOT, "url-utils.js"), "utf8");
+const urlSource = fs.readFileSync(path.join(ROOT, "src/shared/url-utils.js"), "utf8");
 const source = fs.readFileSync(path.join(ROOT, "reading-position-background.js"), "utf8");
 const store = {
   laterOnItems: [{ id: "a", url: "https://example.com/article?utm_source=x", title: "A" }],
@@ -39,7 +39,7 @@ const chrome = {
 const sandbox = { chrome, URL, console, Promise, Object, Array, Set, Map, String, Number, Math };
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
-vm.runInContext(urlSource, sandbox, { filename: "url-utils.js" });
+vm.runInContext(urlSource, sandbox, { filename: "src/shared/url-utils.js" });
 vm.runInContext(source, sandbox, { filename: "reading-position-background.js" });
 
 let failures = 0;

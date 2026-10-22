@@ -29,7 +29,7 @@ const chrome = {
   action: {}, sidePanel: { setPanelBehavior() {} }
 };
 const ctx = vm.createContext({ chrome, console, URL, crypto: webcrypto, setTimeout, clearTimeout, setInterval, clearInterval, importScripts() {} });
-vm.runInContext(fs.readFileSync(path.join(root, 'url-utils.js'), 'utf8'), ctx);
+vm.runInContext(fs.readFileSync(path.join(root, 'src/shared/url-utils.js'), 'utf8'), ctx);
 vm.runInContext(fs.readFileSync(path.join(root, 'modules/storage/coordinator.js'), 'utf8'), ctx);
 vm.runInContext(fs.readFileSync(path.join(root, 'background.js'), 'utf8'), ctx);
 ctx.showActionFeedback = async () => {};

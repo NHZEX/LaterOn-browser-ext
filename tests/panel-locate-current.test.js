@@ -18,7 +18,7 @@ const ROOT = path.resolve(__dirname, "..");
 const html = fs.readFileSync(`${ROOT}/sidepanel.html`, "utf8");
 const i18nSource = fs.readFileSync(`${ROOT}/i18n.js`, "utf8");
 const sidepanelSource = fs.readFileSync(`${ROOT}/sidepanel.js`, "utf8");
-const urlSource = fs.readFileSync(`${ROOT}/url-utils.js`, "utf8");
+const urlSource = fs.readFileSync(`${ROOT}/src/shared/url-utils.js`, "utf8");
 const tabNavigationSource = fs.readFileSync(`${ROOT}/tab-navigation.js`, "utf8");
 
 let failures = 0;

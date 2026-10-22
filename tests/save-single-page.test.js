@@ -164,7 +164,7 @@ const sandbox = {
 };
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
-for (const file of ["url-utils.js", "modules/collection/picker.js"]) {
+for (const file of ["src/shared/url-utils.js", "modules/collection/picker.js"]) {
   vm.runInContext(fs.readFileSync(path.join(path.dirname(SOURCE), file), "utf8"), sandbox);
 }
 vm.runInContext(src, sandbox, { filename: "background.js" });

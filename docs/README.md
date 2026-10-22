@@ -3,7 +3,7 @@
 | 文档 | 内容 |
 | --- | --- |
 | [迭代路线与任务状态](roadmap.md) | 当前任务、优先级、完成条件与下一步 |
-| [源码整理与 Vue 设置页迁移](plans/019-020-source-and-vue-migration.md) | ITER-019 / ITER-020 的范围、分阶段提交与验收要求；待实施 |
+| [源码整理与 Vue 设置页迁移](plans/019-020-source-and-vue-migration.md) | ITER-019 / ITER-020 的范围、分阶段提交与验收要求；进度见 roadmap |
 | [初始架构与上游调研](research/2026-10-20-baseline-and-upstream.md) | 2026-10-20 架构及社区快照，含 2026-10-22 补查与来源 |
 | [2026 年 10 月实施记录](iterations/2026-10.md) | 实际提交、测试、浏览器验收与本机发布记录 |
 | [本地备份与导入](backup-format.md) | 备份格式、校验、恢复与数据写入约定 |

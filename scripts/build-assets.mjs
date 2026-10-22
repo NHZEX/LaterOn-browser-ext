@@ -3,6 +3,10 @@ import { relative, resolve } from "node:path";
 
 export const projectRoot = new URL("../", import.meta.url);
 const specification = JSON.parse(readFileSync(new URL("runtime-files.json", import.meta.url), "utf8"));
+const destinations = {
+  "background.js": "background-runtime.js",
+  "src/shared/url-utils.js": "url-utils.js"
+};
 
 function runtimeFiles(root) {
   const { files, directories } = specification;
@@ -16,6 +20,6 @@ export function legacyAssets(root) {
   return runtimeFiles(root)
     .map((name) => ({
       absoluteSrc: resolve(root, name),
-      relativeDest: name === "background.js" ? "background-runtime.js" : name
+      relativeDest: destinations[name] ?? name
     }));
 }
