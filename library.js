@@ -154,10 +154,7 @@ function normalizeItems(list) {
 //   ② local://<收藏id> —— 用户上传的封面，本体在 COVERS_KEY 那个键里，按 id 取
 //   ③ data: 开头的老数据（封面搬家功能上线前存的）——兼容直接用
 function resolveImage(item) {
-  const image = item?.image;
-  if (typeof image !== "string" || !image) return "";
-  if (image.startsWith("local://")) return covers[image.slice(8)] || "";
-  return image;
+  return LaterOnItemEdit.resolveImage(item, covers);
 }
 
 // 一次性搬家：把还躺在收藏列表里的 base64 封面挪到单独的键里。
@@ -1478,7 +1475,7 @@ function createCard(item) {
   // 因此 DOM 本身也只能放 http/https，不能把 javascript: 等协议留给浏览器执行。
   coverLink.href = titleLink.href = safeTarget(item.url) || "#";
   setText(fragment.querySelector(".title-link h2"), item.title);
-  setText(fragment.querySelector(".description"), IS_EMPTY_SUMMARY.test(item.description) ? tr("noDescription") : item.description);
+  setText(fragment.querySelector(".description"), LaterOnItemEdit.isEmptySummary(item.description) ? tr("noDescription") : item.description);
   fragment.querySelector(".source-name").textContent = item.source;
   fragment.querySelector("time").textContent = formatTime(item.savedAt);
   favicon.src = item.favicon;
@@ -1518,7 +1515,7 @@ function updateCard(card, item) {
   // 标题和摘要也能同步跟上：卡片是复用的 DOM（只在第一次出现时新建），
   // 不同步的话，改完标题、或重复收藏抓到更好的信息，卡片上会一直是旧文字。
   setText(card.querySelector(".title-link h2"), item.title);
-  setText(card.querySelector(".description"), IS_EMPTY_SUMMARY.test(item.description) ? tr("noDescription") : item.description);
+  setText(card.querySelector(".description"), LaterOnItemEdit.isEmptySummary(item.description) ? tr("noDescription") : item.description);
   const target = safeTarget(item.url) || "#";
   const titleLink = card.querySelector(".title-link");
   const coverLink = card.querySelector(".cover-link");
@@ -1541,8 +1538,6 @@ function setText(element, value) {
 
 // ── 编辑收藏的标题 / 摘要 ──────────────────────────────────
 // 没抓到摘要时存的就是「暂无摘要」这几个字，编辑时要把占位当成「空」显示给用户。
-const NO_SUMMARY = "暂无摘要";
-const IS_EMPTY_SUMMARY = /^\s*(暂无摘要|No summary)?\s*$/i;
 // 自动抓取难免有偏差（标题带站名、摘要抓成导航文字），所以允许用户自己改。
 // 改过的会被标记为 titleEdited / descriptionEdited，
 // 之后再次收藏同一网址时，后台不会再拿自动抓取的结果覆盖掉用户手写的版本。
@@ -1550,7 +1545,7 @@ async function editItem(item) {
   const originalCover = resolveImage(item);
   const result = await LaterOnDialog.prompt({
     title: tr("editItem"),
-    message: IS_EMPTY_SUMMARY.test(item.description) ? tr("missingSummaryHint") : "",
+    message: LaterOnItemEdit.isEmptySummary(item.description) ? tr("missingSummaryHint") : "",
     // 封面：可以自己上传一张本地图片（自动压缩后保存），也可以移除，显示回 Logo 占位。
     cover: { name: "cover", label: tr("cover"), value: originalCover },
     fields: [
@@ -1558,7 +1553,7 @@ async function editItem(item) {
       {
         name: "description",
         label: tr("summary"),
-        value: IS_EMPTY_SUMMARY.test(item.description) ? "" : item.description,
+        value: LaterOnItemEdit.isEmptySummary(item.description) ? "" : item.description,
         placeholder: tr("summaryPlaceholder"),
         multiline: true,
         maxLength: 500
@@ -1568,28 +1563,7 @@ async function editItem(item) {
   });
   if (!result?.ok) return;
 
-  const values = result.values || {};
-  const patch = {};
-  const nextTitle = (values.title ?? item.title).trim();
-  const nextDescription = (values.description ?? item.description).trim();
-  if (nextTitle && nextTitle !== item.title) {
-    patch.title = nextTitle;
-    patch.titleEdited = true;
-  }
-  const finalDescription = nextDescription || NO_SUMMARY;
-  if (finalDescription !== item.description) {
-    patch.description = finalDescription;
-    patch.descriptionEdited = true;
-  }
-  // 封面：值是 data URL（用户上传的图）或 ""（移除）。和原来不一样才写，
-  // 没动过时 values.cover 就等于传进去的旧值，不会触发无谓的写入。
-  // 本体（base64 大图）放进单独的 COVERS_KEY，收藏条目里只记一个 local://<id> 的指针，
-  // 这样收藏列表始终是纯文字小数据，页面打开才不会被拖慢。
-  if (typeof values.cover === "string" && values.cover !== originalCover) {
-    patch.cover = values.cover;
-    // 记一笔：这是用户自己定的封面，之后再收藏同一网址时别用自动抓取的把它盖掉。
-    patch.imageEdited = true;
-  }
+  const patch = LaterOnItemEdit.buildEditPatch(item, result.values || {}, originalCover);
   if (!Object.keys(patch).length) { showToast(tr("noChanges")); return; }
   if (!await updateItem(item.id, patch)) return;
   // 立刻重画一次：存储的变更广播不一定会回到自己这个页面，靠它会显得「改了没反应」。

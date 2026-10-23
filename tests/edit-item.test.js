@@ -173,7 +173,7 @@ async function partPage(page) {
       id: "item-1",
       title: "自动抓来的标题 - 知乎",
       description: "暂无摘要",
-      image: "",
+      image: "local://item-1",
       favicon: "",
       source: "zhihu.com",
       projectId: null,
@@ -198,6 +198,7 @@ async function partPage(page) {
   const store = {
     laterOnItems: JSON.parse(JSON.stringify(ITEMS)),
     laterOnProjects: PROJECTS,
+    laterOnCovers: { "item-1": "data:image/png;base64,AAAA", unrelated: "data:image/png;base64,T1RIRVI=" },
     laterOnActiveProject: "unfiled",
     laterOnSettings: {}
   };
@@ -314,6 +315,7 @@ async function partPage(page) {
     check("不发送存储广播，卡片标题也更新", titleOf("item-1") === "我重写的标题", titleOf("item-1"));
     check("不发送存储广播，卡片摘要也更新", descOf("item-1") === "我补的摘要", descOf("item-1"));
     check("其它收藏没被波及", titleOf("item-2") === "另一篇");
+    check("只改文字时本地封面和指针保持不变", saved.image === "local://item-1" && store.laterOnCovers["item-1"] === "data:image/png;base64,AAAA");
 
     // 摘要清空 → 回落到「暂无摘要」，而不是把卡片摘要弄没。
     click(card("item-1").querySelector(".edit"));
@@ -374,6 +376,19 @@ async function partPage(page) {
     await tick();
     check("外部改动也能同步到卡片标题（不再是一张死卡）", titleOf("item-2") === "后台更新后的标题", titleOf("item-2"));
     check("摘要同步也是好的", descOf("item-2") === "后台更新后的摘要", descOf("item-2"));
+
+    // 从真实编辑弹窗移除本地封面，验证两页均提交图片标记并显示占位。
+    click(card("item-1").querySelector(".edit"));
+    await waitFor("封面移除时打开编辑弹窗", visible);
+    check("编辑弹窗解析并预览本地封面", visible().querySelector(".lod-cover-preview img")?.getAttribute("src") === "data:image/png;base64,AAAA");
+    click(visible().querySelector(".lod-cover-btn.is-plain"));
+    click(visible().querySelector(".lod-ok"));
+    await waitFor("移除封面后无广播也显示占位", () =>
+      !card("item-1").querySelector(isLibrary ? ".cover-img" : ".thumb-img")
+      && !!card("item-1").querySelector(isLibrary ? ".cover-placeholder" : ".thumb-placeholder"));
+    const withoutCover = store.laterOnItems.find(entry => entry.id === "item-1");
+    check("移除封面清理指针和图片数据并标记用户编辑", withoutCover.image === "" && withoutCover.imageEdited === true && !("item-1" in store.laterOnCovers));
+    check("移除封面保留其他图片", store.laterOnCovers.unrelated === "data:image/png;base64,T1RIRVI=");
   } finally {
     scripts.disconnect();
     window.close();

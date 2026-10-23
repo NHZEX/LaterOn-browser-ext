@@ -4,6 +4,7 @@ const read = require('./read-runtime.cjs');
 module.exports = function install(window) {
   if (!window.chrome?.runtime || window.__itemMutationMock) return;
   window.__itemMutationMock = true;
+  window.eval(read('item-edit.js'));
   const storageContext = vm.createContext({ Date, crypto: window.crypto,
     chrome: { storage: window.chrome.storage, runtime: { onMessage: { addListener() {} } } } });
   vm.runInContext(read('storage-coordinator.js'), storageContext);

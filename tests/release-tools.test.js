@@ -6,6 +6,7 @@ const { spawnSync } = require("node:child_process");
 const vm = require("node:vm");
 const { webcrypto } = require("node:crypto");
 const { unzipSync, zipSync, Zip, ZipDeflate } = require("fflate");
+const { JSDOM } = require("jsdom");
 
 const root = path.resolve(__dirname, "..");
 const output = path.join(root, ".output");
@@ -137,7 +138,33 @@ async function verifyBuiltWorker(directory = builtDirectory) {
   await assert.rejects(page.LaterOnStorage.run("mutateItems", { operation: "delete", ids: [saved.id] }), /STALE_COLLECTION/);
   assert.equal(store.laterOnItems.length, 1);
   await verifyBuiltNavigation(directory);
+  verifyBuiltItemEdit(directory);
   await verifyBuiltSettings(directory);
+}
+
+function verifyBuiltItemEdit(directory) {
+  for (const name of ["library", "sidepanel"]) {
+    const dom = new JSDOM(fs.readFileSync(path.join(directory, `${name}.html`), "utf8"));
+    try {
+      const scripts = [...dom.window.document.scripts];
+      const helper = scripts.find(script => script.getAttribute("src") === "item-edit.js");
+      const page = scripts.find(script => script.getAttribute("src") === `${name}.js`);
+      assert.ok(helper && page, `${name} references its built edit helper and page script`);
+      assert.ok(scripts.indexOf(helper) < scripts.indexOf(page), `${name} loads shared rules before its page script`);
+      assert.equal(helper.type, "", "The old pages consume a classic script");
+      assert.equal(helper.hasAttribute("async"), false);
+      assert.equal(helper.defer, page.defer, "Shared rules follow the page's existing execution timing");
+      const context = vm.createContext({});
+      vm.runInContext(fs.readFileSync(path.join(directory, helper.getAttribute("src")), "utf8"), context);
+      const cover = "data:image/png;base64,AAAA";
+      const item = { title: "Old", description: "Summary", image: "local://a" };
+      assert.equal(context.LaterOnItemEdit.resolveImage(item, { a: cover }), cover);
+      const patch = context.LaterOnItemEdit.buildEditPatch(item, { title: " New ", description: " ", cover: "" }, cover);
+      assert.deepEqual(JSON.parse(JSON.stringify(patch)), {
+        title: "New", titleEdited: true, description: "暂无摘要", descriptionEdited: true, cover: "", imageEdited: true
+      }, "Built edit rules preserve text normalization and explicit image removal");
+    } finally { dom.window.close(); }
+  }
 }
 
 async function verifyBuiltSettings(directory) {
