@@ -1,3 +1,9 @@
+import { normalizeFilter, normalizeSort, matchesReadFilter as matchesReading, matchesSearch } from "./src/collection/filter";
+
+// Transitional controller: Vue owns the header/toolbar DOM; later slices replace the grids and project navigation.
+/** @param {import("./src/library/useLibraryControls").LibraryControls} controls */
+export function startLibraryPage(controls) {
+const view = controls.state;
 const STORAGE_KEY = "laterOnItems";
 const PROJECTS_KEY = "laterOnProjects";
 const ACTIVE_PROJECT_KEY = "laterOnActiveProject";
@@ -27,9 +33,6 @@ const COVERS_KEY = "laterOnCovers";
 const PIN_FILL_PATH = "M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z";
 let items = [];
 let projects = [];
-let filter = DEFAULT_FILTER;
-let query = "";
-let sort = "newest";
 let orders = {};
 let activeProject = "all";
 // 首页用品牌 slogan；用户明确进入某个导航范围后，标签页改成对应范围名称。
@@ -72,11 +75,9 @@ let folderDragBlocked = false; // 这次按下是从「改名输入框 / ⋯ 按
 const grid = document.querySelector("#cardGrid");
 const boardGrid = document.querySelector("#boardGrid");
 const empty = document.querySelector("#emptyState");
-const countText = document.querySelector("#countText");
 const template = document.querySelector("#cardTemplate");
 const boardTemplate = document.querySelector("#boardTemplate");
 const searchInput = document.querySelector("#searchInput");
-const sortSelect = document.querySelector("#sortSelect");
 const toast = document.querySelector("#toast");
 const tr = (key, vars) => {
   if (window.LaterOnI18n?.t) return window.LaterOnI18n.t(key, vars);
@@ -172,32 +173,17 @@ function readToggleLabel(status) {
 
 // 筛选只认这三档。第一次打开还没有偏好，或存入了异常值时，默认展示「未读」；
 // 用户手动切换后会写进 FILTER_KEY，以后恢复上次选择。
-const FILTER_VALUES = new Set(["all", "unread", "done"]);
-function normalizeFilter(value) {
-  return FILTER_VALUES.has(value) ? value : DEFAULT_FILTER;
-}
-
 // 搜索是临时查看状态；切换项目或移动收藏后离开搜索结果，避免旧关键词继续过滤新页面。
 function clearSearch() {
-  clearTimeout(searchTimer);
-  if (searchInput?.value) searchInput.value = "";
-  query = "";
-}
-// 把三个筛选按钮的高亮同步成当前的 filter。
-// 之前只有「点按钮」时才改高亮，另一边改了存储这边就对不上了，所以抽出来单独调。
-function syncFilterButtons() {
-  document.querySelectorAll(".nav-item").forEach((button) => {
-    button.classList.toggle("active", button.dataset.filter === filter);
-  });
+  controls.clearSearch();
 }
 // 切换筛选：先本地生效，再写进共享存储，让另一个视图跟着切。
 async function setFilter(value) {
   const next = normalizeFilter(value);
-  if (next === filter) { syncFilterButtons(); return; }
-  filter = next;
-  syncFilterButtons();
+  if (next === view.filter) return;
+  view.filter = next;
   render();
-  try { await chrome.storage.local.set({ [FILTER_KEY]: filter, [FILTER_CHOSEN_KEY]: true }); } catch { /* 存不下就算了，本地筛选照常用 */ }
+  try { await chrome.storage.local.set({ [FILTER_KEY]: view.filter, [FILTER_CHOSEN_KEY]: true }); } catch { /* 存不下就算了，本地筛选照常用 */ }
 }
 
 async function init() {
@@ -224,23 +210,21 @@ async function init() {
   pageTitleMode = launchedFromSidepanel ? "section" : "home";
   currentItemId = result[CURRENT_ITEM_KEY] || null;
   const userSettings = result[SETTINGS_KEY] || {};
-  sort = userSettings.defaultSort || "newest";
-  sortSelect.value = sort;
+  view.sort = normalizeSort(userSettings.defaultSort);
   autoMarkRead = userSettings.autoMarkRead !== false;
   // 旧版本会在回首页时写入 all，但那不是用户的筛选偏好；升级后首次打开回到未读。
-  filter = launchedFromSidepanel
+  view.filter = launchedFromSidepanel
     ? normalizeFilter(launchParams.get("filter") || result[FILTER_KEY])
     : (result[FILTER_CHOSEN_KEY] ? normalizeFilter(result[FILTER_KEY]) : DEFAULT_FILTER);
   // 地址栏输入 `lo 关键词` 后，默认回车会把用户带到这页并附上搜索词。
   // 此入口明确是在找收藏，所以临时查看全部阅读状态，不把这个选择写回用户的日常筛选偏好。
   const launchQuery = String(launchParams.get("q") || "").trim();
   if (launchQuery) {
-    query = launchQuery.toLowerCase();
-    searchInput.value = launchQuery;
-    if (launchParams.get("from") === "omnibox") filter = "all";
+    view.query = launchQuery.toLowerCase();
+    view.search = launchQuery;
+    if (launchParams.get("from") === "omnibox") view.filter = "all";
     pageTitleMode = "section";
   }
-  syncFilterButtons();
   // focus 只接受当前共享的正在读条目，防止陈旧链接把另一篇卡片误当成当前文章。
   const requestedFocus = launchParams.get("focus");
   initialLocateItemId = launchedFromSidepanel && requestedFocus === currentItemId ? currentItemId : null;
@@ -392,7 +376,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
   if (area === "local" && changes[SETTINGS_KEY]) {
     const s = changes[SETTINGS_KEY].newValue || {};
-    if (s.defaultSort && s.defaultSort !== sort) { sort = s.defaultSort; sortSelect.value = sort; render(); }
+    if (s.defaultSort && normalizeSort(s.defaultSort) !== view.sort) { view.sort = normalizeSort(s.defaultSort); render(); }
     if (typeof s.autoMarkRead === "boolean") autoMarkRead = s.autoMarkRead;
   }
   if (area === "local" && changes[CURRENT_ITEM_KEY]) {
@@ -407,7 +391,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes[FILTER_KEY]) {
     // 侧栏那边切了筛选 → 这边跟着切（反过来同理）。自己写的值不会变，自然被这个判断挡掉。
     const next = normalizeFilter(changes[FILTER_KEY].newValue);
-    if (next !== filter) { filter = next; syncFilterButtons(); render(); }
+    if (next !== view.filter) { view.filter = next; render(); }
   }
 });
 
@@ -460,16 +444,6 @@ async function promptCreateProject() {
   if (result?.ok) await createProject(result.values?.name);
 }
 
-document.querySelectorAll(".nav-item").forEach((button) => {
-  button.addEventListener("click", () => setFilter(button.dataset.filter));
-});
-
-let searchTimer = null;
-searchInput.addEventListener("input", () => {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => { query = searchInput.value.trim().toLowerCase(); render(); }, 120);
-});
-
 // 点左上角的 LaterOn 标识 = 回「全屏首页」。
 // 首页 = 这一页刚打开时的那一屏：全部项目（图板总览）+ 筛选回到「未读」+ 没有搜索词 + 滚到顶。
 // 之所以要一次性复位这么多：钻进某个项目或筛到「未读」之后，用户对「怎么退回去」是没有把握的，
@@ -480,12 +454,6 @@ function goHome() {
   selectProject("all", { asHome: true });
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
-
-document.querySelector("#homeBrand")?.addEventListener("click", (event) => {
-  // 它是个 <a href="#">：默认行为只是往地址栏塞个 #、页面闪一下，这里全权接管。
-  event.preventDefault();
-  goHome();
-});
 
 // 事件委托：整页只挂一个监听器，避免给每张卡片单独绑监听。
 grid.addEventListener("click", (event) => {
@@ -789,9 +757,8 @@ async function commitCardOrder(dropIndex) {
   grid.classList.add("no-transition");
   clearReorderPreview();
   // 原来不是「自定义顺序」的话，拖这一次就说明你想自己排，顺手切过去并说一声。
-  if (sort !== "custom") {
-    sort = "custom";
-    sortSelect.value = "custom";
+  if (view.sort !== "custom") {
+    view.sort = "custom";
     render();
     saveSortSetting();
     showToast(tr("customSortEnabled"));
@@ -856,19 +823,12 @@ projectListEl.addEventListener("drop", (event) => {
   event.preventDefault();
   commitFolderOrder().catch(() => {});
 });
-sortSelect.addEventListener("change", () => {
-  sort = sortSelect.value;
-  render();
-  // 排序方式存进共享设置：侧栏照着同一份排，下次打开也还是这一档，
-  // 不会出现「全屏自定义顺序、侧栏还是按时间」的错位。
-  saveSortSetting();
-});
 async function saveSortSetting() {
   try {
     const stored = await chrome.storage.local.get(SETTINGS_KEY);
     const settings = stored[SETTINGS_KEY] || {};
-    if (settings.defaultSort === sort) return;
-    await chrome.storage.local.set({ [SETTINGS_KEY]: { ...settings, defaultSort: sort } });
+    if (settings.defaultSort === view.sort) return;
+    await chrome.storage.local.set({ [SETTINGS_KEY]: { ...settings, defaultSort: view.sort } });
   } catch { /* 存不下就算了，本次会话的排序照常用 */ }
 }
 document.addEventListener("keydown", (event) => {
@@ -915,9 +875,9 @@ function scopeOrder(scopedItems) {
 // 排序规则：仍是「最新收藏 / 最早收藏 / 按来源」时照旧；
 // 选了「自定义顺序」就按用户拖出来的先后排（没排过的按收藏时间倒序排在末尾附近）。
 function customOrderComparator(scopedItems) {
-  if (sort !== "custom") {
-    return (a, b) => sort === "oldest" ? a.savedAt - b.savedAt
-      : sort === "source" ? a.source.localeCompare(b.source)
+  if (view.sort !== "custom") {
+    return (a, b) => view.sort === "oldest" ? a.savedAt - b.savedAt
+      : view.sort === "source" ? a.source.localeCompare(b.source)
       : b.savedAt - a.savedAt;
   }
   const rank = new Map(scopeOrder(scopedItems).map((id, index) => [id, index]));
@@ -947,19 +907,17 @@ function renderCardsView() {
   const scopedItems = items.filter((item) => {
     if (activeProject === "archive") return itemIsArchived(item);
     if (itemIsArchived(item) && activeProject !== item.projectId) return false;
-    return !!query || activeProject === "all" || (activeProject === "unfiled" ? !item.projectId : item.projectId === activeProject);
+    return !!view.query || activeProject === "all" || (activeProject === "unfiled" ? !item.projectId : item.projectId === activeProject);
   });
   let visible = scopedItems.filter((item) => {
     // 「未读」= 还没读完（未读 + 在读）；「已读」= 手动标完成的那批。
     // 这样点开文章（自动进「在读」）不会让它从「未读」里消失——没读完就还算没读。
-    const matchesFilter = filter === "all" || (filter === "done" ? item.status === "done" : item.status !== "done");
-    const haystack = `${item.title} ${item.description} ${item.source} ${item.url}`.toLowerCase();
-    return matchesFilter && (!query || haystack.includes(query));
+    return matchesReading(item, view.filter) && matchesSearch(item, view.query);
   });
   visible.sort(customOrderComparator(scopedItems));
   // 计数要说清是「在哪找的」：搜索时报命中数，并写明是在全部收藏里找的
   // ——否则人在某个项目里会以为顶上那个数字还是这个项目的。
-  countText.textContent = query
+  view.count = view.query
     ? tr("searchCount", { count: visible.length, unfinished: visible.filter((item) => item.status !== "done").length })
     : tr("scopedCount", { count: scopedItems.length, unfinished: scopedItems.filter((item) => item.status !== "done").length });
 
@@ -990,7 +948,7 @@ function renderCardsView() {
 // 搜索时也让位给卡片列表：搜索要找的是「文章」，不是「类目」——所以只要搜索框里有字，
 // 即便是「全部项目」也直接铺出命中的卡片（见 renderCardsView 里的全局搜索）。
 function isBoardView() {
-  return (activeProject === "all" || activeProject === "archive") && !query;
+  return (activeProject === "all" || activeProject === "archive") && !view.query;
 }
 
 // 哪些控件在当前视图下该出现：排序和批量选择只对卡片列表有意义，
@@ -999,15 +957,13 @@ function syncViewUI() {
   const board = isBoardView();
   grid.hidden = board;
   boardGrid.hidden = !board;
-  sortSelect.hidden = board;
-  const selectButton = document.querySelector("#selectMode");
-  if (selectButton) selectButton.hidden = board;
+  view.board = board;
   if (board && selectMode) setSelectMode(false);
 }
 
-// 顶部「未读 / 已读」筛选（filter 是模块级变量，两个视图共用）
+// 图板和卡片复用相同的阅读筛选规则。
 function matchesReadFilter(item) {
-  return filter === "all" || (filter === "done" ? item.status === "done" : item.status !== "done");
+  return matchesReading(item, view.filter);
 }
 
 // 类目分组：一个项目一块图板。
@@ -1055,7 +1011,7 @@ function renderBoards() {
   const loose = items.filter((item) => !item.projectId && matchesReadFilter(item)).length;
   // 「全部项目」是项目总览，不把未归类收藏伪装成一个项目统计；
   // 待整理数量只在左侧待整理入口显示。
-  countText.textContent = tr("boardCount", { groups: groups.length, total, unfinished });
+  view.count = tr("boardCount", { groups: groups.length, total, unfinished });
 
   boardGrid.replaceChildren();
   for (const group of groups) boardGrid.append(createBoardCard(group));
@@ -2362,7 +2318,7 @@ function setSelectMode(on) {
   if (!next || !selectMode) clearSelection();
   selectMode = next;
   grid.classList.toggle("selecting", next);
-  document.querySelector("#selectMode")?.classList.toggle("active", next);
+  view.selecting = next;
   const bar = document.querySelector("#bulkBar");
   if (bar) bar.classList.toggle("is-open", next);
   updateSelectionUI();
@@ -2476,7 +2432,7 @@ function finishBulk() {
   setSelectMode(false);
 }
 
-document.querySelector("#selectMode")?.addEventListener("click", () => setSelectMode(!selectMode));
+controls.bind({ filter: setFilter, search: render, sort: () => { render(); saveSortSetting(); }, home: goHome, select: () => setSelectMode(!selectMode) });
 document.querySelector("#bulkSelectAll")?.addEventListener("click", () => {
   const allSelected = selectedIds.size >= grid.children.length && grid.children.length > 0;
   [...grid.children].forEach((card) => {
@@ -2518,4 +2474,6 @@ function showToast(message, duration = 1800, variant = "") {
       if (generation === toastGeneration) toast.classList.remove("pill-toast");
     }, 260);
   }, duration);
+}
+
 }

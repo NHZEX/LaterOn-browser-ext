@@ -6,8 +6,8 @@ const path = require("path");
 const { JSDOM, VirtualConsole } = require("jsdom");
 
 const ROOT = path.resolve(__dirname, "..");
-const libraryHtml = fs.readFileSync(`${ROOT}/library.html`, "utf8");
-const librarySource = fs.readFileSync(`${ROOT}/library.js`, "utf8");
+const libraryHtml = require("./helpers/read-runtime.cjs")("library.html");
+const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
 const panelHtml = fs.readFileSync(`${ROOT}/sidepanel.html`, "utf8");
 const panelSource = fs.readFileSync(`${ROOT}/sidepanel.js`, "utf8");
 

@@ -5,7 +5,7 @@ const { JSDOM } = require("jsdom");
 
 const ROOT = path.join(__dirname, "..");
 const read = (name) => fs.readFileSync(path.join(ROOT, name), "utf8");
-const dom = new JSDOM(read("library.html"), {
+const dom = new JSDOM(require("./helpers/read-runtime.cjs")("library.html"), {
   runScripts: "outside-only",
   pretendToBeVisual: true,
   url: "chrome-extension://lateron/library.html?q=design%20system&from=omnibox"
@@ -46,7 +46,7 @@ window.eval(read("i18n.js"));
 window.eval(read("dialog.js"));
 window.eval(read("picker-ui.js"));
 require('./helpers/item-mutation')(window);
-window.eval(read("library.js"));
+window.eval(require("./helpers/read-runtime.cjs")("library-page.js"));
 
 let failures = 0;
 const check = (label, ok, extra = "") => {

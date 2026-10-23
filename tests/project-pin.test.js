@@ -12,8 +12,8 @@ const path = require("path");
 const { JSDOM, VirtualConsole } = require("jsdom");
 
 const ROOT = path.resolve(__dirname, "..");
-const html = fs.readFileSync(`${ROOT}/library.html`, "utf8");
-const librarySource = fs.readFileSync(`${ROOT}/library.js`, "utf8");
+const html = require("./helpers/read-runtime.cjs")("library.html");
+const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
 const dialogSource = fs.readFileSync(`${ROOT}/dialog.js`, "utf8");
 // 侧栏那套样式的源码：下面有几条「静态断言」用它锁住纯视觉的规矩
 // （jsdom 不做排版，「图钉角标贴在缩略图的哪个角」这种事它永远测不出来）。

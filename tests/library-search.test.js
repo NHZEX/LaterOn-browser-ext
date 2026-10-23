@@ -11,8 +11,8 @@ const path = require("path");
 const { JSDOM, VirtualConsole } = require("jsdom");
 
 const ROOT = path.resolve(__dirname, "..");
-const html = fs.readFileSync(`${ROOT}/library.html`, "utf8");
-const librarySource = fs.readFileSync(`${ROOT}/library.js`, "utf8");
+const html = require("./helpers/read-runtime.cjs")("library.html");
+const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
 
 const errors = [];
 const virtualConsole = new VirtualConsole();

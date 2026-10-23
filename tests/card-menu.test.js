@@ -10,8 +10,8 @@ const path = require("path");
 const { JSDOM, VirtualConsole } = require("jsdom");
 
 const ROOT = path.resolve(__dirname, "..");
-const html = fs.readFileSync(`${ROOT}/library.html`, "utf8");
-const librarySource = fs.readFileSync(`${ROOT}/library.js`, "utf8");
+const html = require("./helpers/read-runtime.cjs")("library.html");
+const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
 const dialogSource = fs.readFileSync(`${ROOT}/dialog.js`, "utf8");
 const i18nSource = fs.readFileSync(`${ROOT}/i18n.js`, "utf8");
 const libraryCss = fs.readFileSync(`${ROOT}/library.css`, "utf8");

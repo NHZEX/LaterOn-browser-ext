@@ -7,32 +7,25 @@
          整页统一不发 Referer，收藏的封面与站点图标才能正常显示。 -->
     <meta name="referrer" content="no-referrer" />
     <title>LaterOn - 有价值的网页，留给 LaterOn。</title>
-    <link rel="icon" href="icon128.png" type="image/png" />
-    <link rel="stylesheet" href="theme-vars.css" />
-    <link rel="stylesheet" href="dialog.css" />
-    <link rel="stylesheet" href="onboarding.css" />
-    <link rel="stylesheet" href="library.css" />
-    <script src="theme.js"></script>
-    <script src="i18n.js"></script>
-    <script src="dialog.js"></script>
-    <script src="picker-ui.js"></script>
-    <script src="onboarding.js" defer></script>
+    <link rel="icon" href="/icon128.png" type="image/png" vite-ignore />
+    <link rel="stylesheet" href="../../../theme-vars.css" />
+    <link rel="stylesheet" href="../../../dialog.css" />
+    <link rel="stylesheet" href="../../../onboarding.css" />
+    <link rel="stylesheet" href="../../../library.css" />
+    <script src="/theme.js" vite-ignore></script>
+    <script src="/i18n.js" vite-ignore></script>
+    <script src="/dialog.js" vite-ignore></script>
+    <script src="/picker-ui.js" vite-ignore></script>
+    <script src="/onboarding.js" vite-ignore defer></script>
+    <script src="/url-utils.js" vite-ignore></script>
+    <script src="/tab-navigation.js" vite-ignore></script>
+    <script src="/storage-client.js" vite-ignore></script>
+    <script src="/item-edit.js" vite-ignore></script>
+    <script src="/item-state.js" vite-ignore></script>
   </head>
   <body>
     <div class="shell">
-      <header class="topbar">
-        <a class="brand" id="homeBrand" href="#" data-i18n-aria-label="home" data-i18n-title="home" aria-label="LaterOn 首页" title="回到首页"><img class="brand-icon" src="icon128.png" width="40" height="40" alt="" />LaterOn</a>
-        <nav data-i18n-aria-label="filterNav" aria-label="筛选">
-          <button class="nav-item active" data-filter="unread" data-i18n="unread">未读</button>
-          <button class="nav-item" data-filter="done" data-i18n="read">已读</button>
-          <button class="nav-item" data-filter="all" data-i18n="all">全部</button>
-        </nav>
-        <label class="search">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.3-4.3m2.3-5.2a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z"/></svg>
-          <input id="searchInput" type="search" data-i18n-placeholder="search" placeholder="搜索网页" autocomplete="off" />
-          <kbd>⌘ K</kbd>
-        </label>
-      </header>
+      <header id="libraryHeader" class="topbar"></header>
 
       <div class="workspace">
         <aside id="projectSidebar" class="project-sidebar" data-i18n-aria-label="projectNav" aria-label="项目导航">
@@ -112,24 +105,10 @@
         </aside>
 
         <main>
-        <section class="collection-bar">
-          <div class="collection-left">
-            <p id="countText">正在读取你的网页…</p>
-            <button id="selectMode" type="button" class="select-mode" data-i18n="select">选择</button>
-          </div>
-          <div class="collection-right">
-            <!-- 全部项目固定是图板视图，待整理 / 单个项目是卡片视图，不再需要手动切换 -->
-            <select id="sortSelect" data-i18n-aria-label="sortAria" aria-label="排序方式">
-              <option value="newest" data-i18n="sortNewest">最近添加</option>
-              <option value="oldest" data-i18n="sortOldest">最早添加</option>
-              <option value="source" data-i18n="sortSource">按来源</option>
-              <option value="custom" data-i18n="sortCustom">自定义顺序</option>
-            </select>
-          </div>
-        </section>
+        <section id="collectionToolbar" class="collection-bar"></section>
 
         <section id="emptyState" class="empty" hidden>
-          <img class="empty-icon" src="icon128.png" alt="" />
+          <img class="empty-icon" src="/icon128.png" vite-ignore alt="" />
           <h2 data-i18n="quiet">这里还很安静</h2>
           <p data-i18n="quietHint">打开一个有价值的网页，点击浏览器工具栏中的 LaterOn 图标即可添加。</p>
         </section>
@@ -145,7 +124,7 @@
         <label class="select-badge" data-i18n-aria-label="selectItem" aria-label="选择此网页"><input type="checkbox" class="select-check" /></label>
         <a class="cover-link" target="_blank" rel="noreferrer">
           <div class="cover">
-            <div class="cover-placeholder"><img class="cover-logo" src="article-cover-placeholder.png" alt="" /></div>
+            <div class="cover-placeholder"><img class="cover-logo" src="/article-cover-placeholder.png" vite-ignore alt="" /></div>
           </div>
         </a>
         <button class="edit" data-i18n-title="editItemAria" data-i18n-aria-label="editItemAria" title="编辑标题和摘要" aria-label="编辑标题和摘要">
@@ -198,11 +177,7 @@
       </div>
     </div>
     <div id="toast" class="toast" role="status"></div>
-    <script src="url-utils.js"></script>
-    <script src="tab-navigation.js"></script>
-    <script src="storage-client.js"></script>
-    <script src="item-edit.js"></script>
-    <script src="item-state.js"></script>
-    <script src="library.js"></script>
+    <div id="app"></div>
+    <script type="module" src="./main.ts"></script>
   </body>
 </html>

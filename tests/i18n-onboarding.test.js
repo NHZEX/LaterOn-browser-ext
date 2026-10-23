@@ -28,7 +28,7 @@ assert.strictEqual(dictionaries["zh-CN"].guideStepSaveTitle, "一键添加，随
 assert.strictEqual(dictionaries["zh-CN"].guideStepReadTitle, "全屏管理，侧栏继续浏览");
 assert.match(dictionaries["zh-CN"].guideStepReadHint, /30 天后自动清除/);
 
-const libraryHtml = read("library.html");
+const libraryHtml = read("wxt/entrypoints/library/index.html");
 const sidepanelHtml = read("sidepanel.html");
 assert.match(libraryHtml, /onboarding\.css/);
 assert.match(libraryHtml, /onboarding\.js/);

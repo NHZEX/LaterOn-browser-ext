@@ -34,6 +34,7 @@ module.exports = async function verifySettingsPage(directory) {
     const dom = new JSDOM(html, { runScripts: "outside-only", pretendToBeVisual: true,
       url: "chrome-extension://fixture/settings.html", virtualConsole });
     const { window } = dom;
+    window.fetch = async () => ({});
     const document = window.document;
     try {
       const resource = url => {

@@ -6,8 +6,8 @@
 const { JSDOM } = require("jsdom");
 
 const read = require("./helpers/read-runtime.cjs");
-const LIBRARY_HTML = read("library.html");
-const LIBRARY_SOURCE = read("library.js");
+const LIBRARY_HTML = require("./helpers/read-runtime.cjs")("library.html");
+const LIBRARY_SOURCE = require("./helpers/read-runtime.cjs")("library-page.js");
 const I18N_SOURCE = read("i18n.js");
 const DIALOG_SOURCE = read("dialog.js");
 const PICKER_SOURCE = read("picker-ui.js");

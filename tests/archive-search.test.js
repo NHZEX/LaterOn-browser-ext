@@ -30,7 +30,7 @@ function mount(page) {
     windows: {getCurrent: async () => ({id:1})}
   };
   require('./helpers/item-mutation')(w);
-  for (const file of ['i18n.js','dialog.js','picker-ui.js','url-utils.js','tab-navigation.js',page+'.js']) w.eval(read(file));
+  for (const file of ['i18n.js','dialog.js','picker-ui.js','url-utils.js','tab-navigation.js',page === 'library' ? 'library-page.js' : page+'.js']) w.eval(read(file));
   return { dom, w, store, errors, cache };
 }
 async function search(ctx) {
@@ -46,11 +46,11 @@ async function search(ctx) {
     await search(panel); await search(library);
     assert(!panel.w.document.querySelector('.item[data-id="a"]'), '侧栏普通搜索隐藏归档');
     assert(!library.w.document.querySelector('.card[data-id="a"]'), '全屏普通搜索隐藏归档');
-    library.w.selectProject('archive'); await search(library);
+    library.w.document.querySelector('#openArchive').click(); await search(library);
     assert(library.w.document.querySelector('.card[data-id="a"]'), '归档视图可以搜索归档资料');
     for (const ctx of [panel, library]) {
       await ctx.w.chrome.storage.local.set({laterOnProjects:[{id:'p1',name:'Archive fixture',archived:false}]});
-      if (ctx === library) ctx.w.selectProject('all');
+      if (ctx === library) ctx.w.document.querySelector('.project-nav[data-project="all"]').click();
       await search(ctx);
     }
     assert(panel.w.document.querySelector('.item[data-id="a"]'), '恢复后侧栏普通搜索显示');

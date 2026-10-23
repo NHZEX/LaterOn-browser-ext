@@ -11,7 +11,7 @@ async function fixture(savedWidth, failWrites = false) {
   const errors = [];
   const virtualConsole = new VirtualConsole();
   virtualConsole.on('jsdomError', error => errors.push(error.message));
-  const dom = new JSDOM(read('library.html'), {
+  const dom = new JSDOM(require("./helpers/read-runtime.cjs")("library.html"), {
     runScripts: 'outside-only', pretendToBeVisual: true,
     url: 'chrome-extension://fixture/library.html', virtualConsole
   });
@@ -44,7 +44,7 @@ async function fixture(savedWidth, failWrites = false) {
   };
   window.eval(read('i18n.js'));
   require('./helpers/item-mutation')(window);
-  window.eval(read('library.js'));
+  window.eval(require("./helpers/read-runtime.cjs")("library-page.js"));
   await tick();
   const { document } = window;
   const handle = document.querySelector('#sidebarResizer');

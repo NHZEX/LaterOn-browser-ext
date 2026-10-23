@@ -10,7 +10,7 @@ const vm = require("vm");
 const { JSDOM } = require("jsdom");
 
 const ROOT = path.join(__dirname, "..");
-const read = (name) => fs.readFileSync(path.join(ROOT, name), "utf8");
+const read = require("./helpers/read-runtime.cjs");
 const BACKGROUND = read("background.js");
 const I18N_SOURCE = read("i18n.js");
 const DIALOG_SOURCE = read("dialog.js");
@@ -265,7 +265,7 @@ async function partPage(page) {
   window.eval(I18N_SOURCE);
   if (isLibrary) window.eval(DIALOG_SOURCE);
   require('./helpers/item-mutation')(window);
-  window.eval(read(`${page}.js`));
+  window.eval(read(page === "library" ? "library-page.js" : `${page}.js`));
 
   const tick = (ms = 20) => new Promise((resolve) => window.setTimeout(resolve, ms));
   const click = (el) => el.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));

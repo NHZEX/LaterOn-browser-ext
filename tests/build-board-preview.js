@@ -1,4 +1,4 @@
-// 生成「图板视图」的设计预览页：真实的 library.html + 真实的 library.js，
+// 生成「图板视图」的设计预览页：真实 WXT 收藏库产物，包含编译后的 Vue 组件，
 // 只把 chrome.storage 换成一份假数据（几个类目、带封面的收藏），打开就是图板视图。
 // 这样预览看到的就是当前那份实现，不会和代码脱节（改完重跑一次本脚本即可）。
 //
@@ -85,38 +85,47 @@ const mock = () => {
   window.__laterOnPreview = { store, svgCover };
 };
 
-const script = `<script>
-// ⚠️ 本文件由 tests/build-board-preview.js 自动生成，请勿直接编辑。
-// 下面是一份假数据（代替扩展的本地存储），页面本身用的是真实的 library.html + library.js。
-(${mock.toString()})();
-<\/script>`;
-
-// 样式和脚本全部内联成单文件：预览面板（以及 file:// 打开）不一定会去取同目录的
-// CSS/JS，之前踩过「只送 HTML、相对路径全 404 → 页面等于没样式」的坑。
+// Inline the actual WXT output, including compiled Vue components, for offline preview.
+const { JSDOM } = require("jsdom");
 const read = require("./helpers/read-runtime.cjs");
-const inlineStyle = (name) => `<style>\n/* ${name} */\n${read(name)}\n</style>`;
-// 脚本里如果出现 </script> 会提前闭合标签，转义掉。
-const inlineScript = (name) => `<script>\n/* ${name} */\n${read(name).replace(/<\/script>/g, "<\\/script>")}\n<\/script>`;
-const html = read("library.html");
-// ⚠️ 替换串一律用「函数」返回：直接传字符串时，被替换内容里的 $& / $` / $' 会被当成
-// 特殊模式展开（library.js 里就含这类序列），结果整段 HTML 被塞进 <script> 里，页面直接语法错。
-const out = html
-  .replace('<head>', '<head>\n    <base href="../" />')
-  .replace(/<link rel="stylesheet" href="theme-vars\.css" \/>/, () => inlineStyle("theme-vars.css"))
-  .replace(/<link rel="stylesheet" href="dialog\.css" \/>/, () => inlineStyle("dialog.css"))
-  .replace(/<link rel="stylesheet" href="onboarding\.css" \/>/, () => inlineStyle("onboarding.css"))
-  .replace(/<link rel="stylesheet" href="library\.css" \/>/, () => inlineStyle("library.css"))
-  // 假数据要赶在 theme.js 之前：theme.js 自己也会读存储（它比 library.js 先跑）。
-  .replace('<script src="theme.js"></script>', () => `${script}\n    ${inlineScript("theme.js")}`)
-  .replace('<script src="dialog.js"></script>', () => inlineScript("dialog.js"))
-  // 选项目浮层（卡片上点「所属项目」弹的那一个）也来自 picker-ui.js：
-  // 不内联的话 file:// 下相对路径取不到，点卡片上的下拉毫无反应，浮层就没法在预览里看。
-  .replace('<script src="picker-ui.js"></script>', () => inlineScript("picker-ui.js"))
-  .replace('<script src="onboarding.js" defer></script>', () => inlineScript("onboarding.js"))
-  .replace('<script src="library.js"></script>', () => inlineScript("library.js"))
-  .replace(/<script src="([^"]+)"[^>]*><\/script>/g, (_match, name) => inlineScript(name));
-
-if (!out.includes("laterOnPreview")) throw new Error("假数据没有注入成功，检查 library.html 里的 script 标签是否变了");
-if (/<link rel="stylesheet"/.test(out)) throw new Error("还有样式表没内联");
-fs.writeFileSync(OUTPUT, out);
+const page = require("./helpers/library-page.cjs")();
+const built = path.join(ROOT, ".output/chrome-mv3");
+const dom = new JSDOM(page.html);
+const { document } = dom.window;
+const imageData = name => `data:image/png;base64,${fs.readFileSync(path.join(ROOT, name)).toString("base64")}`;
+const scriptElement = (code) => {
+  const element = document.createElement("script");
+  element.textContent = code.replace(/<\/script>/gi, "<\\/script>");
+  return element;
+};
+// Mock the extension boundary before theme initialization.
+document.head.prepend(scriptElement(`(${mock.toString()})();`));
+for (const link of document.querySelectorAll('link[rel="modulepreload"]')) link.remove();
+for (const link of document.querySelectorAll('link[rel="stylesheet"]')) {
+  const style = document.createElement("style");
+  style.textContent = fs.readFileSync(path.join(built, new URL(link.href, "https://fixture/").pathname), "utf8");
+  link.replaceWith(style);
+}
+for (const script of document.querySelectorAll("script[src]")) {
+  if (script.type === "module") script.remove();
+  else script.replaceWith(scriptElement(read(path.basename(script.src))));
+}
+// Execute the module after its Teleport targets exist.
+const previewScript = fs.readdirSync(path.join(built, "assets")).filter(name => name.endsWith(".png")).reduce((script, name) =>
+  script.replaceAll(`/assets/${name}`, `data:image/png;base64,${fs.readFileSync(path.join(built, "assets", name)).toString("base64")}`), page.script);
+document.body.append(scriptElement(previewScript));
+const images = [
+  ...document.querySelectorAll("img[src], link[rel=icon]"),
+  ...[...document.querySelectorAll("template")].flatMap(template => [...template.content.querySelectorAll("img[src]")])
+];
+for (const image of images) {
+  const attribute = image.tagName === "IMG" ? "src" : "href";
+  const file = path.basename(image.getAttribute(attribute));
+  image.setAttribute(attribute, imageData(file));
+}
+const base = document.createElement("base");
+base.href = "../";
+document.head.prepend(base);
+fs.writeFileSync(OUTPUT, dom.serialize());
+dom.window.close();
 console.log(`已生成 ${path.relative(process.cwd(), OUTPUT)}`);

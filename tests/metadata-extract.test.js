@@ -431,7 +431,7 @@ console.log("\n=== 十六、显示端：跨站图片防盗链（Referer）===");
   // 已实测：小红书图片 CDN 对 Referer: chrome-extension:// 返回 403、不带 Referer 返回 200。
   // 所以收藏库 / 侧栏 / 弹窗 / 设置页必须声明「不发 Referer」，否则封面抓到了也显示不出来。
   for (const page of ["library.html", "sidepanel.html", "settings.html"]) {
-    const html = fs.readFileSync(path.join(ROOT, page === "settings.html" ? "wxt/entrypoints/settings/index.html" : page), "utf8");
+    const html = fs.readFileSync(path.join(ROOT, page === "settings.html" ? "wxt/entrypoints/settings/index.html" : page === "library.html" ? "wxt/entrypoints/library/index.html" : page), "utf8");
     check(`${page} 声明了整页不发 Referer`, /<meta name="referrer" content="no-referrer"/.test(html));
   }
   const libSource = fs.readFileSync(path.join(ROOT, "library.js"), "utf8");
@@ -440,7 +440,7 @@ console.log("\n=== 十六、显示端：跨站图片防盗链（Referer）===");
   check("侧栏的封面图声明了 referrerPolicy", /image\.referrerPolicy = "no-referrer"/.test(sideSource));
   check(
     "卡片模板里的站点图标也声明了（favicon 同样在 CDN 上）",
-    /class="favicon" alt="" referrerpolicy="no-referrer"/.test(fs.readFileSync(path.join(ROOT, "library.html"), "utf8"))
+    /class="favicon" alt="" referrerpolicy="no-referrer"/.test(fs.readFileSync(path.join(ROOT, "wxt/entrypoints/library/index.html"), "utf8"))
   );
 }
 

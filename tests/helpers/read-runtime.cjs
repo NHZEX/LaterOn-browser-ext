@@ -5,7 +5,7 @@ const { buildSync } = require("esbuild");
 const root = resolve(__dirname, "../..");
 // Compile actual compatibility entries in memory; standalone tests need no prior build.
 const entries = [
-  ...["url-utils", "collection-picker", "item-edit", "item-state", "backup-core", "tab-navigation", "storage-coordinator", "storage-client", "theme"].map(entry =>
+  ...["url-utils", "collection-picker", "collection-filter", "item-edit", "item-state", "backup-core", "tab-navigation", "storage-coordinator", "storage-client", "theme"].map(entry =>
     [`${entry}.js`, `import entry from "./wxt/entrypoints/${entry}"; entry.main();`])
 ];
 const scripts = Object.fromEntries(entries.map(([name, contents]) => {
@@ -24,4 +24,8 @@ const scripts = Object.fromEntries(entries.map(([name, contents]) => {
   return [name, outputFiles[0].text];
 }));
 
-module.exports = (name) => scripts[name] ?? readFileSync(resolve(root, name), "utf8");
+module.exports = (name) => {
+  if (name === "library.html") return require("./library-page.cjs")().html;
+  if (name === "library-page.js") return require("./library-page.cjs")().script;
+  return scripts[name] ?? readFileSync(resolve(root, name), "utf8");
+};

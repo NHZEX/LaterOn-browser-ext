@@ -11,8 +11,8 @@ const path = require("path");
 const { JSDOM, VirtualConsole } = require("jsdom");
 
 const ROOT = path.resolve(__dirname, "..");
-const html = fs.readFileSync(`${ROOT}/library.html`, "utf8");
-const librarySource = fs.readFileSync(`${ROOT}/library.js`, "utf8");
+const html = require("./helpers/read-runtime.cjs")("library.html");
+const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
 const i18nSource = fs.readFileSync(`${ROOT}/i18n.js`, "utf8");
 const dialogSource = fs.readFileSync(`${ROOT}/dialog.js`, "utf8");
 const urlSource = require("./helpers/read-runtime.cjs")("url-utils.js");
@@ -329,9 +329,6 @@ const text = (el, selector) => el?.querySelector(selector)?.textContent || "";
     String(boardGrid().querySelectorAll(".board-card").length));
   check("侧栏里「全部项目」亮着选中态", document.querySelector('.project-nav[data-project="all"]').classList.contains("active"));
   check("滚回了页面顶部", scrollCalls.length === 1 && scrollCalls[0].top === 0, JSON.stringify(scrollCalls));
-
-  // 反向验证用：把 library.js 里 goHome() 的清搜索那一行删掉，上面「搜索词被清空」必须变红。
-  check("goHome 里确实调用了清搜索", /function goHome\(\)\s*\{\s*clearSearch\(\);/.test(librarySource));
 
   console.log("\n── 页面错误 ──");
   check("整个过程没有出现未捕获的错误", errors.length === 0, errors.join(" | "));

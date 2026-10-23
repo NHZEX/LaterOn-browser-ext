@@ -128,6 +128,11 @@ window.eval(sidepanelSource);
   check("搜到了别的项目 / 未归项目里的文章（不再被项目筛选挡住）", ids().join(",") === "a1,b1,d1,u1", ids().join(","));
   check("篇数跟着更新", countText() === "4 篇", countText());
 
+  console.log("\n── 共享搜索字段：网址、空格与大小写 ──");
+  await search("  EXAMPLE.COM/B1  ");
+  check("网址搜索跨项目命中，并规范化输入", ids().join(",") === "b1", ids().join(","));
+  await search("深度");
+
   console.log("\n── 「未读 / 已读」那一档仍然生效 ──");
   click(navOf("done"));
   await tick(20);

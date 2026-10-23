@@ -14,8 +14,8 @@ const BACKGROUND = read("background.js");
 const I18N_SOURCE = read("i18n.js");
 const DIALOG_SOURCE = read("dialog.js");
 const DIALOG_CSS = read("dialog.css");
-const LIBRARY_SOURCE = read("library.js");
-const LIBRARY_HTML = read("library.html");
+const LIBRARY_SOURCE = require("./helpers/read-runtime.cjs")("library-page.js");
+const LIBRARY_HTML = require("./helpers/read-runtime.cjs")("library.html");
 
 let failures = 0;
 const check = (label, ok, extra = "") => {

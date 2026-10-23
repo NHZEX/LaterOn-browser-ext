@@ -21,7 +21,7 @@ console.log("── 第 1 步：每个界面都接了同一套主题 ──");
 // 这几个都是当前产品里有完整界面的页面。
 const surfaces = ["library.html", "settings.html", "sidepanel.html"];
 for (const page of surfaces) {
-  const source = fs.readFileSync(`${ROOT}/${page === "settings.html" ? "wxt/entrypoints/settings/index.html" : page}`, "utf8");
+  const source = fs.readFileSync(`${ROOT}/${page === "settings.html" ? "wxt/entrypoints/settings/index.html" : page === "library.html" ? "wxt/entrypoints/library/index.html" : page}`, "utf8");
   check(`${page} 引入了 theme-vars.css`, source.includes("theme-vars.css"));
   check(`${page} 引入了 theme.js`, source.includes("theme.js"));
 }

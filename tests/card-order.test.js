@@ -10,8 +10,8 @@ const { JSDOM } = require("jsdom");
 const ROOT = path.join(__dirname, "..");
 const read = (name) => fs.readFileSync(path.join(ROOT, name), "utf8");
 const DIALOG_SOURCE = read("dialog.js");
-const LIBRARY_SOURCE = read("library.js");
-const LIBRARY_HTML = read("library.html");
+const LIBRARY_SOURCE = require("./helpers/read-runtime.cjs")("library-page.js");
+const LIBRARY_HTML = require("./helpers/read-runtime.cjs")("library.html");
 const LIBRARY_CSS = read("library.css");
 
 let failures = 0;
@@ -339,6 +339,7 @@ async function dragCard({ window, grid, tick }, fromId, index) {
     app.runIdle();
     check("空闲批次最终补齐全部卡片", app.grid.querySelectorAll(".card").length === 1000,
       `${app.grid.querySelectorAll(".card").length} 张`);
+    check("排序下拉包含自定义顺序", !!app.document.querySelector('#sortSelect option[value="custom"]'));
   }
 
   // ── ⑨ 样式与选项 ──
@@ -363,7 +364,6 @@ async function dragCard({ window, grid, tick }, fromId, index) {
     /\.card\[draggable="true"\]\s*\{\s*cursor:\s*pointer/.test(LIBRARY_CSS));
   check("只有真正拖起卡片后才显示抓取手势",
     /\.card\.dragging\s*\{\s*cursor:\s*grabbing/.test(LIBRARY_CSS));
-  check("排序下拉里多了「自定义顺序」选项", /value="custom"/.test(LIBRARY_HTML));
 
   console.log(failures ? `\n❌ 有 ${failures} 项没通过` : "\n🎉 全部通过");
   process.exit(failures ? 1 : 0);

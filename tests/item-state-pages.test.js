@@ -53,7 +53,7 @@ function boot(page, store, { failMigration = false, delayStorage = false, cache 
   };
   window.eval(read("i18n.js"));
   installStorage(window);
-  window.eval(read(`${page}.js`));
+  window.eval(read(page === "library" ? "library-page.js" : `${page}.js`));
   const card = id => window.document.querySelector(`${page === "library" ? ".card" : ".item"}[data-id="${id}"]`);
   const broadcast = () => listeners.forEach(listener => listener({ laterOnItems: { newValue: clone(store.laterOnItems) } }, "local"));
   return { window, card, writes, errors, broadcast, memory, releaseStorage, failedWrites: () => failedWrites, close: () => window.close() };
@@ -77,7 +77,7 @@ async function checkPage(page) {
     assert.deepEqual(store.laterOnItems, before, "Failed initialization never persists a fabricated display timestamp");
     assert.deepEqual(store.laterOnCovers, { other: "data:image/png;base64,BBBB" }, "Failed cover migration also preserves associated data");
     // Whole-page adapter executes the same pure rules even when the migration cannot commit.
-    const normalized = failed.window.normalizeItems(clone(before));
+    const normalized = failed.window.LaterOnItemState.normalizeItems(clone(before));
     assert.equal(normalized.find(item => item.id === "legacy").doneAt, null);
     assert.equal(normalized.find(item => item.id === "known").doneAt, 123);
     assert.deepEqual(failed.errors, []);
@@ -107,7 +107,7 @@ async function checkPage(page) {
     find("unread").doneAt = 789;
     ready.broadcast();
     await until(() => ready.card("unread").classList.contains("is-read"), "External completion broadcasts update the page");
-    assert.equal(ready.window.normalizeItems(clone(store.laterOnItems)).find(item => item.id === "unread").doneAt, 789);
+    assert.equal(ready.window.LaterOnItemState.normalizeItems(clone(store.laterOnItems)).find(item => item.id === "unread").doneAt, 789);
     assert.deepEqual(ready.errors, []);
   } finally { ready.close(); }
 
@@ -129,7 +129,7 @@ async function checkCachedState() {
     panel.window.document.querySelector('.filter[data-filter="all"]').click();
     await until(() => panel.card("cached"), "The cached completed record follows the selected filter");
     assert.ok(panel.card("cached").classList.contains("is-read"));
-    const normalized = panel.window.normalizeItems(cached);
+    const normalized = panel.window.LaterOnItemState.normalizeItems(cached);
     assert.equal(normalized[0].doneAt, null, "Cache display never starts the cleanup clock");
     assert.equal(store.laterOnItems[0].doneAt, undefined);
     panel.releaseStorage();

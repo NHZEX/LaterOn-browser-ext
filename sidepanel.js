@@ -95,9 +95,8 @@ function readToggleLabel(status) {
 
 // 筛选只认这三档。第一次打开还没有偏好，或存入了异常值时，默认展示「未读」；
 // 用户手动切换后会写进 FILTER_KEY，以后恢复上次选择。
-const FILTER_VALUES = new Set(["all", "unread", "done"]);
 function normalizeFilter(value) {
-  return FILTER_VALUES.has(value) ? value : DEFAULT_FILTER;
+  return LaterOnFilter.normalizeFilter(value);
 }
 // 把三个筛选按钮的高亮同步成当前的 filter（全屏那边改了筛选，这边也要亮对按钮）。
 function syncFilterButtons() {
@@ -631,7 +630,7 @@ document.querySelector("#openLibrary").addEventListener("click", async () => {
 });
 document.querySelector("#searchInput").addEventListener("input", (event) => {
   clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => { query = event.target.value.trim().toLowerCase(); render(); }, 120);
+  searchTimer = setTimeout(() => { query = LaterOnFilter.normalizeSearch(event.target.value); render(); }, 120);
 });
 
 // 事件委托：整页只挂一个监听器，避免给每张卡片单独绑监听。
@@ -957,9 +956,7 @@ function render() {
       || activeProject === "all"
       || (activeProject === "unfiled" ? !item.projectId : item.projectId === activeProject);
     // 「未读」= 还没读完（未读 + 在读）；「已读」= 手动标完成的那批。
-    const matchesFilter = filter === "all" || (filter === "done" ? item.status === "done" : item.status !== "done");
-    const text = `${item.title} ${item.description} ${item.source}`.toLowerCase();
-    return matchesProject && matchesFilter && (!query || text.includes(query));
+    return matchesProject && LaterOnFilter.matchesReadFilter(item, filter) && LaterOnFilter.matchesSearch(item, query);
   });
   // 全屏那边选了「自定义顺序」并拖过卡片 —— 侧栏用同一份顺序，两边看到的先后一致。
   if (sortMode === "custom") {

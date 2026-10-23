@@ -12,8 +12,8 @@ const path = require("path");
 const { JSDOM, VirtualConsole } = require("jsdom");
 
 const ROOT = path.resolve(__dirname, "..");
-const html = fs.readFileSync(`${ROOT}/library.html`, "utf8");
-const librarySource = fs.readFileSync(`${ROOT}/library.js`, "utf8");
+const html = require("./helpers/read-runtime.cjs")("library.html");
+const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
 const dialogSource = fs.readFileSync(`${ROOT}/dialog.js`, "utf8");
 // 侧栏那套样式的源码：下面有几条「静态断言」用它锁住纯视觉的规矩
 // （jsdom 不做排版，「图钉角标贴在缩略图的哪个角」这种事它永远测不出来）。
@@ -154,8 +154,10 @@ window.eval(librarySource);
 
 (async () => {
   await tick(30);
-  await window.toggleProjectArchive("p3");
+  rightClick(document.querySelector('.board-card[data-project="p3"]'));
   await tick();
+  click(menuItem("归档项目"));
+  await tick(20);
   check("归档状态保存", store.laterOnProjects.find(p => p.id === "p3").archived);
   check("内容保持项目归属", store.laterOnItems[0].projectId === "p3");
   check("普通侧栏隐藏归档项目", !rowOf("p3"));
@@ -163,12 +165,15 @@ window.eval(librarySource);
   const archivedCard = document.querySelector('.board-card[data-project="p3"]');
   check("未读模式保留已读内容的封面", archivedCard.querySelector(".board-img")?.src === "https://a.com/cover.jpg");
   check("有内容的项目不会误报空项目", !archivedCard.querySelector(".board-meta").textContent.includes("还没有"));
-  window.eval('filter = "all"; render()');
+  click(document.querySelector('.nav-item[data-filter="all"]'));
+  await tick();
   check("切换筛选封面保持一致", document.querySelector('.board-card[data-project="p3"] .board-img')?.src === "https://a.com/cover.jpg");
-  window.eval('filter = "unread"; render()');
-  window.selectProject("all");
+  click(document.querySelector('.nav-item[data-filter="unread"]'));
+  click(document.querySelector('.project-nav[data-project="all"]'));
+  await tick();
   check("普通总览不显示归档项目", !document.querySelector('.board-card[data-project="p3"]'));
-  window.selectProject("archive");
+  click(document.querySelector('#openArchive'));
+  await tick();
   rightClick(document.querySelector('.board-card[data-project="p3"]'));
   await tick();
   click(menuItem("恢复项目"));

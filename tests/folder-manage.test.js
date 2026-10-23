@@ -12,8 +12,8 @@ const path = require("path");
 const { JSDOM, VirtualConsole } = require("jsdom");
 
 const ROOT = path.resolve(__dirname, "..");
-const html = fs.readFileSync(`${ROOT}/library.html`, "utf8");
-const librarySource = fs.readFileSync(`${ROOT}/library.js`, "utf8");
+const html = require("./helpers/read-runtime.cjs")("library.html");
+const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
 const i18nSource = fs.readFileSync(`${ROOT}/i18n.js`, "utf8");
 // 确认框现在走自定义弹窗，所以把 dialog.js 也一起加载进来跑真实的组件。
 const dialogSource = fs.readFileSync(`${ROOT}/dialog.js`, "utf8");
@@ -295,7 +295,8 @@ const cardFolderOptions = () => [...document.querySelectorAll(".card .project-se
   check("高亮已经清掉", !designRow.classList.contains("drop-target"));
 
   console.log("\n── 编辑弹窗打开期间，保留其他页面新增项目和修改的简介 ──");
-  const editing = window.editBoard(design.id);
+  click(rowOf(design.id).querySelector('.project-more'));
+  click(menuItem("编辑简介"));
   await tick(30);
   const external = { id: "external", name: "另一页新增", createdAt: 10 };
   await window.chrome.storage.local.set({ laterOnProjects: [
@@ -304,7 +305,7 @@ const cardFolderOptions = () => [...document.querySelectorAll(".card .project-se
   await tick(20);
   dialog().querySelector('[data-field="name"]').value = "新的设计名称";
   click(dialog().querySelector(".lod-ok"));
-  await editing;
+  for (let attempt = 0; attempt < 200 && store.laterOnProjects.find(project => project.id === design.id)?.name !== "新的设计名称"; attempt++) await tick(5);
   check("改名不覆盖并发修改的简介", store.laterOnProjects.find(project => project.id === design.id)?.note === "另一页更新的简介");
   check("改名保留另一页新建的项目", store.laterOnProjects.some(project => project.id === external.id));
   check("弹窗中的改名正常保存", store.laterOnProjects.find(project => project.id === design.id)?.name === "新的设计名称");

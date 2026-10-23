@@ -12,8 +12,8 @@ const path = require("path");
 const { JSDOM, VirtualConsole } = require("jsdom");
 
 const ROOT = path.resolve(__dirname, "..");
-const html = fs.readFileSync(`${ROOT}/library.html`, "utf8");
-const librarySource = fs.readFileSync(`${ROOT}/library.js`, "utf8");
+const html = require("./helpers/read-runtime.cjs")("library.html");
+const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
 const dialogSource = fs.readFileSync(`${ROOT}/dialog.js`, "utf8");
 // 侧栏那套样式的源码：下面有几条「静态断言」用它锁住纯视觉的规矩
 // （jsdom 不做排版，「图钉角标贴在缩略图的哪个角」这种事它永远测不出来）。
@@ -112,6 +112,11 @@ const check = (label, ok, extra = "") => {
   if (!ok) failures += 1;
 };
 const tick = (ms = 5) => new Promise((resolve) => window.setTimeout(resolve, ms));
+async function until(condition) {
+  const deadline = Date.now() + 3000;
+  while (!condition() && Date.now() < deadline) await tick();
+  if (!condition()) throw Error("Timed out waiting for project operation");
+}
 const click = (el) => el.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
 const rightClick = (el) => el.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 120, clientY: 90 }));
 const dragEvent = (el, type, dataTransfer, point = {}) => {
@@ -156,33 +161,38 @@ window.eval(librarySource);
   await tick(30);
   await window.chrome.storage.local.set({ laterOnCovers: { i1: "deleted-cover", i2: "kept-cover" }, laterOnOrder: { p3: ["i1"], all: ["i1", "i2"] }, laterOnCurrentItem: "i1" });
   await tick(30);
-  window.selectProject("p3");
-  let pending = window.deleteProject("p3");
+  click(rowOf("p3").querySelector('.project-nav'));
+  await openMenu("p3");
+  click(menuItem("删除项目"));
   await tick(30);
   check("确认提示明确删除数量和不可恢复", document.querySelector(".lod-message").textContent.includes("1 篇网页将一起删除") && document.querySelector(".lod-message").textContent.includes("无法恢复"));
   click(document.querySelector(".lod-cancel"));
-  await pending;
+  await until(() => document.querySelector('.lod-root').hidden);
   check("取消保留项目和内容", store.laterOnProjects.some(p => p.id === "p3") && store.laterOnItems.some(i => i.id === "i1"));
-  pending = window.deleteProject("p3");
-  await tick(30);
+  await openMenu("p3");
+  click(menuItem("删除项目"));
+  await until(() => !document.querySelector('.lod-root').hidden);
   await window.chrome.storage.local.set({
     laterOnItems: [...store.laterOnItems, { id: "late", title: "确认期间新增", url: "https://example.com/late", savedAt: Date.now(), projectId: "p3", status: "unread" }],
     laterOnReadingPositions: { i1: 10, late: 20, i2: 30 }
   });
   click(document.querySelector(".lod-ok"));
-  await pending;
-  await tick();
+  await until(() => !store.laterOnProjects.some(project => project.id === "p3"));
   check("删除项目及其内容", !store.laterOnProjects.some(p => p.id === "p3") && !store.laterOnItems.some(i => i.id === "i1"));
   check("待整理内容保持原样", store.laterOnItems.length === 1 && store.laterOnItems[0].id === "i2" && store.laterOnItems[0].projectId === null);
   check("清理封面和排序", !store.laterOnCovers.i1 && store.laterOnCovers.i2 === "kept-cover" && !store.laterOnOrder.p3 && store.laterOnOrder.all.join() === "i2");
   check("清理当前阅读标记", store.laterOnCurrentItem === null);
   check("按确认时的最新归属级联删除，并同步清理阅读位置", !store.laterOnItems.some(item => item.id === "late") && JSON.stringify(store.laterOnReadingPositions) === JSON.stringify({ i2: 30 }));
   check("离开已删除项目", store.laterOnActiveProject === "all");
-  await window.toggleProjectArchive("p1");
-  pending = window.deleteProject("p1");
-  await tick(30);
+  await openMenu("p1");
+  click(menuItem("归档项目"));
+  await until(() => document.querySelector('.board-card[data-project="p1"]'));
+  rightClick(document.querySelector('.board-card[data-project="p1"]'));
+  await tick();
+  click(menuItem("删除项目"));
+  await until(() => !document.querySelector('.lod-root').hidden);
   click(document.querySelector(".lod-ok"));
-  await pending;
+  await until(() => !store.laterOnProjects.some(project => project.id === "p1"));
   check("归档的空项目也能删除", !store.laterOnProjects.some(p => p.id === "p1"));
   check("无页面错误", !errors.length, errors.join(" | "));
   if (failures) process.exitCode = 1;

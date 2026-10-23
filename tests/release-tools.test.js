@@ -148,6 +148,7 @@ async function verifyBuiltWorker(directory = builtDirectory) {
   await verifyBuiltNavigation(directory);
   verifyBuiltCollectionRules(directory);
   await verifyBuiltSettings(directory);
+  await require("./helpers/verify-library-page.cjs")(directory);
 }
 
 function verifyBuiltCollectionRules(directory) {
@@ -155,16 +156,16 @@ function verifyBuiltCollectionRules(directory) {
     const dom = new JSDOM(fs.readFileSync(path.join(directory, `${name}.html`), "utf8"));
     try {
       const scripts = [...dom.window.document.scripts];
-      const page = scripts.find(script => script.getAttribute("src") === `${name}.js`);
+      const page = scripts.find(script => name === "library" ? script.type === "module" : script.getAttribute("src") === `${name}.js`);
       const context = vm.createContext({});
       for (const asset of ["item-edit.js", "item-state.js"]) {
-        const helper = scripts.find(script => script.getAttribute("src") === asset);
+        const helper = scripts.find(script => script.getAttribute("src")?.replace(/^\//, "") === asset);
         assert.ok(helper && page, `${name} references its built ${asset} helper and page script`);
         assert.ok(scripts.indexOf(helper) < scripts.indexOf(page), `${name} loads shared rules before its page script`);
         assert.equal(helper.type, "", "The old pages consume a classic script");
         assert.equal(helper.hasAttribute("async"), false);
-        assert.equal(helper.defer, page.defer, "Shared rules follow the page's existing execution timing");
-        vm.runInContext(fs.readFileSync(path.join(directory, helper.getAttribute("src")), "utf8"), context);
+        assert.equal(helper.defer, name === "sidepanel", "Classic dependencies precede the Vue module or follow sidepanel defer timing");
+        vm.runInContext(fs.readFileSync(path.join(directory, asset), "utf8"), context);
       }
       const cover = "data:image/png;base64,AAAA";
       const item = { title: "Old", description: "Summary", image: "local://a" };
@@ -215,8 +216,8 @@ async function verifyBuiltSettings(directory) {
 
 async function verifyBuiltNavigation(directory) {
   for (const page of ["library.html", "sidepanel.html"]) {
-    assert.match(fs.readFileSync(path.join(directory, page), "utf8"), /<script\b[^>]*\bsrc="tab-navigation\.js"/);
-    assert.match(fs.readFileSync(path.join(directory, page), "utf8"), /<script\b[^>]*\bsrc="storage-client\.js"/);
+    assert.match(fs.readFileSync(path.join(directory, page), "utf8"), /<script\b[^>]*\bsrc="\/?tab-navigation\.js"/);
+    assert.match(fs.readFileSync(path.join(directory, page), "utf8"), /<script\b[^>]*\bsrc="\/?storage-client\.js"/);
   }
   const original = "https://example.com/a%2Fb?q=C++&b=2#/article/1";
   const frozen = `chrome-extension://fixture/suspended.html#ttl=Example&pos=0&uri=${original}`;
