@@ -86,7 +86,7 @@ let suppressCardClickUntil = 0;
 // 三档：未读 / 在读 / 已读（已完成）。点「标为已读」按钮 = 标记完成，再点取消；
 // 「在读」由点开文章自动进入——这样「点过但没读完」不再被算作已读。
 function nextStatus(status) {
-  return status === "done" ? "unread" : "done";
+  return LaterOnItemState.nextStatus(status);
 }
 // 标记按钮上的文字：已完成时提示「标为未读」，其余提示「标为已读」。
 function readToggleLabel(status) {
@@ -1194,14 +1194,8 @@ function normalizeProject(projectId) {
   return projects.some((project) => project.id === projectId) ? projectId : "unfiled";
 }
 
-// 旧收藏只有 read 布尔、没有 status：按 read 推导成三档之一，兼容已有数据。
-// doneAt 由后台的旧数据迁移补齐；此处只整理展示字段。
 function normalizeItems(list) {
-  return (list || []).filter(Boolean).map((it) => {
-    if (!it) return it;
-    const status = it.status || (it.read ? "done" : "unread");
-    return { ...it, status, doneAt: status === "done" ? Number(it.doneAt) || null : null };
-  });
+  return LaterOnItemState.normalizeItems(list);
 }
 
 // ── 封面取值 ────────────────────────────────────────────────
@@ -1216,10 +1210,7 @@ function resolveImage(item) {
 // 一次性搬家：把还躺在收藏列表里的 base64 封面挪到单独的键里。
 // 搬完列表数据回归「纯文字」，读写都快。已搬过（没有 data: 封面）就什么都不做。
 async function migrateLegacyCovers(rawItems) {
-  const needsMigration = Array.isArray(rawItems) && rawItems.some((item) =>
-    !item || (typeof item.image === "string" && item.image.startsWith("data:"))
-    || ((item.status === "done" || (!item.status && item.read)) && !Number(item.doneAt)));
-  if (!needsMigration) return null;
+  if (!LaterOnItemState.needsLegacyMigration(rawItems)) return null;
   try {
     const response = await LaterOnStorage.run("migrateLegacyData");
     covers = response.covers;

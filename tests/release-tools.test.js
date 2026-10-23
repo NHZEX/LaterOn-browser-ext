@@ -134,28 +134,38 @@ async function verifyBuiltWorker(directory = builtDirectory) {
   page.LaterOnStorage.initialize(store);
   await page.LaterOnStorage.run("mutateItems", { operation: "update", ids: [saved.id], patch: { status: "unread" } });
   assert.equal(store.laterOnItems[0].status, "unread", "Compiled page client sends commands to the compiled worker coordinator");
+  store.laterOnItems[0] = { ...saved, status: undefined, read: true, doneAt: null };
+  const migrationStarted = Date.now();
+  await page.LaterOnStorage.run("migrateLegacyData");
+  const completedAt = store.laterOnItems[0].doneAt;
+  assert.equal(store.laterOnItems[0].status, "done");
+  assert.ok(completedAt >= migrationStarted && completedAt <= Date.now(), "The built worker persists the legacy grace period");
+  await page.LaterOnStorage.run("migrateLegacyData");
+  assert.equal(store.laterOnItems[0].doneAt, completedAt, "Compiled migration preserves the persisted completion date");
   store.laterOnCollectionEpoch = "restored";
   await assert.rejects(page.LaterOnStorage.run("mutateItems", { operation: "delete", ids: [saved.id] }), /STALE_COLLECTION/);
   assert.equal(store.laterOnItems.length, 1);
   await verifyBuiltNavigation(directory);
-  verifyBuiltItemEdit(directory);
+  verifyBuiltCollectionRules(directory);
   await verifyBuiltSettings(directory);
 }
 
-function verifyBuiltItemEdit(directory) {
+function verifyBuiltCollectionRules(directory) {
   for (const name of ["library", "sidepanel"]) {
     const dom = new JSDOM(fs.readFileSync(path.join(directory, `${name}.html`), "utf8"));
     try {
       const scripts = [...dom.window.document.scripts];
-      const helper = scripts.find(script => script.getAttribute("src") === "item-edit.js");
       const page = scripts.find(script => script.getAttribute("src") === `${name}.js`);
-      assert.ok(helper && page, `${name} references its built edit helper and page script`);
-      assert.ok(scripts.indexOf(helper) < scripts.indexOf(page), `${name} loads shared rules before its page script`);
-      assert.equal(helper.type, "", "The old pages consume a classic script");
-      assert.equal(helper.hasAttribute("async"), false);
-      assert.equal(helper.defer, page.defer, "Shared rules follow the page's existing execution timing");
       const context = vm.createContext({});
-      vm.runInContext(fs.readFileSync(path.join(directory, helper.getAttribute("src")), "utf8"), context);
+      for (const asset of ["item-edit.js", "item-state.js"]) {
+        const helper = scripts.find(script => script.getAttribute("src") === asset);
+        assert.ok(helper && page, `${name} references its built ${asset} helper and page script`);
+        assert.ok(scripts.indexOf(helper) < scripts.indexOf(page), `${name} loads shared rules before its page script`);
+        assert.equal(helper.type, "", "The old pages consume a classic script");
+        assert.equal(helper.hasAttribute("async"), false);
+        assert.equal(helper.defer, page.defer, "Shared rules follow the page's existing execution timing");
+        vm.runInContext(fs.readFileSync(path.join(directory, helper.getAttribute("src")), "utf8"), context);
+      }
       const cover = "data:image/png;base64,AAAA";
       const item = { title: "Old", description: "Summary", image: "local://a" };
       assert.equal(context.LaterOnItemEdit.resolveImage(item, { a: cover }), cover);
@@ -163,6 +173,14 @@ function verifyBuiltItemEdit(directory) {
       assert.deepEqual(JSON.parse(JSON.stringify(patch)), {
         title: "New", titleEdited: true, description: "暂无摘要", descriptionEdited: true, cover: "", imageEdited: true
       }, "Built edit rules preserve text normalization and explicit image removal");
+      assert.deepEqual(JSON.parse(JSON.stringify(context.LaterOnItemState.normalizeItems([
+        null, { id: "legacy", read: true }, { id: "known", status: "done", doneAt: 123 }, { id: "reading", status: "reading", doneAt: 456 }
+      ]))), [
+        { id: "legacy", read: true, status: "done", doneAt: null },
+        { id: "known", status: "done", doneAt: 123 }, { id: "reading", status: "reading", doneAt: null }
+      ], "Built display rules derive legacy status without inventing a completion date");
+      assert.equal(context.LaterOnItemState.needsLegacyMigration([{ id: "legacy", read: true }]), true);
+      assert.equal(context.LaterOnItemState.nextStatus("reading"), "done");
     } finally { dom.window.close(); }
   }
 }

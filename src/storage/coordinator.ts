@@ -1,4 +1,5 @@
 import { browser } from "wxt/browser";
+import { normalizeItemState } from "../collection/item-state";
 import {
   ITEMS, PROJECTS, COVERS, ORDER, POSITIONS, CURRENT, ACTIVE, KEYS, EPOCH,
   isRecord, isCollectionCommand
@@ -185,10 +186,10 @@ function migrateLegacyData(stored: LegacyCollectionState): Mutation {
   const original = stored[ITEMS] || [];
   const covers = { ...(stored[COVERS] || {}) };
   const items = original.filter((item): item is StoredItem => !!item).map((item) => {
-    const status = item.status || (item.read ? "done" : "unread");
+    const { status, doneAt } = normalizeItemState(item);
     const inline = typeof item.image === "string" && item.image.startsWith("data:");
     if (inline && item.image !== undefined) covers[item.id] = item.image;
-    return { ...item, status, doneAt: status === "done" ? Number(item.doneAt) || Date.now() : null,
+    return { ...item, status, doneAt: status === "done" ? doneAt || Date.now() : null,
       ...(inline ? { image: `local://${item.id}` } : {}) };
   });
   const patch = { ...(!isEqual(original, items) ? { [ITEMS]: items } : {}), ...(!isEqual(stored[COVERS] || {}, covers) ? { [COVERS]: covers } : {}) };

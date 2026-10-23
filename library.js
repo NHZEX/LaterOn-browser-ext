@@ -137,15 +137,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 init();
 
 function normalizeItems(list) {
-  // 旧收藏只有 read 布尔、没有 status：按 read 推导成三档之一，兼容已有数据。
-  // 顺带补 doneAt（标为已读的时刻，自动清除按它起算）：本版本之前就标好的老收藏
-  // 没有这个时间，这里补成「现在」，从今天开始计 30 天，不会一升级就全被清掉。
-  return (list || []).filter(Boolean).map((it) => {
-    if (!it) return it;
-    const status = it.status || (it.read ? "done" : "unread");
-    const doneAt = status === "done" ? (Number(it.doneAt) || Date.now()) : null;
-    return { ...it, status, doneAt };
-  });
+  return LaterOnItemState.normalizeItems(list);
 }
 
 // ── 封面取值 / 搬家 / 写回 ──────────────────────────────────
@@ -160,10 +152,7 @@ function resolveImage(item) {
 // 一次性搬家：把还躺在收藏列表里的 base64 封面挪到单独的键里。
 // 搬完列表数据回归「纯文字」，哪个页面打开都快。已搬过（没有 data: 封面）就什么都不做。
 async function migrateLegacyCovers(rawItems) {
-  const needsMigration = Array.isArray(rawItems) && rawItems.some((item) =>
-    !item || (typeof item.image === "string" && item.image.startsWith("data:"))
-    || ((item.status === "done" || (!item.status && item.read)) && !Number(item.doneAt)));
-  if (!needsMigration) return null;
+  if (!LaterOnItemState.needsLegacyMigration(rawItems)) return null;
   try {
     const response = await LaterOnStorage.run("migrateLegacyData");
     covers = response.covers;
@@ -174,7 +163,7 @@ async function migrateLegacyCovers(rawItems) {
 // 三档：未读 / 在读 / 已读（已完成）。点一下「标为已读」按钮 = 标记完成，再点取消；
 // 「在读」由点开文章自动进入——这样「点过但没读完」不再被算作已读。
 function nextStatus(status) {
-  return status === "done" ? "unread" : "done";
+  return LaterOnItemState.nextStatus(status);
 }
 // 标记按钮上的文字：已完成时提示「标为未读」，其余提示「标为已读」。
 function readToggleLabel(status) {

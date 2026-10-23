@@ -48,7 +48,7 @@ async function checkPage(page) {
     runtime: { getURL: name => `chrome-extension://lateron/${name}`, sendMessage: async () => ({ ok: false }), onMessage: event() }
   };
   try {
-    for (const name of ['url-utils.js', 'tab-navigation.js', 'i18n.js', 'dialog.js', 'storage-client.js', 'item-edit.js', `${page}.js`]) window.eval(read(name));
+    for (const name of ['url-utils.js', 'tab-navigation.js', 'i18n.js', 'dialog.js', 'storage-client.js', 'item-edit.js', 'item-state.js', `${page}.js`]) window.eval(read(name));
     const itemSelector = page === 'library' ? '.board-card[data-project="p"]' : '.item[data-id="a"]';
     for (let attempt = 0; attempt < 100 && !document.querySelector(itemSelector); attempt++) await tick();
     assert(document.querySelector(itemSelector), `${page} renders the restored collection`);

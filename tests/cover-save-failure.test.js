@@ -50,13 +50,7 @@ const oldCover = 'data:image/jpeg;base64,T0xE', newCover = 'data:image/jpeg;base
     assert.equal(store.laterOnCovers.deleted, undefined, 'late edit cannot leave an orphan cover');
     assert.equal(store.laterOnItems.length, 1);
     assert.equal(writes, count + 1);
-    store.laterOnItems.push(null, { id: 'legacy', image: oldCover, read: true });
-    const migrateStart = source.indexOf('async function migrateLegacyCovers(');
-    const migrateEnd = source.indexOf('\n}', migrateStart) + 2;
-    vm.runInContext(source.slice(migrateStart, migrateEnd), context);
-    const migrated = await context.migrateLegacyCovers(clone(store.laterOnItems));
-    assert(migrated.every(Boolean), 'page migration tolerates null records');
-    assert.equal(migrated.find(item => item.id === 'legacy').image, 'local://legacy');
+    // Full-page null-record and inline-cover migration is covered by item-state-pages.test.js.
   }
   console.log('PASS both pages: cover and pointer commit together, failed writes preserve data, retry and removal succeed');
 })().catch(error => { console.error(error); process.exitCode = 1; });
