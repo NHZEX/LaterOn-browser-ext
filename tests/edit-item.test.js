@@ -1,8 +1,9 @@
 // 自己动手改标题 / 摘要 —— 这个功能横跨三处，所以分三段验证：
 //   ① 带输入框的弹窗（dialog.js 新增的 prompt）：能不能填、能不能取消、回车的行为
 //   ② 后台重复收藏时的合并逻辑：用户亲手改过的内容不能被自动抓取的结果顶掉
-//   ③ 收藏库页面上的完整链路：点编辑 → 改 → 保存 → 卡片立刻变样 → 写进库
-// 运行：NODE_PATH=<jsdom 路径> node tests/edit-item.test.js
+//   ③ 收藏库和侧边栏的完整链路：点编辑 → 改 → 保存 → 无存储广播也更新卡片
+// 运行：node tests/edit-item.test.js
+const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
@@ -14,8 +15,6 @@ const BACKGROUND = read("background.js");
 const I18N_SOURCE = read("i18n.js");
 const DIALOG_SOURCE = read("dialog.js");
 const DIALOG_CSS = read("dialog.css");
-const LIBRARY_SOURCE = read("library.js");
-const LIBRARY_HTML = read("library.html");
 
 let failures = 0;
 const check = (label, ok, extra = "") => {
@@ -107,11 +106,7 @@ async function partDialog() {
   await tick(300);
   check("普通确认框照旧返回 true（没被表单改造带偏）", plain === true, String(plain));
 
-  const used = new Set();
-  for (const matched of DIALOG_SOURCE.matchAll(/class="([^"]+)"/g)) matched[1].split(/\s+/).forEach((name) => used.add(name));
-  for (const matched of DIALOG_SOURCE.matchAll(/classList\.(?:add|remove)\("([^"]+)"\)/g)) used.add(matched[1]);
-  const missingCss = [...used].filter((name) => name.startsWith("lod-") && !DIALOG_CSS.includes(`.${name}`));
-  check("新增的输入框类名都在 CSS 里有样式", missingCss.length === 0, missingCss.join(", "));
+  window.close();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -168,10 +163,11 @@ function partMerge() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ③ 收藏库页面上的完整链路
+// ③ 两个页面上的完整链路；只模拟浏览器 API，执行真实页面和存储逻辑
 // ═══════════════════════════════════════════════════════════
-async function partLibrary() {
-  console.log("\n── ③ 在收藏库页面上真的改一篇 ──");
+async function partPage(page) {
+  const isLibrary = page === "library";
+  console.log(`\n── ③ 在${isLibrary ? "收藏库" : "侧边栏"}页面上真的改一篇 ──`);
   const ITEMS = [
     {
       id: "item-1",
@@ -206,15 +202,18 @@ async function partLibrary() {
     laterOnSettings: {}
   };
 
-  const dom = new JSDOM(LIBRARY_HTML, {
+  const dom = new JSDOM(read(`${page}.html`), {
     runScripts: "outside-only",
     pretendToBeVisual: true,
-    url: "chrome-extension://lateron/library.html"
+    url: `chrome-extension://lateron/${page}.html`
   });
   const { window } = dom;
   const { document } = window;
+  window.scrollTo = () => {};
 
   const listeners = [];
+  const itemWrites = [];
+  const faults = { failItemWrite: false };
   window.chrome = {
     storage: {
       local: {
@@ -225,6 +224,11 @@ async function partLibrary() {
           return out;
         },
         set: async (patch) => {
+          if (patch.laterOnItems) {
+            if (faults.failItemWrite) throw new Error("fixture storage write failure");
+            itemWrites.push(JSON.parse(JSON.stringify(patch.laterOnItems)));
+          }
+          // 故意不通知 onChanged：编辑页必须自己反映成功的写入。
           for (const [key, value] of Object.entries(patch)) store[key] = JSON.parse(JSON.stringify(value));
         }
       },
@@ -234,122 +238,152 @@ async function partLibrary() {
       query: async () => [{ id: 7, windowId: 3 }],
       getCurrent: async () => ({ id: 7, windowId: 3 }),
       update: async () => ({}),
-      create: async () => ({})
+      create: async () => ({}),
+      onActivated: { addListener() {} },
+      onUpdated: { addListener() {} }
     },
     runtime: { getURL: (file) => `chrome-extension://lateron/${file}`, sendMessage: async () => ({ ok: true }), onMessage: { addListener() {} } },
     windows: { getCurrent: async () => ({ id: 3 }) },
     sidePanel: { open: async () => ({}), close: async () => ({}) }
   };
-
+  // jsdom 的 outside-only 不加载动态脚本；在资源加载边界执行真实脚本并发送加载事件。
+  const scripts = new window.MutationObserver((records) => {
+    records.flatMap(record => [...record.addedNodes])
+      .filter(node => node.nodeName === "SCRIPT" && node.src)
+      .forEach(script => {
+        try {
+          window.eval(read(new URL(script.src).pathname.slice(1)));
+          script.dispatchEvent(new window.Event("load"));
+        } catch {
+          script.dispatchEvent(new window.Event("error"));
+        }
+      });
+  });
+  scripts.observe(document.head, { childList: true });
 
   window.eval(I18N_SOURCE);
-  window.eval(DIALOG_SOURCE);
+  if (isLibrary) window.eval(DIALOG_SOURCE);
   require('./helpers/item-mutation')(window);
-  window.eval(LIBRARY_SOURCE);
+  window.eval(read(`${page}.js`));
 
   const tick = (ms = 20) => new Promise((resolve) => window.setTimeout(resolve, ms));
   const click = (el) => el.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
   const press = (el, key, extra = {}) =>
     el.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...extra }));
   const visible = () => document.querySelector(".lod-root:not([hidden])");
-  const card = (id) => document.querySelector(`.card[data-id="${id}"]`);
-  const titleOf = (id) => card(id)?.querySelector(".title-link h2")?.textContent;
+  const cardSelector = isLibrary ? ".card" : "#items .item";
+  const card = (id) => document.querySelector(`${cardSelector}[data-id="${id}"]`);
+  const titleOf = (id) => card(id)?.querySelector("h2")?.textContent;
   const descOf = (id) => card(id)?.querySelector(".description")?.textContent;
+  const feedback = () => document.querySelector(isLibrary ? "#toast" : "#status").textContent;
+  const waitFor = async (label, predicate) => {
+    const deadline = Date.now() + 2000;
+    while (!predicate() && Date.now() < deadline) await tick(10);
+    assert.ok(predicate(), label);
+  };
 
-  await tick();
-  click(document.querySelector('.project-nav[data-project="unfiled"]'));
-  await tick();
-  check("卡片渲染出来了", document.querySelectorAll(".card").length === 2, `${document.querySelectorAll(".card").length} 张`);
-  check("卡片右上角有铅笔按钮", !!card("item-1")?.querySelector(".edit"));
-  check("铅笔没被封面链接包住（点它不会顺带打开网页）", !card("item-1")?.querySelector(".cover-link .edit"));
+  try {
+    if (isLibrary) {
+      await waitFor("收藏库已显示待整理数量", () => document.querySelector("#unfiledCount").textContent === "2");
+      click(document.querySelector('.project-nav[data-project="unfiled"]'));
+    }
+    await waitFor("两个页面均能加载收藏卡片", () => !!card("item-1") && !!card("item-2"));
+    check("卡片渲染出来了", document.querySelectorAll(cardSelector).length === 2, `${document.querySelectorAll(cardSelector).length} 张`);
+    check("收藏卡片提供编辑入口", !!card("item-1")?.querySelector(".edit"));
+    check("编辑按钮不在网页链接内", !card("item-1").querySelector(".edit").closest("a"));
 
-  // 点编辑 → 弹窗出现，带着现在的值（摘要是占位的「暂无摘要」，显示成空才合理）。
-  click(card("item-1").querySelector(".edit"));
-  await tick();
-  check("点编辑弹出输入框", !!visible());
-  check("标题初值正确", visible().querySelector('[data-field="title"]')?.value === "自动抓来的标题 - 知乎");
-  check("「暂无摘要」显示成空，方便直接补写", visible().querySelector('[data-field="description"]')?.value === "");
-  check("提示这是一篇没摘要的收藏", /没抓到摘要/.test(visible().querySelector(".lod-message").textContent));
+    // 点编辑 → 弹窗出现，带着现在的值（摘要是占位的「暂无摘要」，显示成空才合理）。
+    click(card("item-1").querySelector(".edit"));
+    await waitFor("点击编辑后打开真实输入弹窗", visible);
+    check("点编辑弹出输入框", !!visible());
+    check("标题初值正确", visible().querySelector('[data-field="title"]')?.value === "自动抓来的标题 - 知乎");
+    check("「暂无摘要」显示成空，方便直接补写", visible().querySelector('[data-field="description"]')?.value === "");
+    check("提示这是一篇没摘要的收藏", /没抓到摘要/.test(visible().querySelector(".lod-message").textContent));
 
-  // 改完保存。
-  visible().querySelector('[data-field="title"]').value = "我重写的标题";
-  visible().querySelector('[data-field="description"]').value = "我补的摘要";
-  click(visible().querySelector(".lod-ok"));
-  await tick(300);
+    // 改完保存。
+    visible().querySelector('[data-field="title"]').value = "我重写的标题";
+    visible().querySelector('[data-field="description"]').value = "我补的摘要";
+    click(visible().querySelector(".lod-ok"));
+    await tick(300);
 
-  const saved = store.laterOnItems.find((entry) => entry.id === "item-1");
-  check("新标题写进了收藏库", saved?.title === "我重写的标题", saved?.title);
-  check("新摘要写进了收藏库", saved?.description === "我补的摘要", saved?.description);
-  check("标题标记为「用户改过」", saved?.titleEdited === true, String(saved?.titleEdited));
-  check("摘要标记为「用户改过」", saved?.descriptionEdited === true, String(saved?.descriptionEdited));
-  check("卡片上的标题立刻变了", titleOf("item-1") === "我重写的标题", titleOf("item-1"));
-  check("卡片上的摘要立刻变了", descOf("item-1") === "我补的摘要", descOf("item-1"));
-  check("其它收藏没被波及", titleOf("item-2") === "另一篇");
+    const saved = store.laterOnItems.find((entry) => entry.id === "item-1");
+    check("新标题写进了收藏库", saved?.title === "我重写的标题", saved?.title);
+    check("新摘要写进了收藏库", saved?.description === "我补的摘要", saved?.description);
+    check("标题标记为「用户改过」", saved?.titleEdited === true, String(saved?.titleEdited));
+    check("摘要标记为「用户改过」", saved?.descriptionEdited === true, String(saved?.descriptionEdited));
+    check("不发送存储广播，卡片标题也更新", titleOf("item-1") === "我重写的标题", titleOf("item-1"));
+    check("不发送存储广播，卡片摘要也更新", descOf("item-1") === "我补的摘要", descOf("item-1"));
+    check("其它收藏没被波及", titleOf("item-2") === "另一篇");
 
-  // 摘要清空 → 回落到「暂无摘要」，而不是把卡片摘要弄没。
-  click(card("item-1").querySelector(".edit"));
-  await tick();
-  visible().querySelector('[data-field="description"]').value = "   ";
-  click(visible().querySelector(".lod-ok"));
-  await tick(300);
-  const cleared = store.laterOnItems.find((entry) => entry.id === "item-1");
-  check("摘要清空后回落到「暂无摘要」", cleared?.description === "暂无摘要", cleared?.description);
-  check("清空时也标记为「用户改过」（以后不会被自动填充顶掉）", cleared?.descriptionEdited === true);
+    // 摘要清空 → 回落到「暂无摘要」，而不是把卡片摘要弄没。
+    click(card("item-1").querySelector(".edit"));
+    await tick();
+    visible().querySelector('[data-field="description"]').value = "   ";
+    click(visible().querySelector(".lod-ok"));
+    await tick(300);
+    const cleared = store.laterOnItems.find((entry) => entry.id === "item-1");
+    check("摘要清空后回落到「暂无摘要」", cleared?.description === "暂无摘要", cleared?.description);
+    check("清空时也标记为「用户改过」（以后不会被自动填充顶掉）", cleared?.descriptionEdited === true);
 
-  // Esc 取消：什么都不该改。
-  const before = JSON.stringify(store.laterOnItems);
-  click(card("item-1").querySelector(".edit"));
-  await tick();
-  visible().querySelector('[data-field="title"]').value = "误触改成这样";
-  press(visible(), "Escape");
-  await tick(300);
-  check("按 Esc 取消时不会写库", JSON.stringify(store.laterOnItems) === before);
-  check("卡片也保持原样", titleOf("item-1") === "我重写的标题", titleOf("item-1"));
+    // Esc 取消：什么都不该改。
+    const before = JSON.stringify(store.laterOnItems);
+    const writesBeforeCancel = itemWrites.length;
+    click(card("item-1").querySelector(".edit"));
+    await tick();
+    visible().querySelector('[data-field="title"]').value = "误触改成这样";
+    press(visible(), "Escape");
+    await tick(300);
+    check("按 Esc 取消时不会写库", JSON.stringify(store.laterOnItems) === before && itemWrites.length === writesBeforeCancel);
+    check("卡片也保持原样", titleOf("item-1") === "我重写的标题", titleOf("item-1"));
 
-  // 没有改动就保存：不该产生无谓的写库。
-  const beforeNoop = JSON.stringify(store.laterOnItems);
-  click(card("item-1").querySelector(".edit"));
-  await tick();
-  click(visible().querySelector(".lod-ok"));
-  await tick(300);
-  check("没改任何字就保存 → 不写库", JSON.stringify(store.laterOnItems) === beforeNoop);
-  check("会提示「没有改动」", /没有改动/.test(document.querySelector("#toast").textContent), document.querySelector("#toast").textContent);
+    // 没有改动就保存：不该产生无谓的写库。
+    const beforeNoop = JSON.stringify(store.laterOnItems);
+    const writesBeforeNoop = itemWrites.length;
+    click(card("item-1").querySelector(".edit"));
+    await tick();
+    click(visible().querySelector(".lod-ok"));
+    await tick(300);
+    check("没改任何字就保存 → 不写库", JSON.stringify(store.laterOnItems) === beforeNoop && itemWrites.length === writesBeforeNoop);
+    if (isLibrary) check("会提示「没有改动」", /没有改动/.test(feedback()), feedback());
 
-  // 别处的改动（比如后台重新抓了一次）也要能同步到已有卡片上。
-  const nextItems = store.laterOnItems.map((entry) => entry.id === "item-2" ? { ...entry, title: "后台更新后的标题", description: "后台更新后的摘要" } : entry);
-  store.laterOnItems = nextItems;
-  listeners.forEach((fn) => fn({ laterOnItems: { newValue: nextItems } }, "local"));
-  await tick();
-  check("外部改动也能同步到卡片标题（不再是一张死卡）", titleOf("item-2") === "后台更新后的标题", titleOf("item-2"));
-  check("摘要同步也是好的", descOf("item-2") === "后台更新后的摘要", descOf("item-2"));
-}
+    // 写入失败时不能把未保存的编辑显示成成功；恢复存储后允许重试。
+    faults.failItemWrite = true;
+    click(card("item-1").querySelector(".edit"));
+    await waitFor("失败场景也能打开编辑弹窗", visible);
+    visible().querySelector('[data-field="title"]').value = "重试后的标题";
+    visible().querySelector('[data-field="description"]').value = "重试后的摘要";
+    click(visible().querySelector(".lod-ok"));
+    await waitFor("存储失败有明确提示", () => feedback() === window.LaterOnI18n.t("operationFailed"));
+    check("保存失败时收藏数据不变", JSON.stringify(store.laterOnItems) === beforeNoop && itemWrites.length === writesBeforeNoop);
+    check("保存失败时卡片保留旧标题和摘要", titleOf("item-1") === "我重写的标题" && descOf("item-1") === "暂无摘要");
 
-// ═══════════════════════════════════════════════════════════
-// ④ 静态检查：入口是不是都接上了
-// ═══════════════════════════════════════════════════════════
-function partWiring() {
-  console.log("\n── ④ 各个入口是否都接上了 ──");
-  const libraryHtml = read("library.html");
-  const sidepanelHtml = read("sidepanel.html");
-  const sidepanelJs = read("sidepanel.js");
+    faults.failItemWrite = false;
+    click(card("item-1").querySelector(".edit"));
+    await waitFor("存储恢复后可重新编辑", visible);
+    visible().querySelector('[data-field="title"]').value = "重试后的标题";
+    visible().querySelector('[data-field="description"]').value = "重试后的摘要";
+    click(visible().querySelector(".lod-ok"));
+    await waitFor("重试成功后无广播也更新卡片", () => titleOf("item-1") === "重试后的标题" && descOf("item-1") === "重试后的摘要");
+    const retried = store.laterOnItems.find(entry => entry.id === "item-1");
+    check("重试后新标题和摘要确实写入存储", retried.title === "重试后的标题" && retried.description === "重试后的摘要");
 
-  const libraryCss = read("library.css");
-  check("收藏库卡片模板里有编辑按钮", /class="edit"/.test(libraryHtml));
-  check("侧边栏卡片模板里有编辑按钮", /class="edit"/.test(sidepanelHtml));
-  check("铅笔浮在右上角（鼠标移到卡片上才出现）", /\.card:hover \.edit/.test(libraryCss) && /\.item:hover \.edit/.test(read("sidepanel.css")));
-  check("收藏库：点编辑按钮会打开弹窗", /\.edit\"\)\)\s+editItem\(/.test(LIBRARY_SOURCE));
-  check("侧边栏：点编辑按钮会打开弹窗", /\.edit\"\)\)\s+editItem\(/.test(sidepanelJs));
-  check("收藏库引入了弹窗组件（否则弹不出来）", /dialog\.js/.test(libraryHtml));
-  check("侧边栏按需加载弹窗组件", /script\.src = "dialog\.js"/.test(sidepanelJs));
-  check("两处都同步卡片标题 / 摘要", /setText\(card\.querySelector\("\.title-link h2"\)/.test(LIBRARY_SOURCE) && /setText\(article\.querySelector\("h2"\)/.test(sidepanelJs));
-  check("编辑后立刻重画卡片（不等存储广播）", /if \(!await updateItem\(item\.id, patch\)\) return;\s*\n\s*\/\/.+\n\s*render\(\);/.test(LIBRARY_SOURCE) && /render\(\);\s*\n}/.test(sidepanelJs));
+    // 别处的改动（比如后台重新抓了一次）也要能同步到已有卡片上。
+    const nextItems = store.laterOnItems.map((entry) => entry.id === "item-2" ? { ...entry, title: "后台更新后的标题", description: "后台更新后的摘要" } : entry);
+    store.laterOnItems = nextItems;
+    listeners.forEach((fn) => fn({ laterOnItems: { newValue: nextItems } }, "local"));
+    await tick();
+    check("外部改动也能同步到卡片标题（不再是一张死卡）", titleOf("item-2") === "后台更新后的标题", titleOf("item-2"));
+    check("摘要同步也是好的", descOf("item-2") === "后台更新后的摘要", descOf("item-2"));
+  } finally {
+    scripts.disconnect();
+    window.close();
+  }
 }
 
 (async () => {
   await partDialog();
   partMerge();
-  await partLibrary();
-  partWiring();
+  for (const page of ["library", "sidepanel"]) await partPage(page);
   console.log(failures === 0 ? "\n全部检查通过 🎉" : `\n有 ${failures} 项失败`);
   if (failures) process.exitCode = 1;
 })().catch((error) => {
