@@ -1,6 +1,6 @@
 import { computed, reactive, shallowRef } from "vue";
-import { boardGroups, projectNavigation } from "./shared";
-import type { LibraryCollection } from "./shared";
+import { boardGroups, collectionCards, projectNavigation } from "./shared";
+import type { CardOrders, LibraryCollection } from "./shared";
 import { normalizeSearch, normalizeSort } from "../collection/filter";
 import type { ReadFilter, SortMode } from "../collection/filter";
 
@@ -18,6 +18,7 @@ interface ControlState {
   empty: boolean;
   emptyTitle: string;
   emptyHint: string;
+  currentItemId: string | null;
 }
 
 interface ControlActions {
@@ -34,12 +35,17 @@ interface ControlActions {
   readonly cancelRename: () => void;
   readonly commitRename: (id: string, value: string) => void;
   readonly settings: (event: MouseEvent) => void;
+  readonly cardsRendered: (complete: boolean) => void;
 }
 
 export function useLibraryControls() {
   const state = reactive<ControlState>({ filter: "unread", search: "", query: "", sort: "newest", count: "", board: true, selecting: false,
-    activeProject: "all", renamingId: null, renameDraft: "", empty: true, emptyTitle: "quiet", emptyHint: "quietHint" });
+    activeProject: "all", renamingId: null, renameDraft: "", empty: true, emptyTitle: "quiet", emptyHint: "quietHint", currentItemId: null });
   const collection = shallowRef<LibraryCollection>({ items: [], projects: [], covers: {} });
+  const orders = shallowRef<CardOrders>({});
+  const selectedIds = shallowRef<ReadonlySet<string>>(new Set());
+  const cardView = computed(() => collectionCards(collection.value, state, orders.value));
+  const cards = computed(() => state.board ? [] : cardView.value.visible);
   const navigation = computed(() => projectNavigation(collection.value));
   const boards = computed(() => boardGroups(collection.value, state.filter, state.activeProject === "archive"));
   const boardSummary = computed(() => ({ groups: boards.value.length,
@@ -69,6 +75,9 @@ export function useLibraryControls() {
   function home(): void { actions.value?.home(); }
   function select(): void { actions.value?.select(); }
   function updateCollection(value: LibraryCollection): void { collection.value = value; }
+  function updateOrders(value: CardOrders): void { orders.value = value; }
+  function updateSelection(value: ReadonlySet<string>): void { selectedIds.value = new Set(value); }
+  function cardsRendered(complete: boolean): void { actions.value?.cardsRendered(complete); }
   function project(id: string): void { actions.value?.project(id); }
   function createProject(): void { actions.value?.createProject(); }
   function editProject(id: string): void { actions.value?.editProject(id); }
@@ -79,7 +88,7 @@ export function useLibraryControls() {
   function settings(event: MouseEvent): void { actions.value?.settings(event); }
   function dispose(): void { clearTimeout(searchTimer); actions.value = null; }
 
-  return { state, collection, navigation, boards, boardSummary, unfiled, total, updateCollection, bind, setFilter, setSearch, clearSearch, setSort,
+  return { state, collection, navigation, boards, boardSummary, unfiled, total, cards, cardView, selectedIds, updateCollection, updateOrders, updateSelection, cardsRendered, bind, setFilter, setSearch, clearSearch, setSort,
     home, select, project, createProject, editProject, projectMenu, rename, cancelRename, commitRename, settings, dispose };
 }
 

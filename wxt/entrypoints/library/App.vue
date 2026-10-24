@@ -6,6 +6,7 @@ import LibraryHeader from "./LibraryHeader.vue";
 import CollectionToolbar from "./CollectionToolbar.vue";
 import ProjectNavigation from "./ProjectNavigation.vue";
 import ProjectBoards from "./ProjectBoards.vue";
+import CollectionCards from "./CollectionCards.vue";
 
 const props = defineProps<{ controls: LibraryControls }>();
 const languageVersion = ref(0);
@@ -40,6 +41,10 @@ onBeforeUnmount(() => {
   </Teleport>
   <Teleport to="#boardView">
     <ProjectBoards :controls="controls" :translate="translate" :english="english" />
+  </Teleport>
+  <Teleport to="#cardGrid">
+    <CollectionCards :items="controls.cards.value" :collection="controls.collection.value" :selected-ids="controls.selectedIds.value"
+      :current-item-id="controls.state.currentItemId" :translate="translate" :english="english" @rendered="controls.cardsRendered" />
   </Teleport>
   <Teleport to="#libraryEmptyState">
     <section id="emptyState" class="empty" :hidden="controls.state.board ? controls.boards.value.length > 0 : !controls.state.empty">

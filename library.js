@@ -1,7 +1,8 @@
-import { normalizeFilter, normalizeSort, matchesReadFilter as matchesReading, matchesSearch } from "./src/collection/filter";
-import { projectCoverFor as resolveProjectCover, nextCoverFallback, formatSavedTime } from "./src/library/shared";
+import { nextTick } from "vue";
+import { normalizeFilter, normalizeSort } from "./src/collection/filter";
+import { projectCoverFor as resolveProjectCover, cardTarget } from "./src/library/shared";
 
-// Transitional controller: Vue owns navigation, boards, empty states and controls; card rendering and remaining operations migrate in later slices.
+// Vue owns page rendering; this transitional controller retains menus, dialogs, drag and bulk operations.
 /** @param {import("./src/library/useLibraryControls").LibraryControls} controls */
 export function startLibraryPage(controls) {
 const view = controls.state;
@@ -41,11 +42,6 @@ let autoMarkRead = true;
 let settings = {};          // 当前设置（主题等）：卡片上弹浮层时要跟它对齐配色
 let libraryTabId = null;
 let libraryWindowId = null;
-const cardMap = new Map();
-// 完整收藏库也可能累积到上千条。第一屏同步画 48 张（桌面宽屏也足够覆盖数屏），
-// 其余分批排进空闲时间，避免一次 render() 长时间占住主线程。
-const LIBRARY_RENDER_BATCH = 48;
-let libraryRenderToken = 0;
 let dragPreview = null;
 // 当前这次拖拽的全部状态（null = 现在没在拖）。卡片视图和图板视图共用同一套逻辑，
 // 区别只有「拖的是什么、松手后写到哪儿」，都记在这个对象里：
@@ -69,7 +65,6 @@ let folderDragBlocked = false; // 这次按下是从「改名输入框 / ⋯ 按
 
 const grid = document.querySelector("#cardGrid");
 const boardGrid = document.querySelector("#boardGrid");
-const template = document.querySelector("#cardTemplate");
 const searchInput = document.querySelector("#searchInput");
 const toast = document.querySelector("#toast");
 const tr = (key, vars) => {
@@ -98,10 +93,6 @@ const tr = (key, vars) => {
   };
   return String(fallback[key] || key).replace(/\{(\w+)\}/g, (_, k) => vars?.[k] ?? `{${k}}`);
 };
-
-function itemIsArchived(item) {
-  return projects.some((project) => project.id === item.projectId && project.archived);
-}
 
 function syncDocumentTitle() {
   let pageName = "";
@@ -159,11 +150,6 @@ async function migrateLegacyCovers(rawItems) {
 function nextStatus(status) {
   return LaterOnItemState.nextStatus(status);
 }
-// 标记按钮上的文字：已完成时提示「标为未读」，其余提示「标为已读」。
-function readToggleLabel(status) {
-  return status === "done" ? tr("unreadButton") : tr("readButton");
-}
-
 // 筛选只认这三档。第一次打开还没有偏好，或存入了异常值时，默认展示「未读」；
 // 用户手动切换后会写进 FILTER_KEY，以后恢复上次选择。
 // 搜索是临时查看状态；切换项目或移动收藏后离开搜索结果，避免旧关键词继续过滤新页面。
@@ -374,8 +360,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
   if (area === "local" && changes[CURRENT_ITEM_KEY]) {
     currentItemId = changes[CURRENT_ITEM_KEY].newValue || null;
-    applyCurrentHighlight();
-    locateCard(currentItemId);
+    initialLocateItemId = currentItemId;
+    view.currentItemId = currentItemId;
+    nextTick(() => cardsRendered(false));
   }
   if (area === "local" && changes[ORDER_KEY]) {
     orders = changes[ORDER_KEY].newValue || {};
@@ -445,7 +432,7 @@ grid.addEventListener("click", (event) => {
     // 顺带也拦下了左上角圆点里那个隐藏勾选框的「连带翻转」，避免一次点击翻两次。
     event.preventDefault();
     // 圆点自己接待：browser 的 label 行为在不同环境下表现不一致，靠它翻转很容易落空。
-    toggleSelect(item.id, card);
+    toggleSelect(item.id);
     return;
   }
   if (event.target.closest(".read-toggle")) updateItem(item.id, { status: nextStatus(item.status) });
@@ -463,7 +450,7 @@ grid.addEventListener("change", (event) => {
     if (check) {
       const card = event.target.closest(".card");
       const item = items.find((entry) => entry.id === card.dataset.id);
-      if (item) toggleSelect(item.id, card, check.checked);
+      if (item) toggleSelect(item.id, check.checked);
     }
     return;
   }
@@ -503,7 +490,7 @@ grid.addEventListener("click", (event) => {
   event.preventDefault();
   const card = select.closest(".card");
   const item = items.find((entry) => entry.id === card.dataset.id);
-  if (item) openCardProjectPicker(card, item, select);
+  if (item) openCardProjectPicker(item, select);
 });
 grid.addEventListener("keydown", (event) => {
   const select = event.target.closest(".project-select");
@@ -513,7 +500,7 @@ grid.addEventListener("keydown", (event) => {
     event.preventDefault();
     const card = select.closest(".card");
     const item = items.find((entry) => entry.id === card.dataset.id);
-    if (item) openCardProjectPicker(card, item, select);
+    if (item) openCardProjectPicker(item, select);
   }
 });
 // ── 拖拽排序（卡片视图和图板视图共用同一套）─────────────────
@@ -747,6 +734,7 @@ async function commitCardOrder(dropIndex) {
     render();
     showToast(tr("orderSaved"));
   }
+  await nextTick();
   void grid.offsetHeight;   // 强制回流，让新位置立刻生效，再恢复过渡
   grid.classList.remove("no-transition");
 }
@@ -846,39 +834,11 @@ function orderScope() {
   return view.activeProject || "all";
 }
 
-// 这个范围里所有收藏的「当前顺序」：先按存下来的自定义顺序，
-// 没排过的新收藏（比如刚存的）接在后面，新的在前。
-function scopeOrder(scopedItems) {
-  const saved = Array.isArray(orders[orderScope()]) ? orders[orderScope()] : [];
-  const known = saved.filter((id) => scopedItems.some((item) => item.id === id));
-  const rest = scopedItems
-    .filter((item) => !known.includes(item.id))
-    .sort((a, b) => b.savedAt - a.savedAt)
-    .map((item) => item.id);
-  return [...known, ...rest];
-}
-
-// 排序规则：仍是「最新收藏 / 最早收藏 / 按来源」时照旧；
-// 选了「自定义顺序」就按用户拖出来的先后排（没排过的按收藏时间倒序排在末尾附近）。
-function customOrderComparator(scopedItems) {
-  if (view.sort !== "custom") {
-    return (a, b) => view.sort === "oldest" ? a.savedAt - b.savedAt
-      : view.sort === "source" ? a.source.localeCompare(b.source)
-      : b.savedAt - a.savedAt;
-  }
-  const rank = new Map(scopeOrder(scopedItems).map((id, index) => [id, index]));
-  return (a, b) => {
-    const ra = rank.has(a.id) ? rank.get(a.id) : Number.MAX_SAFE_INTEGER;
-    const rb = rank.has(b.id) ? rank.get(b.id) : Number.MAX_SAFE_INTEGER;
-    if (ra !== rb) return ra - rb;
-    return b.savedAt - a.savedAt;
-  };
-}
-
 function syncCollection() {
   // Remove temporary drag nodes before Vue reconciles its keyed rows and boards.
   if (folderDragId) endFolderDrag();
-  if (drag?.container === boardGrid) endReorder();
+  if (drag) endReorder();
+  controls.updateOrders(orders);
   controls.updateCollection({ items, projects, covers });
 }
 
@@ -888,42 +848,16 @@ function render() {
     if (!items.some((entry) => entry.id === id)) selectedIds.delete(id);
   }
   syncViewUI();
-  if (isBoardView()) { renderBoards(); return; }
-  renderCardsView();
+  view.currentItemId = currentItemId;
+  updateSelectionUI();
+  if (!isBoardView()) renderCardsView();
 }
 
 function renderCardsView() {
-  // 搜索是全局的：搜索框里有字时一律在「全部收藏」里找，不受当前所在项目限制。
-  // （以前是在当前项目的范围里找，人在某个项目里搜一个明明存在的标题会一无所获，
-  //   还以为这篇收藏丢了。）「未读 / 已读」那一档仍然生效——它是用户自己拨过去的开关，
-  // 不该被搜索悄悄改掉；没结果时的提示里也说了可以切它。
-  const scopedItems = items.filter((item) => {
-    if (view.activeProject === "archive") return itemIsArchived(item);
-    if (itemIsArchived(item) && view.activeProject !== item.projectId) return false;
-    return !!view.query || view.activeProject === "all" || (view.activeProject === "unfiled" ? !item.projectId : item.projectId === view.activeProject);
-  });
-  let visible = scopedItems.filter((item) => {
-    // 「未读」= 还没读完（未读 + 在读）；「已读」= 手动标完成的那批。
-    // 这样点开文章（自动进「在读」）不会让它从「未读」里消失——没读完就还算没读。
-    return matchesReading(item, view.filter) && matchesSearch(item, view.query);
-  });
-  visible.sort(customOrderComparator(scopedItems));
-  // 计数要说清是「在哪找的」：搜索时报命中数，并写明是在全部收藏里找的
-  // ——否则人在某个项目里会以为顶上那个数字还是这个项目的。
+  const { scoped, visible } = controls.cardView.value;
   view.count = view.query
-    ? tr("searchCount", { count: visible.length, unfinished: visible.filter((item) => item.status !== "done").length })
-    : tr("scopedCount", { count: scopedItems.length, unfinished: scopedItems.filter((item) => item.status !== "done").length });
-
-  // 增量更新：只增删/重排发生变化的卡片，保留已有 DOM（不丢滚动、不重建监听）。
-  const visibleIds = new Set(visible.map((item) => item.id));
-  for (const [id, card] of cardMap) {
-    if (!visibleIds.has(id)) { card.remove(); cardMap.delete(id); }
-  }
-  const token = ++libraryRenderToken;
-  renderCards(visible, 0, token);
-  // 同步「正在读」高亮（不丢滚动：只增删/重排发生变化的卡片）。
-  applyCurrentHighlight();
-
+    ? tr("searchCount", { count: visible.length, unfinished: visible.filter(item => item.status !== "done").length })
+    : tr("scopedCount", { count: scoped.length, unfinished: scoped.filter(item => item.status !== "done").length });
   view.empty = visible.length === 0;
   view.emptyTitle = items.length ? "noMatches" : "quiet";
   view.emptyHint = items.length ? "noMatchesHint" : "quietHint";
@@ -946,13 +880,6 @@ function syncViewUI() {
   grid.hidden = board;
   view.board = board;
   if (board && selectMode) setSelectMode(false);
-}
-
-function renderBoards() {
-  ++libraryRenderToken;
-  for (const [, card] of cardMap) card.remove();
-  cardMap.clear();
-  grid.replaceChildren();
 }
 
 async function editBoard(projectId) {
@@ -1064,161 +991,24 @@ async function editBoard(projectId) {
   showToast(nameChanged ? tr("projectUpdated", { name: finalName, changes: changed }) : tr("projectChangesSaved", { changes: changed }));
 }
 
-function nextLibraryRender(fn) {
-  if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(fn, { timeout: 250 });
-  else window.setTimeout(fn, 16);
-}
-
-function renderCards(visible, start, token) {
-  if (token !== libraryRenderToken) return;
-  const end = Math.min(start + LIBRARY_RENDER_BATCH, visible.length);
-  for (let index = start; index < end; index += 1) {
-    const item = visible[index];
-    let card = cardMap.get(item.id);
-    if (!card) { card = createCard(item); cardMap.set(item.id, card); }
-    else updateCard(card, item);
-    if (grid.children[index] !== card) grid.insertBefore(card, grid.children[index] || null);
-  }
-  applyCurrentHighlight();
-  if (initialLocateItemId && cardMap.has(initialLocateItemId)) {
-    const targetId = initialLocateItemId;
+// Vue notifies after each committed batch, so positioning never races its DOM patch.
+function cardsRendered(complete) {
+  updateSelectionCount();
+  if (!initialLocateItemId) return;
+  const targetId = initialLocateItemId;
+  if (findCard(targetId)) {
     initialLocateItemId = null;
-    requestAnimationFrame(() => locateCard(targetId));
-  } else if (end >= visible.length) {
-    // 当前筛选里没有这篇时尊重筛选，不强行跳档；同时结束这次定位任务。
-    initialLocateItemId = null;
-  }
-  if (end < visible.length) nextLibraryRender(() => renderCards(visible, end, token));
+    requestAnimationFrame(() => { if (targetId === currentItemId) locateCard(targetId); });
+  } else if (complete) initialLocateItemId = null;
 }
 
-// 把「正在读」那篇标出来（全屏与侧栏都会用到这个共享标记）。
-function applyCurrentHighlight() {
-  for (const [id, card] of cardMap) {
-    card.dataset.currentLabel = tr("currentReading");
-    card.classList.toggle("is-current", id === currentItemId);
-  }
+function findCard(id) {
+  return grid.querySelector(`.card[data-id="${cssEscape(id)}"]`);
 }
 
-// 把「正在读」的卡片滚进可视区域（只在该页面还活着时调用，比如从侧栏点开、
-// 全屏标签页还没跳走时；标签页一旦导航走就别滚了）。
 function locateCard(id) {
-  if (!id) return;
-  const card = cardMap.get(id);
-  // jsdom / 极端环境下没有 scrollIntoView，包一层避免报错（真实浏览器里才有用）。
+  const card = id && findCard(id);
   if (card && typeof card.scrollIntoView === "function") card.scrollIntoView({ block: "center", behavior: "smooth" });
-}
-
-// 卡片是复用的 DOM，封面换了要能同步刷新（用户自己上传/移除封面时尤其明显）。
-const coverPlaceholders = new WeakMap();
-function applyCover(card, item) {
-  const cover = card.querySelector(".cover");
-  if (!cover) return;
-  // 模板里自带的那块默认占位（LaterOn Logo），封面加载失败或没有封面时就退回它。
-  let placeholder = coverPlaceholders.get(card);
-  if (!placeholder) {
-    placeholder = cover.querySelector(".cover-placeholder");
-    if (placeholder) coverPlaceholders.set(card, placeholder);
-  }
-  const current = cover.querySelector("img.cover-img");
-  const src = resolveImage(item);
-  if (src) {
-    // 封面没变就别动 DOM，省得图片重新加载闪一下。
-    if (current && current.getAttribute("src") === src) return;
-    const img = document.createElement("img");
-    img.className = "cover-img";
-    // 小红书等站点的图片 CDN 会拒绝带 chrome-extension:// Referer 的请求（403），
-    // 明确声明「不发 Referer」它们才会正常返回图片。
-    img.referrerPolicy = "no-referrer";
-    img.src = src;
-    img.alt = "";
-    img.loading = "lazy";
-    img.addEventListener("error", () => {
-      const fallback = nextCoverFallback(img.src);
-      if (fallback) img.src = fallback;
-      // 降级链走完仍拿不到图：退回 LaterOn 的 Logo，而不是留一块空白。
-      else if (placeholder) cover.replaceChildren(placeholder);
-    });
-    // 有真实封面就替换掉占位，避免占位与封面上下叠在一起。
-    cover.replaceChildren(img);
-  } else if (current || (placeholder && !cover.contains(placeholder))) {
-    if (placeholder) cover.replaceChildren(placeholder);
-    else cover.replaceChildren();
-  }
-}
-
-function createCard(item) {
-  const fragment = template.content.cloneNode(true);
-  const card = fragment.querySelector(".card");
-  const coverLink = fragment.querySelector(".cover-link");
-  const titleLink = fragment.querySelector(".title-link");
-  const favicon = fragment.querySelector(".favicon");
-  const readToggle = fragment.querySelector(".read-toggle");
-  const projectSelect = fragment.querySelector(".project-select");
-  card.dataset.id = item.id;
-  card.draggable = true;
-  // 导入文件属于不可信输入。修饰键点击会绕过 openItem() 的 JS 校验、直接走 href，
-  // 因此 DOM 本身也只能放 http/https，不能把 javascript: 等协议留给浏览器执行。
-  coverLink.href = titleLink.href = safeTarget(item.url) || "#";
-  setText(fragment.querySelector(".title-link h2"), item.title);
-  setText(fragment.querySelector(".description"), LaterOnItemEdit.isEmptySummary(item.description) ? tr("noDescription") : item.description);
-  fragment.querySelector(".source-name").textContent = item.source;
-  fragment.querySelector("time").textContent = formatTime(item.savedAt);
-  favicon.src = item.favicon;
-  favicon.addEventListener("error", () => { favicon.style.visibility = "hidden"; });
-  applyCover(card, item);
-  card.classList.toggle("is-read", item.status === "done");
-  card.classList.toggle("is-reading", item.status === "reading");
-  readToggle.textContent = readToggleLabel(item.status);
-  readToggle.setAttribute("aria-label", readToggleLabel(item.status));
-  fillProjectSelect(projectSelect, item.projectId || "");
-  card.classList.toggle("selected", selectedIds.has(item.id));
-  const check = card.querySelector(".select-check");
-  if (check) check.checked = selectedIds.has(item.id);
-  return card;
-}
-
-// 给卡片上的「所属项目」下拉填选项：永远先放「待整理」，再放所有项目。
-// ensureId/ensureName 用于「刚从浮层里新建了项目」这种边界——那个 id 可能还没进 projects，
-// 但卡片 select 需要这个选项才能把 .value 设对，否则卡片上会显示成空白。
-function fillProjectSelect(select, ensureId, ensureName) {
-  select.replaceChildren();
-  select.append(new Option(tr("inbox"), ""));
-  projects.filter((project) => !project.archived).forEach((project) => select.append(new Option(project.name, project.id)));
-  if (ensureId && !projects.some((project) => project.id === ensureId)) {
-    select.append(new Option(ensureName || tr("newProject"), ensureId));
-  }
-}
-
-function updateCard(card, item) {
-  card.classList.toggle("is-read", item.status === "done");
-  card.classList.toggle("is-reading", item.status === "reading");
-  const readToggle = card.querySelector(".read-toggle");
-  if (readToggle) {
-    readToggle.textContent = readToggleLabel(item.status);
-    readToggle.setAttribute("aria-label", readToggleLabel(item.status));
-  }
-  // 标题和摘要也能同步跟上：卡片是复用的 DOM（只在第一次出现时新建），
-  // 不同步的话，改完标题、或重复收藏抓到更好的信息，卡片上会一直是旧文字。
-  setText(card.querySelector(".title-link h2"), item.title);
-  setText(card.querySelector(".description"), LaterOnItemEdit.isEmptySummary(item.description) ? tr("noDescription") : item.description);
-  const target = safeTarget(item.url) || "#";
-  const titleLink = card.querySelector(".title-link");
-  const coverLink = card.querySelector(".cover-link");
-  if (titleLink?.getAttribute("href") !== target) titleLink.href = target;
-  if (coverLink?.getAttribute("href") !== target) coverLink.href = target;
-  applyCover(card, item);
-  const projectSelect = card.querySelector(".project-select");
-  if (projectSelect.value !== (item.projectId || "")) projectSelect.value = item.projectId || "";
-  card.classList.toggle("selected", selectedIds.has(item.id));
-  const check = card.querySelector(".select-check");
-  if (check) check.checked = selectedIds.has(item.id);
-}
-
-// 只在文字真的变了时才写 DOM —— 避免每次重渲染都惊动浏览器重新排版。
-function setText(element, value) {
-  if (!element) return;
-  const next = value == null ? "" : String(value);
-  if (element.textContent !== next) element.textContent = next;
 }
 
 // ── 编辑收藏的标题 / 摘要 ──────────────────────────────────
@@ -1295,20 +1085,6 @@ async function toggleProjectPin(id) {
 function renderProjects() {
   syncCollection();
   syncDocumentTitle();
-  refreshCardProjectOptions();
-}
-
-// 新建 / 改名 / 删除项目后，让已存在卡片上的「所属项目」下拉同步跟上，
-// 否则下拉里会一直显示旧名字、或者找不到刚建好的项目。
-function refreshCardProjectOptions() {
-  for (const card of cardMap.values()) {
-    const select = card.querySelector(".project-select");
-    if (!select) continue;
-    const current = select.value;
-    select.replaceChildren(new Option(tr("inbox"), ""));
-    projects.filter((project) => !project.archived).forEach((project) => select.append(new Option(project.name, project.id)));
-    if (select.value !== current) select.value = current;
-  }
 }
 
 // Stable-container delegation keeps legacy drag mechanics independent of Vue row creation.
@@ -1593,7 +1369,6 @@ function openItemMenu(itemId, x, y) {
   closeFolderMenu();
   const item = items.find((entry) => entry.id === itemId);
   if (!item) return;
-  const card = cardMap.get(itemId) || grid.querySelector(`.card[data-id="${cssEscape(itemId)}"]`);
   const menu = document.createElement("div");
   menu.className = "folder-menu";
   menu.setAttribute("role", "menu");
@@ -1609,7 +1384,7 @@ function openItemMenu(itemId, x, y) {
     title,
     menuItem(tr("itemOpen"), "open", () => openItemInNewTab(item)),
     menuItem(tr("itemEdit"), "pencil", () => editItem(item)),
-    menuItem(picked ? tr("itemDeselect") : tr("itemSelect"), picked ? "deselect" : "multi", () => startMultiSelect(item.id, card, !picked)),
+    menuItem(picked ? tr("itemDeselect") : tr("itemSelect"), picked ? "deselect" : "multi", () => startMultiSelect(item.id, !picked)),
     menuItem(tr("delete"), "trash", () => deleteItem(item.id), true)
   );
   document.body.append(menu);
@@ -1641,9 +1416,9 @@ function cssEscape(value) {
 
 // 从右键菜单里点「多选」：进入多选模式，并把这一篇先勾上（取消则勾掉）。
 // 已经选中时这项变成「取消选择」，方便在多选状态里直接反悔。
-function startMultiSelect(itemId, card, on) {
+function startMultiSelect(itemId, on) {
   if (!selectMode) setSelectMode(true);
-  toggleSelect(itemId, card, on);
+  toggleSelect(itemId, on);
 }
 
 function menuItem(label, icon, onPick, danger = false) {
@@ -1706,6 +1481,8 @@ async function openItem(event, item) {
   if (!target) { showToast(tr("invalidUrlShort")); return; }
 
   // 记下「正在读这篇」——侧栏据此高亮并滚动定位到它，两个视图保持一致。
+  currentItemId = item.id;
+  view.currentItemId = item.id;
   chrome.storage.local.set({ [CURRENT_ITEM_KEY]: item.id });
 
   const windowId = await resolveWindowId();
@@ -1732,14 +1509,7 @@ async function openItem(event, item) {
 }
 
 // 只放行 http/https，避免收藏里混进 javascript: 之类的地址。
-function safeTarget(url) {
-  try {
-    const parsed = new URL(url);
-    return ["http:", "https:"].includes(parsed.protocol) ? String(url).trim() : "";
-  } catch {
-    return "";
-  }
-}
+function safeTarget(url) { return cardTarget(url); }
 
 // 认准「收藏库自己在哪个窗口、哪个标签页」。用户可能把收藏库拖到别的窗口，
 // 所以每次点击都重新问一次，而不是只信打开页面时缓存的值。
@@ -1819,30 +1589,23 @@ function projectPickerFolders() {
 
 async function createProjectFromPicker(name) {
   const response = await LaterOnStorage.run("createProject", { name }).catch(() => null);
+  if (response?.project) { projects = response.projects; renderProjects(); }
   return response?.project || null;
 }
 
-function openCardProjectPicker(card, item, select) {
+function openCardProjectPicker(item, select) {
   window.openFolderPicker({
     anchor: select,
     theme: settings.theme || "system",
     language: document.documentElement.lang,
     folders: projectPickerFolders(),
     selected: item.projectId || "",
-    // 新建项目走后台的 CREATE_PROJECT（和网页浮层同一份逻辑），项目会写进存储、
-    // 本页的 storage.onChanged 跟着刷新侧栏——这里不用再手动同步。
+    // 新建项目走后台协调器，并从响应更新 Vue，不依赖自身 storage 广播。
     // onCreateProject 按约定返回「项目对象 {id,name}」（不是后台那层 {ok,project} 包装）。
     onCreateProject: createProjectFromPicker,
     onPick: async (projectId, name) => {
-      // 选中的项目可能刚新建、select 里还没有这一项：先补上选项再更新，
-      // 否则 updateCard 设不上 .value（选项不存在时会悄悄失败，卡片上仍是旧项目）。
-      if (![...select.options].some((option) => option.value === projectId)) {
-        fillProjectSelect(select, projectId, name);
-      }
       if (!await updateItem(item.id, { projectId })) return;
-      const latest = items.find((entry) => entry.id === item.id);
       clearSearch();
-      updateCard(card, latest);
       render();
       showToast(projectId ? tr("movedTo", { name }) : tr("movedToInbox"));
     }
@@ -1869,10 +1632,6 @@ async function deleteItem(id) {
 // ── 批量操作 ─────────────────────────────────────────────
 function clearSelection() {
   selectedIds.clear();
-  // 选择是一次性会话状态，不能只清 Set：卡片 DOM 是复用的，
-  // 留下 .selected / checked 就会变成“看起来选中，实际没选中”的幽灵勾选。
-  grid.querySelectorAll(".card.selected").forEach((card) => card.classList.remove("selected"));
-  grid.querySelectorAll(".select-check:checked").forEach((check) => { check.checked = false; });
 }
 
 function setSelectMode(on) {
@@ -1898,16 +1657,18 @@ document.addEventListener("pointerdown", (event) => {
   setSelectMode(false);
 }, true);
 
-function toggleSelect(id, card, force) {
+function toggleSelect(id, force) {
   const willSelect = force !== undefined ? force : !selectedIds.has(id);
   if (willSelect) selectedIds.add(id); else selectedIds.delete(id);
-  card.classList.toggle("selected", willSelect);
-  const check = card.querySelector(".select-check");
-  if (check) check.checked = willSelect;
   updateSelectionUI();
 }
 
 function updateSelectionUI() {
+  controls.updateSelection(selectedIds);
+  updateSelectionCount();
+}
+
+function updateSelectionCount() {
   const count = selectedIds.size;
   const countEl = document.querySelector("#bulkCount");
   if (countEl) countEl.textContent = tr("selectCount", { count });
@@ -1999,12 +1760,13 @@ function finishBulk() {
 controls.bind({ filter: setFilter, search: render, sort: () => { render(); saveSortSetting(); }, home: goHome, select: () => setSelectMode(!selectMode),
   project: selectProject, createProject: () => { promptCreateProject().catch(() => showToast(tr("createProjectFailed"))); },
   editProject: editBoard, projectMenu: openFolderMenu, rename: startRename, cancelRename: stopRename,
-  commitRename: (id, value) => { commitRename(id, value).catch(() => showToast(tr("operationFailed"))); }, settings: openSettings });
+  commitRename: (id, value) => { commitRename(id, value).catch(() => showToast(tr("operationFailed"))); }, settings: openSettings, cardsRendered });
 document.querySelector("#bulkSelectAll")?.addEventListener("click", () => {
   const allSelected = selectedIds.size >= grid.children.length && grid.children.length > 0;
   [...grid.children].forEach((card) => {
-    const item = items.find((entry) => entry.id === card.dataset.id);
-    if (item) toggleSelect(item.id, card, !allSelected);
+    const id = card.dataset.id;
+    if (!id) return;
+    if (allSelected) selectedIds.delete(id); else selectedIds.add(id);
   });
   updateSelectionUI();
 });
@@ -2014,10 +1776,6 @@ document.querySelector("#bulkOpenWindow")?.addEventListener("click", bulkOpenInN
 document.querySelector("#bulkProject")?.addEventListener("click", openBulkProjectPicker);
 document.querySelector("#bulkDelete")?.addEventListener("click", bulkDelete);
 document.querySelector("#bulkDone")?.addEventListener("click", () => setSelectMode(false));
-
-function formatTime(timestamp) {
-  return formatSavedTime(timestamp, Date.now(), tr, document.documentElement.lang === "en");
-}
 
 let toastTimer = null;
 let toastGeneration = 0;

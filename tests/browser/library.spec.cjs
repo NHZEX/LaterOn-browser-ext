@@ -1,0 +1,163 @@
+const { test, expect } = require("./extension.cjs");
+const cover = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="324" height="200"><rect width="324" height="200" fill="#ff5c35"/></svg>')}`;
+
+async function seed(worker, { theme = "light", language = "zh-CN", count = 12 } = {}) {
+  await worker.evaluate(async ({ theme, language, count, cover }) => {
+    await chrome.storage.local.clear();
+    await chrome.storage.local.set({
+      laterOnOnboardingSeen: true, laterOnFilter: "all", laterOnFilterChosen: true,
+      laterOnSettings: { theme, language, autoMarkRead: false }, laterOnProjects: [],
+      laterOnItems: Array.from({ length: count }, (_, index) => ({
+        id: `n-${index}`, title: `Title ${index} 收藏卡片`, description: "Long description for the existing card layout. 收藏摘要。",
+        source: "example.test", url: `https://example.test/${index}`, savedAt: Date.now() - index * 1000,
+        status: "unread", image: index === 0 ? "local://n-0" : index === 1 ? "https://assets.example.test/missing.png" : ""
+      })), laterOnCovers: { "n-0": cover }
+    });
+  }, { theme, language, count, cover });
+}
+const libraryUrl = extension => new URL("library.html?from=sidepanel&project=unfiled&filter=all", extension.url).href;
+const ids = page => page.locator("#cardGrid .card").evaluateAll(cards => cards.map(card => card.dataset.id));
+const settleCards = page => page.locator("#cardGrid .card").evaluateAll(cards =>
+  Promise.all(cards.flatMap(card => card.getAnimations().map(animation => animation.finished.catch(() => {})))));
+
+for (const [theme, language] of [["light", "zh-CN"], ["dark", "en"]]) {
+  test(`Vue 收藏卡片保留封面、缺图、键盘操作与布局（${theme}/${language}）`, async ({ page, context, extension }) => {
+    const errors = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await context.route("https://assets.example.test/**", route => route.abort());
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await seed(extension.worker, { theme, language });
+    await page.goto(libraryUrl(extension));
+    const first = page.locator('#cardGrid [data-id="n-0"]');
+    await expect(page.locator("#cardGrid .card")).toHaveCount(12);
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+    await expect(page.locator("html")).toHaveAttribute("lang", language);
+    await expect.poll(() => first.locator(".cover-img").evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true);
+    await expect(page.locator('[data-id="n-1"] .cover-placeholder')).toBeVisible();
+    await expect(first.locator(".title-link")).toHaveAttribute("href", "https://example.test/0");
+    expect(await first.locator(".cover-img").evaluate(image => image.referrerPolicy)).toBe("no-referrer");
+    expect(await first.locator(".favicon").evaluate(image => image.referrerPolicy)).toBe("no-referrer");
+    await settleCards(page);
+    for (const width of [1440, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      const bounds = await first.evaluate(card => {
+        const cover = card.querySelector(".cover").getBoundingClientRect();
+        const image = card.querySelector(".cover-img").getBoundingClientRect();
+        return { viewport: innerWidth, scroll: document.documentElement.scrollWidth,
+          cover: { width: cover.width, height: cover.height }, image: { width: image.width, height: image.height },
+          card: card.getBoundingClientRect().width };
+      });
+      expect(bounds.scroll).toBeLessThanOrEqual(bounds.viewport);
+      expect(bounds.card).toBeGreaterThanOrEqual(width < 620 ? 140 : 190);
+      expect(bounds.cover.width / bounds.cover.height).toBeCloseTo(1.62, 2);
+      expect(bounds.image).toEqual(bounds.cover);
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const toggle = first.locator(".read-toggle");
+    await toggle.focus(); await page.keyboard.press("Enter");
+    await expect(first).toHaveClass(/is-read/);
+    await expect.poll(() => extension.worker.evaluate(async () => (await chrome.storage.local.get("laterOnItems")).laterOnItems[0].status)).toBe("done");
+    await page.locator("#selectMode").click();
+    await first.locator(".title-link").click();
+    await expect(first.locator(".select-check")).toBeChecked();
+    await expect(first).toHaveClass(/selected/);
+    await page.locator("#bulkDone").click();
+    await expect(first.locator(".select-check")).not.toBeChecked();
+    await page.reload();
+    await expect(page.locator('#cardGrid [data-id="n-0"]')).toHaveClass(/is-read/);
+    await settleCards(page);
+    await expect.poll(() => first.locator(".cover-img").evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true);
+    expect(errors).toEqual([]);
+    await page.screenshot({ path: test.info().outputPath(`library-${theme}.png`), fullPage: true });
+  });
+}
+
+test("真实布局中拖拽让位生效且不重排 DOM，松手后持久化顺序", async ({ page, context, extension }) => {
+  await context.route("https://assets.example.test/**", route => route.abort());
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await seed(extension.worker, { count: 4 });
+  await page.goto(libraryUrl(extension));
+  await expect(page.locator("#cardGrid .card")).toHaveCount(4);
+  await settleCards(page);
+  await page.mouse.move(0, 0);
+  // Explicit events allow inspection before drop; the next test covers the native mouse entry.
+  const transfer = await page.evaluateHandle(() => new DataTransfer());
+  const source = page.locator('#cardGrid [data-id="n-3"]');
+  const target = page.locator('#cardGrid [data-id="n-0"]');
+  const sourceBox = await source.boundingBox(), targetBox = await target.boundingBox();
+  const before = await ids(page);
+  await source.dispatchEvent("dragstart", { dataTransfer: transfer, clientX: sourceBox.x + 20, clientY: sourceBox.y + 30 });
+  await expect(source).toHaveClass(/dragging/);
+  await expect(source.locator(".card-body")).toBeHidden();
+  await expect(source).toHaveCSS("cursor", "grabbing");
+  await target.dispatchEvent("dragover", { dataTransfer: transfer, clientX: targetBox.x + 10, clientY: targetBox.y + 10 });
+  await expect.poll(async () => {
+    const box = await source.boundingBox();
+    return Math.abs(box.x - targetBox.x) < 1 && Math.abs(box.y - targetBox.y) < 1;
+  }).toBe(true);
+  expect(await ids(page)).toEqual(before);
+  const home = await page.locator(".drag-home-frame").boundingBox();
+  expect(Math.abs(home.x - sourceBox.x)).toBeLessThan(1);
+  expect(Math.abs(home.y - sourceBox.y)).toBeLessThan(1);
+  await expect(page.locator(".drag-home-frame")).toHaveCSS("pointer-events", "none");
+  for (let turn = 0; turn < 5; turn++) {
+    await target.dispatchEvent("dragover", { dataTransfer: transfer, clientX: targetBox.x + 8 + turn, clientY: targetBox.y + 9 });
+  }
+  expect(await ids(page)).toEqual(before);
+  await page.locator("#cardGrid").dispatchEvent("drop", { dataTransfer: transfer, clientX: targetBox.x + 10, clientY: targetBox.y + 10 });
+  await expect.poll(() => ids(page)).toEqual(["n-3", "n-0", "n-1", "n-2"]);
+  await expect(page.locator(".drag-home-frame, .drag-preview, .dragging")).toHaveCount(0);
+  await expect.poll(() => extension.worker.evaluate(async () => (await chrome.storage.local.get("laterOnOrder")).laterOnOrder.unfiled)).toEqual(["n-3", "n-0", "n-1", "n-2"]);
+  await page.reload();
+  await expect.poll(() => ids(page)).toEqual(["n-3", "n-0", "n-1", "n-2"]);
+});
+
+test("鼠标可从卡片空白处发起原生拖拽并保存顺序", async ({ page, context, extension }) => {
+  await context.route("https://assets.example.test/**", route => route.abort());
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await seed(extension.worker, { count: 4 });
+  await page.goto(libraryUrl(extension));
+  await expect(page.locator("#cardGrid .card")).toHaveCount(4);
+  await settleCards(page);
+  const source = page.locator('#cardGrid [data-id="n-3"]');
+  const target = page.locator('#cardGrid [data-id="n-0"]');
+  const from = await source.boundingBox(), to = await target.boundingBox();
+  await page.mouse.move(from.x + 6, from.y + 6);
+  await page.mouse.down();
+  await page.mouse.move(from.x + 20, from.y + 20, { steps: 5 });
+  await expect(source).toHaveClass(/dragging/);
+  await page.mouse.move(to.x + 8, to.y + 8, { steps: 12 });
+  await page.mouse.move(to.x + 10, to.y + 10);
+  await page.mouse.up();
+  await expect.poll(() => ids(page)).toEqual(["n-3", "n-0", "n-1", "n-2"]);
+  await expect.poll(() => extension.worker.evaluate(async () => (await chrome.storage.local.get("laterOnOrder")).laterOnOrder.unfiled)).toEqual(["n-3", "n-0", "n-1", "n-2"]);
+  await expect(page.locator(".drag-home-frame, .drag-preview, .dragging")).toHaveCount(0);
+});
+
+test("卡片网格实际铺满可用宽度，出现滚动条时导航不横移", async ({ page, context, extension }) => {
+  await context.route("https://assets.example.test/**", route => route.abort());
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await seed(extension.worker, { count: 4 });
+  await page.goto(libraryUrl(extension));
+  await expect(page.locator("#cardGrid .card")).toHaveCount(4);
+  await settleCards(page);
+  const position = () => page.locator("#projectSidebar").evaluate(element => element.getBoundingClientRect().x);
+  const before = await position();
+  await extension.worker.evaluate(async () => {
+    const stored = await chrome.storage.local.get("laterOnItems");
+    await chrome.storage.local.set({ laterOnItems: Array.from({ length: 24 }, (_, index) => ({ ...stored.laterOnItems[0], id: `n-${index}` })) });
+  });
+  await expect(page.locator("#cardGrid .card")).toHaveCount(24);
+  await settleCards(page);
+  expect(await position()).toBeCloseTo(before, 1);
+  const bounds = await page.evaluate(() => {
+    const grid = document.querySelector("#cardGrid").getBoundingClientRect();
+    const cards = [...document.querySelectorAll("#cardGrid .card")].map(card => card.getBoundingClientRect());
+    const firstRow = cards.filter(card => Math.abs(card.top - cards[0].top) < 1);
+    return { width: grid.width, columns: firstRow.length, rightGap: grid.right - firstRow.at(-1).right,
+      scrolls: document.documentElement.scrollHeight > innerHeight };
+  });
+  expect(bounds.columns).toBe(6);
+  expect(Math.abs(bounds.rightGap)).toBeLessThan(1);
+  expect(bounds.scrolls).toBe(true);
+});

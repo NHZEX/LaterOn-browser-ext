@@ -1,4 +1,4 @@
-# 侧栏测试
+# 侧栏与收藏库测试
 
 `tests/panel-fast-open.test.js` 使用 Node test runner、JSDOM 和真实的侧栏、启动、弹窗及存储协调器代码。每个场景新建并关闭页面，独立复制存储和缓存；存储按请求键返回克隆值。存储广播默认关闭，删除分别验证开启 / 关闭广播，以及写入失败后重试。
 
@@ -18,7 +18,12 @@ Remove-Item Env:PANEL_TEST_ORDER
 - 正式页面：以临时资料目录加载实际 MV3 扩展和后台，不模拟 Chrome 存储或消息。验证异步样式生效、375px 横向卡片与 640px 纵向卡片的封面 / 占位铺满、图片位于占位上层、导航通栏及无水平溢出。
 - 操作：从卡片删除入口经真实弹窗、后台协调器和 Chrome 存储完成删除，重新加载后确认收藏及封面持久删除、其他收藏保留。
 
+`tests/library-cards.test.js` 执行实际编译的 Vue 页面与存储协调器。7 个场景覆盖只读列表投影、千条收藏首批 48 条及后续批次、过期任务取消、当前阅读定位、写入失败 / 重试、无自身存储广播的状态和项目更新、焦点、封面降级及外部更新时取消拖拽；调度由独立页面的虚拟时间和空闲队列控制。既有编辑、删除、搜索与选择测试也通过 `read-runtime.cjs` 使用真实编译页面。
+
+`tests/browser/library.spec.cjs` 同样加载真实 MV3 扩展和后台：深浅主题、中英文、375px / 1440px 布局与键盘操作；读取图片策略、封面 / 占位尺寸和存储结果；实际测量拖拽让位及 DOM 顺序，并单独用鼠标发起原生拖拽；1920px 下验证网格铺满及出现滚动条时导航不横移。几何检查等待实际卡片入场动画结束，避免固定睡眠。
+
 ```powershell
+node --test tests/library-cards.test.js
 pnpm exec playwright install --no-shell chromium
 pnpm test:browser
 ```

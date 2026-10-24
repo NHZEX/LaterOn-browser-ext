@@ -107,7 +107,7 @@ pnpm install --frozen-lockfile
 | 命令 | 用途 |
 | --- | --- |
 | `pnpm test` | 运行 Node / JSDOM 测试 |
-| `pnpm test:browser` | 构建后用真实 Chromium 验证首屏、布局和扩展持久化 |
+| `pnpm test:browser` | 构建后用真实 Chromium 验证侧栏首屏、收藏卡片布局、拖拽与持久化 |
 | `pnpm typecheck` | 生成 WXT 类型配置并检查已迁移的 TypeScript 代码 |
 | `pnpm build` | 使用 WXT 构建扩展到 `.output/chrome-mv3` |
 | `pnpm zip` | 按默认 production 模式构建、打包，并按环境开关决定是否发布 |
@@ -134,7 +134,7 @@ production 模式的产物为 `.output/chrome-mv3` 和 `.output/LaterOn-<版本>
 
 扩展版本由 `manifest.json` 定义。发布前先运行测试；`pnpm build` 仅构建，即使发布开关开启也不部署。部署前检查 ZIP，安装目录的父目录须已存在，已有目录必须为同一扩展。旧版本保存在安装目录同级的 `<目录名>-backups/` 中，发布后需在浏览器中重新加载扩展。
 
-浏览器测试首次运行前执行 `pnpm exec playwright install --no-shell chromium`（Linux CI 加上 `--with-deps`）。每个用例使用独立的临时浏览器资料目录，不读取日常浏览器数据；测试结果和失败截图在 `.output/browser-results`。已有构建可直接运行 `pnpm exec playwright test`。实现与分层边界见 [侧栏测试说明](tests/browser/README.md)。
+浏览器测试首次运行前执行 `pnpm exec playwright install --no-shell chromium`（Linux CI 加上 `--with-deps`）。每个用例使用独立的临时浏览器资料目录，不读取日常浏览器数据；测试结果和失败截图在 `.output/browser-results`。已有构建可直接运行 `pnpm exec playwright test`。实现与分层边界见 [侧栏与收藏库测试说明](tests/browser/README.md)。
 
 GitHub Actions 在 Windows / Ubuntu 上执行依赖安装、Node / JSDOM 测试、侧栏用例逆序验证、构建和产物校验，再使用构建产物运行真实 Chromium 测试。
 

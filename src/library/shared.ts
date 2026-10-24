@@ -1,5 +1,5 @@
-import { matchesReadFilter } from "../collection/filter";
-import type { ReadFilter } from "../collection/filter";
+import { matchesReadFilter, matchesSearch } from "../collection/filter";
+import type { ReadFilter, SortMode } from "../collection/filter";
 import { resolveImage } from "../collection/item-edit";
 import type { StoredItem, StoredProject } from "../storage/contracts";
 import type { Translate } from "../shared/i18n";
@@ -8,6 +8,48 @@ export interface LibraryCollection {
   readonly items: readonly StoredItem[];
   readonly projects: readonly StoredProject[];
   readonly covers: Readonly<Record<string, string>>;
+}
+
+export type CardOrders = Readonly<Record<string, readonly string[]>>;
+
+export interface CardScope {
+  readonly activeProject: string;
+  readonly query: string;
+  readonly filter: ReadFilter;
+  readonly sort: SortMode;
+}
+
+export function collectionCards(collection: LibraryCollection, scope: CardScope, orders: CardOrders): {
+  readonly scoped: readonly StoredItem[];
+  readonly visible: readonly StoredItem[];
+} {
+  const archived = new Set(collection.projects.filter(project => project.archived).map(project => project.id));
+  const scoped = collection.items.filter(item => {
+    if (scope.activeProject === "archive") return archived.has(item.projectId ?? "");
+    if (archived.has(item.projectId ?? "") && scope.activeProject !== item.projectId) return false;
+    return !!scope.query || scope.activeProject === "all"
+      || (scope.activeProject === "unfiled" ? !item.projectId : item.projectId === scope.activeProject);
+  });
+  const saved = orders[scope.activeProject];
+  const rank = new Map((Array.isArray(saved) ? saved : []).map((id: string, index: number) => [id, index]));
+  const newest = (a: StoredItem, b: StoredItem): number => (b.savedAt ?? 0) - (a.savedAt ?? 0);
+  const compare = (a: StoredItem, b: StoredItem): number => {
+    if (scope.sort === "oldest") return -newest(a, b);
+    if (scope.sort === "source") return (a.source ?? "").localeCompare(b.source ?? "");
+    if (scope.sort === "custom") {
+      const difference = (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER);
+      if (difference) return difference;
+    }
+    return newest(a, b);
+  };
+  const visible = scoped.filter(item => matchesReadFilter(item, scope.filter) && matchesSearch(item, scope.query)).sort(compare);
+  return { scoped, visible };
+}
+
+// Modified clicks can follow href directly, so links must be safe before any event handler runs.
+export function cardTarget(value: string | undefined): string {
+  try { return ["http:", "https:"].includes(new URL(value ?? "").protocol) ? (value ?? "").trim() : ""; }
+  catch { return ""; }
 }
 
 export interface NavigationProject {

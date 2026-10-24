@@ -42,32 +42,6 @@
       </div>
     </div>
 
-    <template id="cardTemplate">
-      <article class="card">
-        <label class="select-badge" data-i18n-aria-label="selectItem" aria-label="选择此网页"><input type="checkbox" class="select-check" /></label>
-        <a class="cover-link" target="_blank" rel="noreferrer">
-          <div class="cover">
-            <div class="cover-placeholder"><img class="cover-logo" src="/article-cover-placeholder.png" vite-ignore alt="" /></div>
-          </div>
-        </a>
-        <button class="edit" data-i18n-title="editItemAria" data-i18n-aria-label="editItemAria" title="编辑标题和摘要" aria-label="编辑标题和摘要">
-          <svg viewBox="0 0 24 24"><path d="M4 20h4L20 8l-4-4L4 16zM14 6l4 4"/></svg>
-        </button>
-        <div class="card-body">
-          <div class="source-row"><img class="favicon" alt="" referrerpolicy="no-referrer" /><span class="source-name"></span><span class="dot">·</span><time></time></div>
-          <a class="title-link" target="_blank" rel="noreferrer"><h2></h2></a>
-          <p class="description"></p>
-          <footer>
-            <button class="read-toggle" data-i18n-title="readStateAria" title="切换阅读状态"></button>
-            <select class="project-select" data-i18n-aria-label="projectMembership" aria-label="所属项目"></select>
-            <button class="delete" data-i18n-title="deleteSave" data-i18n-aria-label="deleteSave" title="删除网页" aria-label="删除网页">
-              <svg viewBox="0 0 24 24"><path d="M4 7h16m-10 4v6m4-6v6M9 7l1-3h4l1 3m3 0-1 13H7L6 7"/></svg>
-            </button>
-          </footer>
-        </div>
-      </article>
-    </template>
-
     <div id="bulkBar" class="bulk-bar">
           <span id="bulkCount" class="bulk-count" data-i18n="selectCount">已选 0 篇</span>
       <div class="bulk-actions">

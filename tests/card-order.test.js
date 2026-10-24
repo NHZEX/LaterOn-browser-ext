@@ -12,7 +12,6 @@ const read = (name) => fs.readFileSync(path.join(ROOT, name), "utf8");
 const DIALOG_SOURCE = read("dialog.js");
 const LIBRARY_SOURCE = require("./helpers/read-runtime.cjs")("library-page.js");
 const LIBRARY_HTML = require("./helpers/read-runtime.cjs")("library.html");
-const LIBRARY_CSS = read("library.css");
 
 let failures = 0;
 const check = (label, ok, extra = "") => {
@@ -103,7 +102,12 @@ async function boot({ items, orders = {}, settings = {}, activeProject = "unfile
   grid.getBoundingClientRect = () => ({ left: 0, top: 0, right: 900, bottom: 900, width: 900, height: 900 });
   return {
     window, document, grid, store, tick,
-    runIdle: () => { while (idleQueue.length) idleQueue.shift()({ didTimeout: false, timeRemaining: () => 50 }); }
+    runIdle: async () => {
+      while (idleQueue.length) {
+        idleQueue.shift()({ didTimeout: false, timeRemaining: () => 50 });
+        await Promise.resolve();
+      }
+    }
   };
 }
 
@@ -336,35 +340,13 @@ async function dragCard({ window, grid, tick }, fromId, index) {
       app.grid.querySelectorAll(".card").length === 48,
       `${app.grid.querySelectorAll(".card").length} 张`);
     check("计数立即显示完整的 1000 篇", /1000 篇网页/.test(app.document.querySelector("#countText")?.textContent || ""));
-    app.runIdle();
+    await app.runIdle();
     check("空闲批次最终补齐全部卡片", app.grid.querySelectorAll(".card").length === 1000,
       `${app.grid.querySelectorAll(".card").length} 张`);
     check("排序下拉包含自定义顺序", !!app.document.querySelector('#sortSelect option[value="custom"]'));
   }
 
-  // ── ⑨ 样式与选项 ──
-  console.log("\n── ⑨ 样式与下拉选项 ──");
-  check("排序中让位用更快的过渡", /\.grid\.is-reordering \.card\s*\{[^}]*transition:\s*transform/.test(LIBRARY_CSS));
-  check("落位瞬间关掉过渡（防止弹回原位）", /\.grid\.no-transition \.card\s*\{\s*transition:\s*none/.test(LIBRARY_CSS));
-  check("排序时禁用 hover 位移（防卡片无故上下跳）", /\.grid\.is-reordering \.card:hover\s*\{[^}]*transform:\s*none/.test(LIBRARY_CSS));
-  check("被拖动卡片的样式里不写 transform（否则会盖掉让位位移）", !/\.card\.dragging\s*\{[^}]*transform:/.test(LIBRARY_CSS));
-  // 这一条是「测试全绿、浏览器却没效果」的元凶：CSS 动画的优先级高于行内 style，
-  // 入场动画若用 both/forwards，结束后的 transform:none 会永远盖掉让位用的行内位移。
-  check("入场动画不锁死 transform（fill-mode 不能用 both/forwards）",
-    !/animation:[^;}]*(?:\bboth\b|\bforwards\b)/.test(LIBRARY_CSS),
-    (LIBRARY_CSS.match(/animation:[^;}]*/) || [""])[0]);
-  check("排序期间掐断入场动画（防止残留动画盖掉位移）",
-    /\.grid\.is-reordering \.card\s*\{[^}]*animation:\s*none/.test(LIBRARY_CSS));
-  check("不再往网格里插占位元素", !/\.card-slot\s*\{/.test(LIBRARY_CSS));
-  check("不再用 display:none 收起原位", !/\.card\.is-drag-source\s*\{/.test(LIBRARY_CSS));
-  check("老家虚线框是绝对定位浮层（不占格子，不引发重排）",
-    /\.drag-home-frame\s*\{[^}]*position:\s*absolute/.test(LIBRARY_CSS) && /\.drag-home-frame\s*\{[^}]*pointer-events:\s*none/.test(LIBRARY_CSS));
-  check("被拖的卡片内容藏起来、只剩虚线框", /\.card\.dragging > \*\s*\{\s*visibility:\s*hidden/.test(LIBRARY_CSS));
-  check("卡片静止时显示点击指针，不再误示为拖拽手掌",
-    /\.card\[draggable="true"\]\s*\{\s*cursor:\s*pointer/.test(LIBRARY_CSS));
-  check("只有真正拖起卡片后才显示抓取手势",
-    /\.card\.dragging\s*\{\s*cursor:\s*grabbing/.test(LIBRARY_CSS));
-
+  // Layout and drag styling are checked against built CSS in Chromium.
   console.log(failures ? `\n❌ 有 ${failures} 项没通过` : "\n🎉 全部通过");
   process.exit(failures ? 1 : 0);
 })();

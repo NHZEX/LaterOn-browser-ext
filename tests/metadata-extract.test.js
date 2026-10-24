@@ -427,14 +427,9 @@ console.log("\n=== 十六、显示端：跨站图片防盗链（Referer）===");
     const html = fs.readFileSync(path.join(ROOT, page === "settings.html" ? "wxt/entrypoints/settings/index.html" : page === "library.html" ? "wxt/entrypoints/library/index.html" : page), "utf8");
     check(`${page} 声明了整页不发 Referer`, /<meta name="referrer" content="no-referrer"/.test(html));
   }
-  const libSource = fs.readFileSync(path.join(ROOT, "library.js"), "utf8");
   const sideSource = fs.readFileSync(path.join(ROOT, "sidepanel.js"), "utf8");
-  check("收藏库的封面图声明了 referrerPolicy", /img\.referrerPolicy = "no-referrer"/.test(libSource));
+  // 收藏库封面与 favicon 的策略由 library-cards.test.js 检查实际渲染节点。
   check("侧栏的封面图声明了 referrerPolicy", /image\.referrerPolicy = "no-referrer"/.test(sideSource));
-  check(
-    "卡片模板里的站点图标也声明了（favicon 同样在 CDN 上）",
-    /class="favicon" alt="" referrerpolicy="no-referrer"/.test(fs.readFileSync(path.join(ROOT, "wxt/entrypoints/library/index.html"), "utf8"))
-  );
 }
 
 console.log("\n=== 十七、标题抓取（og 缺失 / 陈旧 / 写成平台名时也要抓到）===");
