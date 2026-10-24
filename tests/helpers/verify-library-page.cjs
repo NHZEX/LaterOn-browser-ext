@@ -134,17 +134,36 @@ module.exports = async function verifyLibraryPage(directory) {
         await until(() => document.querySelector(".project-rename"), "Vue rename input appears");
         return document.querySelector(".project-rename");
       };
-      const menu = (element, label) => {
+      const menu = async (element, label) => {
         element.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+        await until(() => document.querySelector('.folder-menu-item'), "Vue menu appears");
         const action = [...document.querySelectorAll('.folder-menu-item')].find(item => item.textContent === window.LaterOnI18n.t(label));
         assert.ok(action, `Menu action ${label}`); action.click();
       };
+      const menuTrigger = row("p").querySelector(".project-more");
+      menuTrigger.click();
+      await until(() => document.querySelector('[role="menuitem"]') === document.activeElement, "Built menu focuses its first entry");
+      key(document.activeElement, "ArrowUp");
+      assert.equal(document.activeElement, [...document.querySelectorAll('[role="menuitem"]')].at(-1));
+      key(document.activeElement, "Escape");
+      await until(() => !document.querySelector('[role="menu"]'), "Built menu closes on Escape");
+      assert.equal(document.activeElement, menuTrigger);
+      click('.project-nav[data-project="p"]');
+      await until(() => document.querySelector('.card .title-link'), "Built cards appear for keyboard menu");
+      const cardTrigger = document.querySelector('.card .title-link'); cardTrigger.focus();
+      key(cardTrigger, "ContextMenu");
+      await until(() => document.querySelectorAll('[role="menuitem"]').length === 4, "Built card keyboard menu uses its own actions");
+      key(document.activeElement, "Escape");
+      await until(() => !document.querySelector('[role="menu"]'), "Built card menu closes");
+      assert.equal(document.activeElement, cardTrigger);
+      click('.project-nav[data-project="all"]');
+      await until(() => board("p"), "Return to project boards after menu smoke");
       broadcast({ laterOnProjects: [...store.laterOnProjects, { id: "empty", name: "Empty", createdAt: 2 },
         { id: "hidden", name: "Archived pin", createdAt: 3, pinned: true, archived: true }] });
       await until(() => board("empty"), "External project creation updates Vue boards");
       assert.equal(row("hidden"), null);
       assert.equal(document.querySelector('.project-pin-sep'), null, "Archived pins do not create a stray separator");
-      menu(board("empty"), "pinProject");
+      await menu(board("empty"), "pinProject");
       await until(() => document.querySelector('.board-card').dataset.project === "empty", "Own pin updates board order without a storage broadcast");
       assert.equal(document.querySelector('#projectList .project-row').dataset.id, "empty");
       assert.equal(document.querySelectorAll('.project-pin-sep').length, 1);
@@ -196,11 +215,11 @@ module.exports = async function verifyLibraryPage(directory) {
       board("p").querySelector('.board-img').dispatchEvent(new window.Event("error")); await tick();
       assert.ok(board("p").querySelector('.board-placeholder'), "Custom project covers also fail safely");
 
-      menu(board("p"), "archiveProject");
+      await menu(board("p"), "archiveProject");
       await until(() => project().archived && !row("p") && board("p"), "Own archive updates both Vue views without a broadcast");
       assert.equal(board("p").draggable, false);
       assert.equal(document.querySelector('#allCount').textContent, "0");
-      menu(board("p"), "restoreProject");
+      await menu(board("p"), "restoreProject");
       await until(() => !project().archived && row("p") && document.querySelector('.card'), "Restore selects the project and restores navigation");
       assert.equal(row("p").querySelector('.project-nav').classList.contains("active"), true);
       key(document, "F2"); await until(() => document.querySelector('.project-rename'), "F2 starts inline rename in the active project");

@@ -28,7 +28,7 @@ function createLibraryPage(t, { items = [makeItem("a")], projects = [], covers =
   const listeners = new Set();
   const idle = new Map(), frames = new Map();
   const commands = [], scrolled = [], opened = [];
-  let sequence = 0, writeError = false;
+  let sequence = 0, writeError = null;
   window.fetch = async () => ({});
   window.scrollTo = () => {};
   window.HTMLElement.prototype.scrollIntoView = function () { scrolled.push(this.dataset.id); };
@@ -43,7 +43,7 @@ function createLibraryPage(t, { items = [makeItem("a")], projects = [], covers =
         return structuredClone(Object.fromEntries(names.filter(key => key in store).map(key => [key, store[key]])));
       },
       async set(patch) {
-        if (writeError && Object.hasOwn(patch, "laterOnItems")) { writeError = false; throw Error("write unavailable"); }
+        if (writeError && Object.hasOwn(patch, writeError)) { writeError = null; throw Error("write unavailable"); }
         Object.assign(store, structuredClone(patch)); // Deliberately no onChanged echo.
       }
     }, onChanged: { addListener: listener => listeners.add(listener), removeListener: listener => listeners.delete(listener) } },
@@ -98,7 +98,7 @@ function createLibraryPage(t, { items = [makeItem("a")], projects = [], covers =
     listeners.forEach(listener => listener(structuredClone(changes), "local"));
   }
   return { window, document: window.document, store, commands, scrolled, opened, clock, flush, frame, idleTurn, until, broadcast,
-    pendingIdle: () => [...idle.values()], failNextWrite: () => { writeError = true; },
+    pendingIdle: () => [...idle.values()], pendingFrames: () => [...frames.values()], failNextWrite: (key = "laterOnItems") => { writeError = key; },
     card: id => window.document.querySelector(`#cardGrid .card[data-id="${id}"]`),
     ids: () => [...window.document.querySelectorAll("#cardGrid .card")].map(card => card.dataset.id),
     click: selector => { const element = window.document.querySelector(selector); assert.ok(element, selector); element.click(); },

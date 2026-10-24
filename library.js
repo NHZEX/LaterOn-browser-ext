@@ -2,7 +2,7 @@ import { nextTick } from "vue";
 import { normalizeFilter, normalizeSort } from "./src/collection/filter";
 import { projectCoverFor as resolveProjectCover, cardTarget } from "./src/library/shared";
 
-// Vue owns page rendering; this transitional controller retains menus, dialogs, drag and bulk operations.
+// Vue owns page rendering and menus; this transitional controller retains dialogs, drag and bulk operations.
 /** @param {import("./src/library/useLibraryControls").LibraryControls} controls */
 export function startLibraryPage(controls) {
 const view = controls.state;
@@ -26,11 +26,6 @@ const ORDER_KEY = "laterOnOrder";
 // 用户自己上传的封面（体积大）：单独放一个键，不和收藏列表混在一个数组里。
 // 否则每次读写列表都要「连图一起搬」，数据攒多了哪个页面打开都会卡很久。
 const COVERS_KEY = "laterOnCovers";
-// 图钉图标：菜单里的「置顶 / 取消置顶」沿用项目列表的实心形状。
-// 路径是「实心」画法（Material 的 push_pin），因为角标只有十几像素——
-// 描边款在这个尺寸下会糊成一团黑，根本看不出是图钉。用实心 + currentColor 填充，
-// 小到 11px 也还认得出「钉子 + 针」的轮廓。
-const PIN_FILL_PATH = "M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z";
 let items = [];
 let projects = [];
 let orders = {};
@@ -53,7 +48,6 @@ let drag = null;
 let dragHomeFrame = null;   // 原位置留下的那个空虚线框（绝对定位浮层，不占格子）
 let selectMode = false;
 const selectedIds = new Set();
-let folderMenu = null;        // 项目的「更多 / 右键」菜单
 let folderDragId = null;      // 正在拖拽排序的项目 id（null = 当前没在拖）
 let currentItemId = null;     // 当前正在读的文章 id（来自 CURRENT_ITEM_KEY，两个视图共享）
 // 从侧栏展开全屏时，等目标卡片真正分批渲染出来后再滚过去；普通打开首页不定位。
@@ -472,7 +466,15 @@ grid.addEventListener("contextmenu", (event) => {
   if (!item) return;
   // 不拦掉默认行为的话，浏览器会把自己的原生菜单叠在我们那个上面。
   event.preventDefault();
-  openItemMenu(item.id, event.clientX, event.clientY);
+  controls.itemMenu(item.id, event.clientX, event.clientY, card);
+});
+grid.addEventListener("keydown", (event) => {
+  if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+  const card = event.target.closest(".card");
+  if (!card) return;
+  event.preventDefault();
+  const rect = card.getBoundingClientRect();
+  controls.itemMenu(card.dataset.id, rect.right, rect.top, event.target);
 });
 
 // ── 卡片上的「所属项目」：点一下弹出选项目浮层（和网页收藏时同一个窗口）────
@@ -807,7 +809,7 @@ async function saveSortSetting() {
 }
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
-    if (folderMenu) { closeFolderMenu(); return; }
+    if (controls.menu.value) { controls.closeMenu(); return; }
     if (view.renamingId) { stopRename(); return; }
     if (selectMode) setSelectMode(false);
     return;
@@ -1251,25 +1253,8 @@ function projectCoverFor(projectId) {
   return resolveProjectCover({ items, projects, covers }, projectId);
 }
 
-// 图钉图标（置顶 / 取消置顶共用）：slashed = true 时叠一道斜杠表示「取消」。
-function pinIconSvg(slashed = false) {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("class", "pin-icon");
-  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  path.setAttribute("d", PIN_FILL_PATH);
-  svg.append(path);
-  if (slashed) {
-    const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    line.setAttribute("d", "M4 20 20 4");
-    line.setAttribute("class", "pin-slash");
-    svg.append(line);
-  }
-  return svg;
-}
-
 function startRename(id, currentName) {
-  closeFolderMenu();
+  controls.closeMenu();
   view.renamingId = id;
   view.renameDraft = currentName ?? projects.find((project) => project.id === id)?.name ?? "";
   renderProjects();
@@ -1334,80 +1319,33 @@ async function deleteProject(id) {
   showToast(tr(response.affected ? "projectDeletedWithItems" : "projectDeleted", { name: project.name, n: response.affected }));
 }
 
-function openFolderMenu(projectId, x, y) {
-  closeFolderMenu();
-  const project = projects.find((entry) => entry.id === projectId);
-  if (!project) return;
-  const menu = document.createElement("div");
-  menu.className = "folder-menu";
-  menu.setAttribute("role", "menu");
-  const title = document.createElement("p");
-  title.className = "folder-menu-title";
-  title.textContent = project.name;
-  title.title = project.name;
-  menu.append(
-    title,
-    // 置顶放在第一项：这是最常用的一步操作（把常用的项目挪到手边），
-    // 也比「双击改名」更安全——点错了再点一次「取消置顶」就回来。
-    menuItem(project.pinned ? tr("unpinProject") : tr("pinProject"), project.pinned ? "unpin" : "pin", () => toggleProjectPin(projectId)),
-    menuItem(tr("rename"), "pencil", () => startRename(projectId, project.name)),
-    menuItem(tr("editNote"), "note", () => editBoard(projectId)),
-    menuItem(tr(project.archived ? "restoreProject" : "archiveProject"), "archive", () => toggleProjectArchive(projectId)),
-    menuItem(tr("deleteProject"), "trash", () => deleteProject(projectId), true)
-  );
-  document.body.append(menu);
-  positionMenu(menu, x, y);
-  folderMenu = menu;
-  requestAnimationFrame(() => menu.classList.add("is-open"));
-}
-
-// ── 单篇收藏的右键菜单 ────────────────────────────────────
-// 卡片上右键 = 这一篇能做的所有事，样式和图板的「项目菜单」完全一致（同一个 .folder-menu）。
-// 这里刻意复用 folderMenu 这个变量：于是「点别处 / Esc / 滚动 / 窗口失焦自动关闭」全都白拿，
-// 不用再抄一遍关闭逻辑。
-function openItemMenu(itemId, x, y) {
-  closeFolderMenu();
-  const item = items.find((entry) => entry.id === itemId);
-  if (!item) return;
-  const menu = document.createElement("div");
-  menu.className = "folder-menu";
-  menu.setAttribute("role", "menu");
-  const title = document.createElement("p");
-  title.className = "folder-menu-title";
-  const heading = (item.title || "").trim() || item.source || tr("itemFallback");
-  title.textContent = heading.length > 20 ? `${heading.slice(0, 20)}…` : heading;
-  title.title = heading;   // 标题被截短了，悬停能看到全名
-  const picked = selectMode && selectedIds.has(item.id);
-  // 只放「卡片上不方便做 / 做不到」的几项：
-  // 「标为已读」和「移动到项目」在卡片上本来就有明显的按钮，不重复占用右键菜单。
-  menu.append(
-    title,
-    menuItem(tr("itemOpen"), "open", () => openItemInNewTab(item)),
-    menuItem(tr("itemEdit"), "pencil", () => editItem(item)),
-    menuItem(picked ? tr("itemDeselect") : tr("itemSelect"), picked ? "deselect" : "multi", () => startMultiSelect(item.id, !picked)),
-    menuItem(tr("delete"), "trash", () => deleteItem(item.id), true)
-  );
-  document.body.append(menu);
-  positionMenu(menu, x, y);
-  folderMenu = menu;
-  requestAnimationFrame(() => menu.classList.add("is-open"));
+/** @param {import("./src/library/menu").LibraryMenuTarget} target
+ * @param {import("./src/library/menu").LibraryMenuAction} action */
+async function runMenuAction(target, action) {
+  try {
+    if (target.kind === "project") {
+      const project = projects.find((entry) => entry.id === target.id);
+      if (!project) return;
+      if (action === "pin") await toggleProjectPin(project.id);
+      else if (action === "rename") startRename(project.id, project.name);
+      else if (action === "edit") await editBoard(project.id);
+      else if (action === "archive") await toggleProjectArchive(project.id);
+      else if (action === "delete") await deleteProject(project.id);
+      return;
+    }
+    const item = items.find((entry) => entry.id === target.id);
+    if (!item) return;
+    if (action === "open") await openItemInNewTab(item);
+    else if (action === "edit") await editItem(item);
+    else if (action === "select") startMultiSelect(item.id, !(selectMode && selectedIds.has(item.id)));
+    else if (action === "delete") await deleteItem(item.id);
+  } catch { showToast(tr("operationFailed")); }
 }
 
 async function openItemInNewTab(item) {
   const target = safeTarget(item.url);
   if (!target) { showToast(tr("invalidUrlShort")); return; }
   await chrome.tabs.create({ url: target, active: false, openerTabId: libraryTabId || undefined });
-}
-
-// 菜单贴边时自动往回收，保证整块完整可见（项目菜单和收藏菜单共用）。
-function positionMenu(menu, x, y) {
-  const rect = menu.getBoundingClientRect();
-  const width = rect.width || 180;
-  const height = rect.height || 96;
-  const left = Math.min(Math.max(8, x - width), Math.max(8, window.innerWidth - width - 8));
-  const top = Math.min(Math.max(8, y), Math.max(8, window.innerHeight - height - 8));
-  menu.style.left = `${left}px`;
-  menu.style.top = `${top}px`;
 }
 
 function cssEscape(value) {
@@ -1420,55 +1358,6 @@ function startMultiSelect(itemId, on) {
   if (!selectMode) setSelectMode(true);
   toggleSelect(itemId, on);
 }
-
-function menuItem(label, icon, onPick, danger = false) {
-  const item = document.createElement("button");
-  item.type = "button";
-  item.className = `folder-menu-item${danger ? " danger" : ""}`;
-  item.setAttribute("role", "menuitem");
-  // 铅笔（重命名 / 编辑）/ 带字的纸（简介）/ 垃圾桶（删除）——都是描边图标（fill:none）。
-  // 置顶用另一套实心图钉（见 pinIconSvg），不在这里。
-  const ICON_PATHS = {
-    pencil: "M4 20h4L20 8l-4-4L4 16zM14 6l4 4",
-    note: "M6 3h8l4 4v14H6zM14 3v4h4M9 12h6M9 16h4",
-    archive: "M3 4h18v4H3zM5 8v12h14V8M9 12h6",
-    trash: "M4 7h16m-10 4v6m4-6v6M9 7l1-3h4l1 3m3 0-1 13H7L6 7",
-    // 下面几个是「单篇收藏菜单」用的：
-    open: "M14 5h5v5M19 5l-8 8M17 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h5",
-    multi: "M3.5 6.5h7v7h-7zM13.5 6.5h7v7h-7zM5 10l1.6 1.6L9 8",
-    deselect: "M3.5 6.5h7v7h-7zM5.5 8.6l3 2.8M8.5 8.6l-3 2.8M14 10h6"
-  };
-  const text = document.createElement("span");
-  text.textContent = label;
-  if (icon === "pin" || icon === "unpin") {
-    item.append(pinIconSvg(icon === "unpin"), text);
-  } else {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("d", ICON_PATHS[icon] || ICON_PATHS.trash);
-    svg.append(path);
-    item.append(svg, text);
-  }
-  item.addEventListener("click", (event) => {
-    event.stopPropagation();
-    closeFolderMenu();
-    onPick();
-  });
-  return item;
-}
-
-function closeFolderMenu() {
-  folderMenu?.remove();
-  folderMenu = null;
-}
-
-document.addEventListener("pointerdown", (event) => {
-  if (folderMenu && !folderMenu.contains(event.target)) closeFolderMenu();
-}, true);
-window.addEventListener("blur", closeFolderMenu);
-window.addEventListener("resize", closeFolderMenu);
-document.addEventListener("scroll", closeFolderMenu, true);
 
 // 在全屏收藏库里点一篇收藏：把「全屏」切换成「原文 + 侧栏」的阅读状态——
 // 先在这个窗口打开侧栏（侧栏不会随页面跳转消失），再把收藏库自己这个标签页导航到原文。
@@ -1653,7 +1542,7 @@ document.addEventListener("pointerdown", (event) => {
   if (!selectMode) return;
   const target = event.target;
   // Shadow DOM 内的点击会重定向到浮层宿主，选项目和确认时不能清空选择。
-  if (target?.closest?.(".card, #bulkBar, #selectMode, #lateron-folder-picker, .lod-root")) return;
+  if (target?.closest?.(".card, .folder-menu, #bulkBar, #selectMode, #lateron-folder-picker, .lod-root")) return;
   setSelectMode(false);
 }, true);
 
@@ -1759,7 +1648,7 @@ function finishBulk() {
 
 controls.bind({ filter: setFilter, search: render, sort: () => { render(); saveSortSetting(); }, home: goHome, select: () => setSelectMode(!selectMode),
   project: selectProject, createProject: () => { promptCreateProject().catch(() => showToast(tr("createProjectFailed"))); },
-  editProject: editBoard, projectMenu: openFolderMenu, rename: startRename, cancelRename: stopRename,
+  editProject: editBoard, menuAction: runMenuAction, rename: startRename, cancelRename: stopRename,
   commitRename: (id, value) => { commitRename(id, value).catch(() => showToast(tr("operationFailed"))); }, settings: openSettings, cardsRendered });
 document.querySelector("#bulkSelectAll")?.addEventListener("click", () => {
   const allSelected = selectedIds.size >= grid.children.length && grid.children.length > 0;

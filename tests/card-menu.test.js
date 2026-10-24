@@ -14,7 +14,6 @@ const html = require("./helpers/read-runtime.cjs")("library.html");
 const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
 const dialogSource = fs.readFileSync(`${ROOT}/dialog.js`, "utf8");
 const i18nSource = fs.readFileSync(`${ROOT}/i18n.js`, "utf8");
-const libraryCss = fs.readFileSync(`${ROOT}/library.css`, "utf8");
 
 const errors = [];
 const virtualConsole = new VirtualConsole();
@@ -123,7 +122,6 @@ const stored = (id) => store.laterOnItems.find((item) => item.id === id);
   // 「标为已读」和「移动到项目」刻意不放进来：卡片上本来就有这两个按钮。
   check("四项：新标签页打开 / 编辑 / 多选 / 删除",
     labels.join(" · ") === "在新标签页打开 · 编辑标题与摘要 · 多选 · 删除", labels.join(" · "));
-  check("用的是和图板项目菜单同一个 .folder-menu 样式", /^\.folder-menu\s*\{/m.test(libraryCss));
 
   console.log("\n── 第 2 步：点「多选」→ 进入多选模式并勾上这一篇 ──");
   const pickByLabel = (text) => [...document.querySelectorAll(".folder-menu-item")].find((item) => item.textContent === text);

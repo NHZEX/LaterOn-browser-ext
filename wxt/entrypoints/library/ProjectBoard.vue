@@ -15,11 +15,23 @@ const images = computed(() => props.group.cover ? [{ id: "custom", source: props
 function formatTime(timestamp: number): string { return formatSavedTime(timestamp, Date.now(), props.translate, props.english); }
 function open(): void { props.controls.project(props.group.id); }
 function edit(): void { props.controls.editProject(props.group.id); }
-function menu(event: MouseEvent): void { event.preventDefault(); props.controls.projectMenu(props.group.id, event.clientX, event.clientY); }
+function menu(event: MouseEvent): void {
+  event.preventDefault();
+  props.controls.projectMenu(props.group.id, event.clientX, event.clientY, event.currentTarget instanceof HTMLElement ? event.currentTarget : null);
+}
+function keydown(event: KeyboardEvent): void {
+  if (event.target !== event.currentTarget || !(event.currentTarget instanceof HTMLElement)) return;
+  if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); return; }
+  if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+  event.preventDefault();
+  const rect = event.currentTarget.getBoundingClientRect();
+  props.controls.projectMenu(props.group.id, rect.right, rect.top, event.currentTarget);
+}
 </script>
 
 <template>
-  <article class="board-card" :data-project="group.id" :draggable="controls.state.activeProject !== 'archive'" @click="open" @contextmenu="menu">
+  <article class="board-card" :data-project="group.id" :draggable="controls.state.activeProject !== 'archive'" tabindex="0" aria-haspopup="menu"
+    @click="open" @contextmenu="menu" @keydown="keydown">
     <div class="board-cover" :data-count="Math.max(images.length, 1)">
       <BoardImage v-for="image in images" :key="image.id" :source="image.source" :fallback="image.fallback" />
       <BoardImage v-if="!images.length" source="" :fallback="false" />

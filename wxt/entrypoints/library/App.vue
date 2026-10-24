@@ -7,6 +7,7 @@ import CollectionToolbar from "./CollectionToolbar.vue";
 import ProjectNavigation from "./ProjectNavigation.vue";
 import ProjectBoards from "./ProjectBoards.vue";
 import CollectionCards from "./CollectionCards.vue";
+import LibraryMenu from "./LibraryMenu.vue";
 
 const props = defineProps<{ controls: LibraryControls }>();
 const languageVersion = ref(0);
@@ -28,6 +29,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <Teleport to="body"><LibraryMenu :controls="controls" :translate="translate" /></Teleport>
   <Teleport to="#libraryHeader">
     <LibraryHeader :filter="controls.state.filter" :search="controls.state.search" :translate="translate"
       @filter="controls.setFilter" @search="controls.setSearch" @home="controls.home" />

@@ -28,7 +28,7 @@ watch(() => props.item.favicon, () => { faviconFailed.value = false; });
 </script>
 
 <template>
-  <article class="card" :data-id="item.id" draggable="true" :data-current-label="translate('currentReading')"
+  <article class="card" :data-id="item.id" draggable="true" tabindex="-1" :data-current-label="translate('currentReading')"
     :class="{ 'is-read': item.status === 'done', 'is-reading': item.status === 'reading', 'is-current': current, selected }">
     <label class="select-badge" :aria-label="translate('selectItem')"><input type="checkbox" class="select-check" :checked="selected" /></label>
     <a class="cover-link" :href="target" target="_blank" rel="noreferrer"><CardCover :source="cover" /></a>

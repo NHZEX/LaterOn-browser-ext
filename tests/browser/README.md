@@ -22,8 +22,11 @@ Remove-Item Env:PANEL_TEST_ORDER
 
 `tests/browser/library.spec.cjs` 同样加载真实 MV3 扩展和后台：深浅主题、中英文、375px / 1440px 布局与键盘操作；读取图片策略、封面 / 占位尺寸和存储结果；实际测量拖拽让位及 DOM 顺序，并单独用鼠标发起原生拖拽；1920px 下验证网格铺满及出现滚动条时导航不横移。几何检查等待实际卡片入场动画结束，避免固定睡眠。
 
+`tests/library-menus.test.js` 增加 6 个场景，检查只读菜单模型、首项聚焦、方向键 / Home / End、Escape 与关闭方式、过期帧、最新数据和语言、外部删除、项目写入失败后重试；自身存储广播关闭。浏览器检查另用原生 Enter、Tab / Shift+Tab、Shift+F10 验证激活与焦点顺序、菜单到弹窗的焦点移交、375px 定位、resize / 滚动关闭及真实存储外部更新。production 与自定义模式也检查实际编译菜单。
+
 ```powershell
 node --test tests/library-cards.test.js
+node --test tests/library-menus.test.js
 pnpm exec playwright install --no-shell chromium
 pnpm test:browser
 ```

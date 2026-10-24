@@ -3,6 +3,7 @@ import { boardGroups, collectionCards, projectNavigation } from "./shared";
 import type { CardOrders, LibraryCollection } from "./shared";
 import { normalizeSearch, normalizeSort } from "../collection/filter";
 import type { ReadFilter, SortMode } from "../collection/filter";
+import type { LibraryMenuAction, LibraryMenuRequest, LibraryMenuTarget } from "./menu";
 
 interface ControlState {
   filter: ReadFilter;
@@ -30,7 +31,7 @@ interface ControlActions {
   readonly project: (id: string) => void;
   readonly createProject: () => void;
   readonly editProject: (id: string) => void;
-  readonly projectMenu: (id: string, x: number, y: number) => void;
+  readonly menuAction: (target: LibraryMenuTarget, action: LibraryMenuAction) => void;
   readonly rename: (id: string) => void;
   readonly cancelRename: () => void;
   readonly commitRename: (id: string, value: string) => void;
@@ -44,6 +45,7 @@ export function useLibraryControls() {
   const collection = shallowRef<LibraryCollection>({ items: [], projects: [], covers: {} });
   const orders = shallowRef<CardOrders>({});
   const selectedIds = shallowRef<ReadonlySet<string>>(new Set());
+  const menu = shallowRef<LibraryMenuRequest | null>(null);
   const cardView = computed(() => collectionCards(collection.value, state, orders.value));
   const cards = computed(() => state.board ? [] : cardView.value.visible);
   const navigation = computed(() => projectNavigation(collection.value));
@@ -81,15 +83,18 @@ export function useLibraryControls() {
   function project(id: string): void { actions.value?.project(id); }
   function createProject(): void { actions.value?.createProject(); }
   function editProject(id: string): void { actions.value?.editProject(id); }
-  function projectMenu(id: string, x: number, y: number): void { actions.value?.projectMenu(id, x, y); }
+  function projectMenu(id: string, x: number, y: number, trigger: HTMLElement | null = null): void { menu.value = { kind: "project", id, x, y, trigger }; }
+  function itemMenu(id: string, x: number, y: number, trigger: HTMLElement | null = null): void { menu.value = { kind: "item", id, x, y, trigger }; }
+  function closeMenu(): void { menu.value = null; }
+  function menuAction(target: LibraryMenuTarget, action: LibraryMenuAction): void { actions.value?.menuAction(target, action); }
   function rename(id: string): void { actions.value?.rename(id); }
   function cancelRename(): void { actions.value?.cancelRename(); }
   function commitRename(id: string, value: string): void { actions.value?.commitRename(id, value); }
   function settings(event: MouseEvent): void { actions.value?.settings(event); }
-  function dispose(): void { clearTimeout(searchTimer); actions.value = null; }
+  function dispose(): void { clearTimeout(searchTimer); closeMenu(); actions.value = null; }
 
   return { state, collection, navigation, boards, boardSummary, unfiled, total, cards, cardView, selectedIds, updateCollection, updateOrders, updateSelection, cardsRendered, bind, setFilter, setSearch, clearSearch, setSort,
-    home, select, project, createProject, editProject, projectMenu, rename, cancelRename, commitRename, settings, dispose };
+    home, select, project, createProject, editProject, menu, projectMenu, itemMenu, closeMenu, menuAction, rename, cancelRename, commitRename, settings, dispose };
 }
 
 export type LibraryControls = ReturnType<typeof useLibraryControls>;

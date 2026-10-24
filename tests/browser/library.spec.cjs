@@ -161,3 +161,67 @@ test("卡片网格实际铺满可用宽度，出现滚动条时导航不横移",
   expect(Math.abs(bounds.rightGap)).toBeLessThan(1);
   expect(bounds.scrolls).toBe(true);
 });
+
+for (const [theme, language] of [["light", "zh-CN"], ["dark", "en"]]) {
+  test(`Vue 菜单键盘、焦点和外部同步（${theme}/${language}）`, async ({ page, context, extension }) => {
+    const errors = []; page.on("pageerror", error => errors.push(error.message));
+    await context.route("https://assets.example.test/**", route => route.abort());
+    await seed(extension.worker, { theme, language, count: 4 });
+    await extension.worker.evaluate(() => chrome.storage.local.set({ laterOnProjects: [{ id: "p", name: "Menu project" }] }));
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(libraryUrl(extension));
+    const more = page.locator('.project-row[data-id="p"] .project-more');
+    const popup = page.getByRole("menu");
+    await more.focus(); await page.keyboard.press("Enter");
+    await expect(popup).toBeVisible();
+    await expect(popup.locator('[data-action="pin"]')).toBeFocused();
+    await page.keyboard.press("End"); await expect(popup.locator('[data-action="delete"]')).toBeFocused();
+    await page.keyboard.press("ArrowDown"); await expect(popup.locator('[data-action="pin"]')).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(popup).toHaveCount(0);
+    await expect(more).toBeFocused();
+    await expect.poll(() => extension.worker.evaluate(async () => (await chrome.storage.local.get("laterOnProjects")).laterOnProjects[0].pinned)).toBe(true);
+    await page.keyboard.press("Enter");
+    await extension.worker.evaluate(async () => {
+      const stored = await chrome.storage.local.get("laterOnProjects");
+      await chrome.storage.local.set({ laterOnProjects: stored.laterOnProjects.map(project => ({ ...project, name: "External menu name" })) });
+    });
+    await expect(popup.locator(".folder-menu-title")).toHaveText("External menu name");
+    await page.keyboard.press("Escape"); await expect(more).toBeFocused();
+    await page.keyboard.press("Enter"); await page.keyboard.press("Tab");
+    await expect(popup).toHaveCount(0);
+    await expect(page.locator("#searchInput")).not.toBeFocused();
+    await expect(more).not.toBeFocused();
+    await more.click(); await page.keyboard.press("Shift+Tab");
+    await expect(popup).toHaveCount(0);
+    await expect(page.locator('.project-nav[data-project="p"]')).toBeFocused();
+    // Native Enter activates a menu item and the dialog retains its own focus.
+    await more.click(); await page.keyboard.press("End"); await page.keyboard.press("Enter");
+    await expect(page.locator(".lod-root:not([hidden])")).toBeVisible();
+    await expect(page.locator(".lod-root:not([hidden]) .lod-panel")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".lod-root:not([hidden])")).toHaveCount(0);
+    const card = page.locator('#cardGrid [data-id="n-0"]');
+    await card.locator(".title-link").focus(); await page.keyboard.press("Shift+F10");
+    await expect(popup).toBeVisible();
+    await page.keyboard.press("Escape"); await expect(card.locator(".title-link")).toBeFocused();
+    await page.setViewportSize({ width: 375, height: 640 });
+    await settleCards(page);
+    await card.click({ button: "right", position: { x: 8, y: 8 } });
+    await expect(popup).toBeVisible();
+    await expect(popup).toHaveCSS("opacity", "1");
+    const box = await popup.boundingBox();
+    expect(box.x).toBeGreaterThanOrEqual(7); expect(box.y).toBeGreaterThanOrEqual(7);
+    expect(box.x + box.width).toBeLessThanOrEqual(368); expect(box.y + box.height).toBeLessThanOrEqual(633);
+    await page.screenshot({ path: test.info().outputPath(`library-menu-${theme}.png`) });
+    await page.setViewportSize({ width: 390, height: 640 }); await expect(popup).toHaveCount(0);
+    await card.click({ button: "right", position: { x: 8, y: 8 } });
+    await page.mouse.wheel(0, 400); await expect(popup).toHaveCount(0);
+    await card.click({ button: "right", position: { x: 8, y: 8 } });
+    await page.locator("#searchInput").click(); await expect(popup).toHaveCount(0);
+    await card.click({ button: "right", position: { x: 8, y: 8 } });
+    await extension.worker.evaluate(() => chrome.storage.local.set({ laterOnItems: [] }));
+    await expect(popup).toHaveCount(0); await expect(page.locator("#searchInput")).toBeFocused();
+    expect(errors).toEqual([]);
+  });
+}

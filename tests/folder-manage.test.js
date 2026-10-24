@@ -300,6 +300,7 @@ const cardFolderOptions = () => [...document.querySelectorAll(".card .project-se
 
   console.log("\n── 编辑弹窗打开期间，保留其他页面新增项目和修改的简介 ──");
   click(rowOf(design.id).querySelector('.project-more'));
+  for (let attempt = 0; attempt < 200 && !menuItem("编辑简介"); attempt++) await tick(5);
   click(menuItem("编辑简介"));
   await tick(30);
   const external = { id: "external", name: "另一页新增", createdAt: 10 };
