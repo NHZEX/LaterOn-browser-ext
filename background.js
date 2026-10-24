@@ -332,9 +332,9 @@ chrome.storage.onChanged?.addListener((changes, area) => {
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === MENU_SAVE_ALL) {
-    saveAllTabsInWindow("menu").catch((error) => reportFailure(error));
+    return saveAllTabsInWindow("menu").catch((error) => reportFailure(error, tab));
   } else if (info.menuItemId === MENU_SAVE_PAGE && tab?.id) {
-    quickSave(tab, "menu").catch((error) => reportFailure(error));
+    return quickSave(tab, "menu").catch((error) => reportFailure(error, tab));
   }
 });
 
@@ -419,11 +419,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   // 设置里打开「收藏单篇前先选项目」时，点按钮同样会先弹浮层，而不是直接收藏。
   if (message.type === "QUICK_SAVE_TAB") {
     (async () => {
+      let tab = null;
       try {
         const rawTab = message.tabId
           ? await chrome.tabs.get(message.tabId).catch(() => null)
           : (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
-        const tab = unwrapSuspendedTab(rawTab);
+        tab = unwrapSuspendedTab(rawTab);
         if (!tab?.id || !isWebUrl(tab.url)) {
           sendResponse({ ok: false, error: (await usesEnglish()) ? "The current page can’t be added" : "当前页面无法添加" });
           return;
@@ -432,6 +433,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         // result.pending 为真 = 已经弹出选项目浮层，真正的收藏要等用户确认。
         sendResponse({ ok: true, ...(result || {}) });
       } catch (error) {
+        if (tab?.suspended) await reportFailure(error, tab);
         sendResponse({ ok: false, error: String(error?.message || error) });
       }
     })();
@@ -442,12 +444,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 // 快捷键触发：先记一笔「确实收到了按键」，再执行。
 // 这样即使后面执行失败，也能在设置页看出按键有没有到达扩展。
 chrome.commands.onCommand.addListener((command, tab) => {
-  (async () => {
+  return (async () => {
     await recordDiag({ lastCommand: command, lastTrigger: "shortcut", lastCommandAt: Date.now() });
+    let targetTab = tab;
     try {
-      await handleCommand(command, tab);
+      if (!targetTab?.id && command !== "save-all-tabs") {
+        [targetTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      }
+      await handleCommand(command, targetTab);
     } catch (error) {
-      await reportFailure(error);
+      await reportFailure(error, targetTab);
     }
   })();
 });
@@ -526,8 +532,8 @@ async function quickSave(tab, source = "shortcut") {
     : saved.duplicated
       ? (en ? "This page is already added" : "这个网页已经添加过了")
       : (en ? `Added: ${pillTitle(baseItem.title)}` : `已添加：${pillTitle(baseItem.title)}`);
-  if (!tab.suspended) await showPagePills(tab.id, [message]).catch(() => {});
-  else await showActionFeedback("✓", "#25834b", 1600);
+  if (tab.suspended) await showActionFeedback("✓", "#25834b", 1600);
+  await showTabNotice(tab, message).catch(() => {});
   // 把结果回传，好让侧边栏 / 工具栏小窗口的按钮显示正确的字样。
   return { ok: true, duplicated: !!saved.duplicated, refreshed: !!saved.refreshed, updated: !!saved.updated };
 }
@@ -568,21 +574,39 @@ async function showLibraryCommandNotice(tab, command) {
   }
 }
 
-// 统一处理失败：记录原因（设置页可查）+ 角标提示 + 在页面上弹药丸，
+// 统一处理失败：记录原因（设置页可查）+ 角标提示 + 页内或系统通知，
 // 避免出现「按了完全没反应、也不知道哪里错了」的情况。
-async function reportFailure(error) {
+async function reportFailure(error, targetTab = null) {
   const en = await usesEnglish();
   const message = String(error?.message || error || (en ? "Unknown error" : "未知错误"));
   await recordDiag({ lastError: message, lastErrorAt: Date.now() });
   await showActionError();
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab?.id && isWebUrl(tab.url)) {
-      await showPagePills(tab.id, [en ? `Failed: ${pillTitle(message)}` : `操作失败：${pillTitle(message)}`]);
-    }
+    const tab = targetTab || (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+    await showTabNotice(tab, en ? `Failed: ${pillTitle(message)}` : `操作失败：${pillTitle(message)}`);
   } catch {
     // 页面不支持注入时只保留角标提示。
   }
+}
+
+// 冻结页属于其他扩展，不能注入药丸；通知失败也不能改变已经完成的收藏结果。
+async function showSystemNotice(text) {
+  try {
+    await chrome.notifications?.create?.("lateron-save-result", {
+      type: "basic", title: "LaterOn", message: text,
+      iconUrl: chrome.runtime.getURL("icon128.png"), silent: true
+    });
+  } catch {
+    // 通知被禁用或接口不可用时，保留调用方已经显示的工具栏角标。
+  }
+}
+
+async function showTabNotice(tab, text, kind = "", allowSystem = true) {
+  if (unwrapSuspendedTab(tab)?.suspended) {
+    if (allowSystem) await showSystemNotice(text);
+    return;
+  }
+  if (tab?.id && isWebUrl(tab.url)) await showPagePills(tab.id, [{ text, kind }]);
 }
 
 // 在页面上弹「药丸」通知：显示在右上角（工具栏图标正下方）。
@@ -629,7 +653,7 @@ async function showPagePills(tabId, messages) {
         };
         const delay = index * 90;
         window.setTimeout(() => pill.classList.add("is-in"), 30 + delay);
-        window.setTimeout(hide, 2800 + delay);
+        window.setTimeout(hide, 4200 + delay);
       });
     },
     args: [shown, overflow, en ? `${overflow} more added` : `还有 ${overflow} 篇已添加`]
@@ -793,11 +817,13 @@ async function saveItem(item, options = {}) {
 async function saveAllTabsInWindow(source = "shortcut") {
   // 每一步都记一笔：万一中途卡住或失败，去设置页就能看出停在哪一步。
   const stage = (patch) => recordDiag({ lastTrigger: source, lastStageAt: Date.now(), ...patch });
+  let activeTab = null;
 
   try {
     await stage({ lastStage: "开始", lastRunAt: Date.now() });
 
     const tabs = (await chrome.tabs.query({ currentWindow: true })).map(unwrapSuspendedTab);
+    activeTab = tabs.find((tab) => tab.active) || null;
     const targets = tabs.filter((tab) => isWebUrl(tab.url));
     await stage({ lastStage: "读取标签页", lastTabCount: targets.length });
 
@@ -816,7 +842,7 @@ async function saveAllTabsInWindow(source = "shortcut") {
       return { ok: false, added: 0, duplicated: 0 };
     }
 
-    const activeTab = tabs.find((tab) => tab.active) || targets[0];
+    activeTab = activeTab || targets[0];
     const settings = (await chrome.storage.local.get(SETTINGS_KEY))[SETTINGS_KEY] || {};
     const savedProject = (await chrome.storage.local.get(LAST_PROJECT_KEY))[LAST_PROJECT_KEY] || "";
     // 上次用过的项目可能已经被删掉了：先校验一次，
@@ -839,6 +865,7 @@ async function saveAllTabsInWindow(source = "shortcut") {
         tabs: targets,
         source,
         notifyTabId: activeTab?.id,
+        notifySuspended: !!activeTab?.suspended,
         projectId: remembered.id,
         projectName: remembered.name
       });
@@ -852,7 +879,7 @@ async function saveAllTabsInWindow(source = "shortcut") {
       lastError: String(error?.message || error),
       lastErrorAt: Date.now()
     }).catch(() => {});
-    await showActionError();
+    await reportFailure(error, activeTab);
     return { ok: false, added: 0, duplicated: 0 };
   }
 }
@@ -879,6 +906,7 @@ async function askFolderThenSave({ tabs, source = "shortcut", activeTab = null, 
       createdAt: Date.now(),
       source,
       notifyTabId: activeTab?.id ?? null,
+      notifySuspended: !!activeTab?.suspended,
       projectId: last.id || "",
       savedCount,
       tabs: targets.map((tab) => ({
@@ -902,8 +930,9 @@ async function askFolderThenSave({ tabs, source = "shortcut", activeTab = null, 
     } catch {
       await cancelPendingBatch(batchId);
       const en = await usesEnglish();
-      await showActionError();
-      return { ok: false, pending: false, error: en ? "Couldn’t open the project picker. Try again." : "没能打开项目选择框，请重试" };
+      const message = en ? "Couldn’t open the project picker. Try again." : "没能打开项目选择框，请重试";
+      await reportFailure(new Error(message), activeTab);
+      return { ok: false, pending: false, error: message };
     }
   }
   // 普通网页继续使用页内浮层，不创建独立窗口。
@@ -946,18 +975,22 @@ async function askFolderThenSave({ tabs, source = "shortcut", activeTab = null, 
 //  2. 顺序处理可以「完成一篇就立刻通知一篇」，进度马上看得见，感知上快得多；
 //  3. 某一篇卡住（未加载完、被冻结）只影响它自己，不会拖住后面的标签。
 // 与单篇收藏一样抓取标题 / 摘要 / 封面 / 图标；不抓取正文；已收藏过的网址自动去重。
-async function runBatchSave({ tabs, source = "shortcut", notifyTabId = null, projectId = null, projectName = "" }) {
+async function runBatchSave({ tabs, source = "shortcut", notifyTabId = null, notifySuspended = false, projectId = null, projectName = "" }) {
   const en = await usesEnglish();
   // 每一步都记一笔：万一中途卡住或失败，去设置页就能看出停在哪一步。
   const stage = (patch) => recordDiag({ lastTrigger: source, lastStageAt: Date.now(), ...patch });
   // 通知统一发到「按下快捷键那一刻的活动标签页」——因为选择项目的小窗口会抢走焦点，
   // 此时「当前活动标签页」已经变成那个弹窗了。
-  const notify = (text, kind = "") => notifyTab(notifyTabId, text, kind);
   // 这一批要存进哪个项目（用于提示文案）。
   const folderLabel = projectName || (en ? "Inbox" : "等待整理");
   // 只收一篇时（设置里打开了「收藏单篇前先选项目」）提示从简：
   // 跟以前「一键收藏」一样只弹一条结果，不再多出「开始收藏」「全部完成」两条。
   const single = (tabs || []).length === 1;
+  // 原冻结页即使已关闭或选择页抢走焦点，也必须收到结果；整窗只发最终系统通知。
+  const notify = (text, kind = "", result = single) => {
+    if (notifySuspended) return result ? showSystemNotice(text) : Promise.resolve();
+    return notifyTab(notifyTabId, text, kind, result);
+  };
 
   try {
     const targets = tabs || [];
@@ -1084,7 +1117,7 @@ async function runBatchSave({ tabs, source = "shortcut", notifyTabId = null, pro
     })();
     // 收一篇时结果已经在上面那条提示里说清楚了，不再重复播报总结。
     if (!single) {
-      await notify(summary);
+      await notify(summary, "", true);
       if (degraded > 0) {
         await notify(en ? `${degraded} saves have no cover or summary` : `有 ${degraded} 篇没有封面或摘要`, "skip");
       }
@@ -1109,6 +1142,8 @@ async function runBatchSave({ tabs, source = "shortcut", notifyTabId = null, pro
       lastErrorAt: Date.now()
     }).catch(() => {});
     await showActionError();
+    const message = String(error?.message || error);
+    await notify(en ? `Failed: ${pillTitle(message)}` : `操作失败：${pillTitle(message)}`, "", true);
     return { ok: false, added: 0, duplicated: 0 };
   }
 }
@@ -1226,6 +1261,7 @@ async function claimPendingBatch(projectId, batchId) {
       tabs: pending.tabs,
       source: pending.source || "shortcut",
       notifyTabId: pending.notifyTabId ?? null,
+      notifySuspended: !!pending.notifySuspended,
       projectId: chosen.id,
       projectName: chosen.name
     };
@@ -1252,20 +1288,21 @@ async function confirmBatchSave(projectId, onAccepted, batchId) {
 }
 
 // 把通知发到指定标签页；标签已关闭或不是普通网页时，退回「当前活动标签页」。
-function notifyTab(tabId, text, kind = "") {
-  if (tabId == null) return notifyOnActiveTab(text, kind);
+function notifyTab(tabId, text, kind = "", allowSystem = true) {
+  if (tabId == null) return notifyOnActiveTab(text, kind, allowSystem);
   return chrome.tabs
     .get(tabId)
-    .then((tab) => (tab?.id != null && isWebUrl(tab.url) ? showPagePills(tab.id, [{ text, kind }]) : notifyOnActiveTab(text, kind)))
-    .catch(() => notifyOnActiveTab(text, kind));
+    .then((tab) => (tab?.id != null && (isWebUrl(tab.url) || unwrapSuspendedTab(tab)?.suspended)
+      ? showTabNotice(tab, text, kind, allowSystem) : notifyOnActiveTab(text, kind, allowSystem)))
+    .catch(() => notifyOnActiveTab(text, kind, allowSystem));
 }
 
 // 在当前窗口的「活动标签页」上弹一条药丸通知。
 // 若当前停在 Chrome 内部页面（新标签页 / 设置页等）无法注入，则只保留角标提示。
-async function notifyOnActiveTab(text, kind = "") {
+async function notifyOnActiveTab(text, kind = "", allowSystem = true) {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab?.id && isWebUrl(tab.url)) await showPagePills(tab.id, [{ text, kind }]);
+    await showTabNotice(tab, text, kind, allowSystem);
   } catch {
     // 内部页面不允许注入，忽略即可。
   }

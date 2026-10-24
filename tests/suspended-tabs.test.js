@@ -2,6 +2,8 @@
 const assert = require("node:assert/strict");
 const vm = require("node:vm");
 const { webcrypto } = require("node:crypto");
+const { readFileSync } = require("node:fs");
+const path = require("node:path");
 
 const source = require("./helpers/read-runtime.cjs");
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -51,11 +53,17 @@ function worker() {
       const names = typeof keys === "string" ? [keys] : Array.isArray(keys) ? keys : Object.keys(data);
       return clone(Object.fromEntries(names.filter((key) => key in data).map((key) => [key, data[key]])));
     },
-    async set(patch) { Object.assign(data, clone(patch)); },
+    async set(patch) {
+      if (data === local && failItemWrite && Object.hasOwn(patch, "laterOnItems")) throw new Error("SAVE_FAILED");
+      Object.assign(data, clone(patch));
+    },
     async remove(keys) { for (const key of Array.isArray(keys) ? keys : [keys]) delete data[key]; }
   });
   const listeners = [];
   const menus = [];
+  const commands = [];
+  const notifications = [];
+  const badges = [];
   const tabs = [clone(frozen)];
   const injections = [];
   const created = [];
@@ -63,6 +71,8 @@ function worker() {
   const fetches = [];
   let fetchMode = "success";
   let failCreate = false;
+  let failItemWrite = false;
+  let failNotification = false;
   const event = () => ({ addListener() {} });
   const chrome = {
     storage: { local: storage(local), session: storage(session), onChanged: event() },
@@ -77,7 +87,13 @@ function worker() {
       async update(id, patch) { updates.push({ id, patch }); },
       onUpdated: event(), onRemoved: event(), onCreated: event(), onActivated: event()
     },
-    action: {}, commands: { onCommand: event() },
+    action: { async setBadgeText({ text }) { badges.push(text); }, async setBadgeBackgroundColor() {}, async setTitle() {} },
+    commands: { onCommand: { addListener(fn) { commands.push(fn); } } },
+    notifications: { async create(id, options) {
+      if (failNotification) throw new Error("NOTIFICATIONS_DISABLED");
+      notifications.push({ id, ...clone(options) });
+      return id;
+    } },
     contextMenus: { removeAll(cb) { cb?.(); }, create() {}, onClicked: { addListener(fn) { menus.push(fn); } } },
     scripting: {
       async insertCSS(options) { injections.push(options); },
@@ -86,7 +102,7 @@ function worker() {
   };
   const ctx = vm.createContext({
     chrome, URL, URLSearchParams, crypto: webcrypto, TextEncoder, console,
-    setTimeout, clearTimeout, setInterval, clearInterval,
+    setTimeout(...args) { const timer = setTimeout(...args); timer.unref(); return timer; }, clearTimeout, setInterval, clearInterval,
     async fetch(url, options) {
       fetches.push({ url, options });
       if (fetchMode === "fail") throw new Error("OFFLINE");
@@ -95,15 +111,21 @@ function worker() {
     importScripts(...files) { for (const file of files) vm.runInContext(source(file), ctx, { filename: file }); }
   });
   vm.runInContext(source("background.js"), ctx, { filename: "background.js" });
-  ctx.showActionFeedback = async () => {};
   const send = (message) => new Promise((resolve, reject) => {
     for (const listener of listeners) {
       try { if (listener(message, {}, resolve) === true) return; } catch (error) { reject(error); return; }
     }
     reject(new Error(`UNHANDLED: ${message.type}`));
   });
-  return { ctx, local, session, tabs, injections, created, updates, fetches, send, menus,
-    offline() { fetchMode = "fail"; }, failCreate() { failCreate = true; } };
+  return { ctx, local, session, tabs, injections, created, updates, fetches, send, menus, commands, notifications, badges,
+    offline() { fetchMode = "fail"; }, failCreate() { failCreate = true; },
+    failWrites() { failItemWrite = true; }, allowWrites() { failItemWrite = false; },
+    disableNotifications() { failNotification = true; } };
+}
+
+async function until(check, label) {
+  for (let i = 0; i < 200 && !check(); i++) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.ok(check(), label);
 }
 
 (async () => {
@@ -219,5 +241,111 @@ function worker() {
   assert.equal(routePickerPayload.payload.savedCount, 3, "选择项目前的已收藏计数按同一身份去重");
   assert.equal(routes.updates.length, 0, "收集路由网址不改变任何标签页");
 
-  console.log("PASS 冻结网址无损解析、收藏入口、降级、去重、项目选择与批次隔离");
+  const manifest = JSON.parse(readFileSync(path.resolve(__dirname, "../manifest.json"), "utf8"));
+  assert.ok(manifest.permissions.includes("notifications"), "构建清单声明系统通知权限");
+  assert.ok(readFileSync(path.resolve(__dirname, "..", "icon128.png")).length, "系统通知图标存在");
+
+  for (const language of ["zh-CN", "en"]) {
+    const feedback = worker();
+    await feedback.ctx.ensureLegacyCleanup();
+    feedback.local.laterOnSettings.language = language;
+    const added = await feedback.send({ type: "QUICK_SAVE_TAB", tabId: 1 });
+    assert.equal(added.ok, true);
+    assert.equal(feedback.notifications.length, 1, "侧栏收藏冻结页后发出一次系统结果通知");
+    assert.equal(feedback.notifications[0].title, "LaterOn");
+    assert.equal(feedback.notifications[0].type, "basic");
+    assert.equal(feedback.notifications[0].iconUrl, "chrome-extension://lateron/icon128.png");
+    assert.equal(feedback.notifications[0].silent, true);
+    assert.match(feedback.notifications[0].message, language === "en" ? /^Added:/ : /^已添加：/);
+    const duplicate = await feedback.send({ type: "QUICK_SAVE_TAB", tabId: 1 });
+    assert.equal(duplicate.duplicated, true);
+    assert.equal(feedback.notifications.length, 2);
+    assert.equal(feedback.notifications[1].message, language === "en" ? "This page is already added" : "这个网页已经添加过了");
+    assert.equal(feedback.local.laterOnItems.length, 1);
+    feedback.local.laterOnItems[0].image = "";
+    assert.equal((await feedback.send({ type: "QUICK_SAVE_TAB", tabId: 1 })).refreshed, true);
+    assert.match(feedback.notifications.at(-1).message, language === "en" ? /^Details updated:/ : /^已更新信息：/);
+    feedback.tabs[0].url = frozenUrl("https://example.com/failure");
+    feedback.failWrites();
+    const failed = await feedback.send({ type: "QUICK_SAVE_TAB", tabId: 1 });
+    assert.equal(failed.ok, false);
+    assert.equal(feedback.local.laterOnItems.length, 1, "保存失败不改变原收藏");
+    assert.equal(feedback.notifications.length, 4, "保存失败只有一条结果通知");
+    assert.match(feedback.notifications.at(-1).message, language === "en" ? /^Failed:.*SAVE_FAILED/ : /^操作失败：.*SAVE_FAILED/);
+    assert.equal(feedback.badges.at(-1), "!");
+    feedback.allowWrites();
+    assert.equal((await feedback.send({ type: "QUICK_SAVE_TAB", tabId: 1 })).ok, true, "失败后可以重试");
+    assert.equal(feedback.local.laterOnItems.length, 2);
+    assert.equal(feedback.injections.length, 0, "成功、失败和重试均不向冻结页注入脚本");
+  }
+
+  for (const entry of ["shortcut", "menu"]) {
+    const feedback = worker();
+    await feedback.ctx.ensureLegacyCleanup();
+    const invoke = () => entry === "shortcut"
+      ? feedback.commands[0]("quick-save", clone(feedback.tabs[0]))
+      : feedback.menus[0]({ menuItemId: "lateron-save-page" }, clone(feedback.tabs[0]));
+    await invoke();
+    assert.equal(feedback.notifications.length, 1, `${entry} 真实事件入口显示成功通知`);
+    feedback.tabs[0].url = frozenUrl(`https://example.com/${entry}-failure`);
+    feedback.failWrites();
+    await invoke();
+    assert.equal(feedback.notifications.length, 2, `${entry} 真实事件入口显示失败通知`);
+    assert.match(feedback.notifications.at(-1).message, /操作失败：.*SAVE_FAILED/);
+    assert.equal(feedback.badges.at(-1), "!");
+  }
+
+  const disabled = worker();
+  await disabled.ctx.ensureLegacyCleanup();
+  disabled.disableNotifications();
+  assert.equal((await disabled.send({ type: "QUICK_SAVE_TAB", tabId: 1 })).ok, true, "通知失败不把收藏成功误报为失败");
+  assert.equal(disabled.local.laterOnItems.length, 1);
+  assert.equal(disabled.badges.at(-1), "✓", "系统通知不可用时保留成功角标");
+  disabled.tabs[0].url = frozenUrl("https://example.com/disabled-failure");
+  disabled.failWrites();
+  assert.equal((await disabled.send({ type: "QUICK_SAVE_TAB", tabId: 1 })).ok, false);
+  assert.equal(disabled.badges.at(-1), "!", "系统通知不可用时保留失败角标");
+
+  const normal = worker();
+  normal.tabs[0] = { ...ordinary, id: 1, active: true, windowId: 1 };
+  assert.equal((await normal.send({ type: "QUICK_SAVE_TAB", tabId: 1 })).ok, true);
+  assert.equal(normal.notifications.length, 0, "普通网页继续使用页内提示");
+  assert.ok(normal.injections.some(injection => injection.args?.[0]?.[0]?.text?.startsWith("已添加：")));
+
+  const batchFeedback = worker();
+  batchFeedback.tabs.push({ id: 2, active: false, windowId: 1, url: frozenUrl("https://example.com/second") });
+  assert.equal((await batchFeedback.ctx.saveAllTabsInWindow()).added, 2);
+  assert.equal(batchFeedback.notifications.length, 1, "冻结页整窗收藏只发最终系统通知，避免逐条刷屏");
+  assert.match(batchFeedback.notifications[0].message, /^全部完成：新增 2 篇/);
+  batchFeedback.tabs[0].url = frozenUrl("https://example.com/batch-failure");
+  batchFeedback.failWrites();
+  assert.equal((await batchFeedback.ctx.saveAllTabsInWindow()).ok, false);
+  assert.equal(batchFeedback.notifications.length, 2);
+  assert.match(batchFeedback.notifications.at(-1).message, /操作失败：.*SAVE_FAILED/);
+
+  const afterPicker = worker();
+  afterPicker.local.laterOnSettings = { askFolderOnSingle: true, askFolderOnSingleOptIn: true };
+  assert.equal((await afterPicker.send({ type: "QUICK_SAVE_TAB", tabId: 1 })).pending, true);
+  assert.equal(afterPicker.notifications.length, 0, "尚未确认项目时不发成功通知");
+  const pendingId = afterPicker.session.laterOnPendingBatch.batchId;
+  afterPicker.tabs.splice(0, 1, { id: 99, active: true, windowId: 1, url: "chrome-extension://lateron/save-project-picker.html" });
+  assert.equal((await afterPicker.send({ type: "CONFIRM_BATCH_SAVE", batchId: pendingId, projectId: "work" })).ok, true);
+  await until(() => afterPicker.local.laterOnDiag?.lastStage === "完成", "选择项目后的后台收藏完成");
+  assert.equal(afterPicker.notifications.length, 1, "原冻结标签关闭且焦点留在选择页时仍显示结果");
+  assert.equal(afterPicker.local.laterOnItems[0].projectId, "work");
+  assert.equal(afterPicker.injections.length, 0);
+
+  const pickerFailure = worker();
+  pickerFailure.local.laterOnSettings = { askFolderOnSingle: true, askFolderOnSingleOptIn: true };
+  assert.equal((await pickerFailure.send({ type: "QUICK_SAVE_TAB", tabId: 1 })).pending, true);
+  pickerFailure.failWrites();
+  await pickerFailure.send({ type: "CONFIRM_BATCH_SAVE", batchId: pickerFailure.session.laterOnPendingBatch.batchId, projectId: "work" });
+  await until(() => pickerFailure.notifications.length === 1, "确认项目后保存失败有系统通知");
+  assert.match(pickerFailure.notifications[0].message, /操作失败：.*SAVE_FAILED/);
+  assert.equal(pickerFailure.local.laterOnItems.length, 0);
+
+  assert.equal(unavailable.notifications.length, 1, "项目选择页打不开时也显示系统失败通知");
+  assert.match(unavailable.notifications[0].message, /没能打开项目选择框/);
+
+  console.log("PASS 冻结网址无损解析、收藏入口、降级、去重、项目选择、批次隔离及系统通知");
 })().catch((error) => { console.error(error); process.exitCode = 1; });
