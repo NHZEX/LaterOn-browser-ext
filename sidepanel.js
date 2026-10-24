@@ -1225,6 +1225,7 @@ function saveSlimCache() {
   if (cacheSaveTimer) return;
   cacheSaveTimer = setTimeout(() => {
     cacheSaveTimer = null;
+    if (localStorageSlow) return;
     try {
       const json = JSON.stringify(items.filter((item) => !archivedProjectIds.has(item.projectId)).slice(0, CACHE_PREVIEW_LIMIT));
       if (json.length < 2000000) localStorage.setItem(CACHE_KEY, json);

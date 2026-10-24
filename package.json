@@ -10,12 +10,15 @@
   },
   "scripts": {
     "test": "node scripts/test.cjs",
+    "test:browser": "pnpm build && playwright test",
     "typecheck": "wxt prepare && vue-tsc --noEmit",
     "build": "wxt build",
     "zip": "wxt zip",
     "release:check": "node scripts/check-release.mjs"
   },
   "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@sinonjs/fake-timers": "15.4.0",
     "@wxt-dev/module-vue": "1.0.3",
     "esbuild": "0.28.2",
     "fflate": "0.8.3",

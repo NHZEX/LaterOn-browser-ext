@@ -32,7 +32,15 @@ jobs:
         run: pnpm typecheck
       - name: Run tests
         run: pnpm test
+      - name: Check sidebar test isolation
+        run: node --test tests/panel-fast-open.test.js
+        env:
+          PANEL_TEST_ORDER: reverse
       - name: Build release archive
         run: pnpm zip
       - name: Verify release archive
         run: pnpm release:check
+      - name: Install test Chromium
+        run: pnpm exec playwright install --with-deps --no-shell chromium
+      - name: Test built extension in Chromium
+        run: pnpm exec playwright test
