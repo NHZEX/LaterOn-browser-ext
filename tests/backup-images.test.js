@@ -54,7 +54,7 @@ async function checkPage(page) {
     for (let attempt = 0; attempt < 100 && !document.querySelector(itemSelector); attempt++) await tick();
     assert(document.querySelector(itemSelector), `${page} renders the restored collection`);
     if (page === 'library') {
-      assert.equal(document.querySelector('.board-placeholder')?.getAttribute('src'), 'article-cover-placeholder.png');
+      assert(require('./helpers/is-placeholder.cjs')(document.querySelector('.board-placeholder')));
       assert.equal(document.querySelector('.project-thumb .project-ph')?.textContent, 'P');
       document.querySelector('.board-card[data-project="p"]').click();
       for (let attempt = 0; attempt < 100 && !document.querySelector('.card[data-id="a"]'); attempt++) await tick();
@@ -67,17 +67,36 @@ async function checkPage(page) {
       await tick();
       const custom = document.querySelector('.board-card[data-project="p"]');
       custom.querySelector('.board-img').dispatchEvent(new window.Event('error'));
+      await tick();
       assert(custom.querySelector('.board-placeholder'), 'failed custom project covers fall back too');
       listeners.forEach(listener => listener({ laterOnProjects: { newValue: clone(store.laterOnProjects) },
         laterOnItems: { newValue: [{ ...store.laterOnItems[0], image: 'https://example.com/unavailable.jpg' }] } }, 'local'));
       await tick();
       const broken = document.querySelector('.board-card[data-project="p"]');
       broken.querySelector('.board-img').dispatchEvent(new window.Event('error'));
+      await tick();
       assert(broken.querySelector('.board-placeholder'), 'failed remote images fall back too');
     } else {
       assert.equal(document.querySelector('.item[data-id="a"] .thumb-logo')?.getAttribute('src'), 'article-cover-placeholder.png');
       assert.equal(document.querySelector('.item[data-id="a"] .thumb-img'), null);
     }
+    // Exercise the actual image error handlers in both page entries.
+    if (page === 'library') {
+      document.querySelector('.project-nav[data-project="p"]').click();
+      await tick();
+    }
+    const video = 'https://i.ytimg.com/vi/fixture/';
+    listeners.forEach(listener => listener({ laterOnItems: { newValue: [{ ...store.laterOnItems[0], image: `${video}maxresdefault.jpg` }] } }, 'local'));
+    await tick();
+    const imageSelector = page === 'library' ? '.card .cover-img' : '.item .thumb-img';
+    for (const file of ['hq720.jpg', 'hqdefault.jpg', 'mqdefault.jpg']) {
+      document.querySelector(imageSelector).dispatchEvent(new window.Event('error'));
+      await tick();
+      assert.equal(document.querySelector(imageSelector).src, `${video}${file}`, `${page} retries the next YouTube image`);
+    }
+    document.querySelector(imageSelector).dispatchEvent(new window.Event('error'));
+    await tick();
+    assert.equal(document.querySelector(imageSelector), null, `${page} stops retrying after the last fallback`);
     assert.deepEqual(errors, []);
   } finally { window.close(); }
 }

@@ -34,9 +34,6 @@ assert.match(libraryHtml, /onboarding\.css/);
 assert.match(libraryHtml, /onboarding\.js/);
 assert.match(sidepanelHtml, /onboarding\.css/);
 assert.match(sidepanelHtml, /onboarding\.js/);
-assert.match(libraryHtml, /data-i18n="slogan"/);
-assert.doesNotMatch(libraryHtml, /id="toggleProjects"/);
-assert.match(libraryHtml, /data-i18n="allProjectsOverview"/);
 assert.strictEqual(dictionaries["zh-CN"].allProjectsOverview, "全部项目");
 assert.strictEqual(dictionaries.en.allProjectsOverview, "All projects");
 

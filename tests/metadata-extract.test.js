@@ -187,10 +187,7 @@ console.log("\n=== 六、普通网站（回归：行为不变）===");
 
 console.log("\n=== 七、封面降级链（maxresdefault 不存在时逐级降级）===");
 {
-  const librarySource = fs.readFileSync(path.join(ROOT, "library.js"), "utf8");
-  const constPart = /^const COVER_CHAIN = \[[^\]]*\];/m.exec(librarySource)[0];
-  const fnPart = /^function nextCoverFallback\(currentSrc\) \{[\s\S]*?^}/m.exec(librarySource)[0];
-  const nextCoverFallback = new Function(`${constPart}\n${fnPart}\nreturn nextCoverFallback;`)();
+  const { nextCoverFallback } = require("./helpers/load-module.cjs")("src/library/shared.ts");
 
   const yt = (file) => `https://i.ytimg.com/vi/ABC123/${file}`;
   check("maxresdefault → hq720", nextCoverFallback(yt("maxresdefault.jpg")) === yt("hq720.jpg"));
@@ -205,11 +202,7 @@ console.log("\n=== 七、封面降级链（maxresdefault 不存在时逐级降�
     nextCoverFallback("https://i.ytimg.com/vi/ABC123/maxresdefault.jpg?sqp=xyz")
   );
 
-  // 两个展示入口都要有这套降级，否则某一处仍会留白
-  for (const file of ["library.js", "sidepanel.js"]) {
-    const src = fs.readFileSync(path.join(ROOT, file), "utf8");
-    check(`${file} 里接了封面降级`, /COVER_CHAIN/.test(src) && /i\.ytimg\.com/.test(src));
-  }
+
 }
 
 console.log("\n=== 八、只保留一份提取逻辑（不再各处复制）===");

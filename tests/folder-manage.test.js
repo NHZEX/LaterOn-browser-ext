@@ -182,6 +182,7 @@ const cardFolderOptions = () => [...document.querySelectorAll(".card .project-se
   check("输入框里是当前名字", renameInput?.value === "工作", renameInput?.value);
   check("输入框自动获得焦点", document.activeElement === renameInput);
   renameInput.value = "工作资料";
+  renameInput.dispatchEvent(new window.Event("input", { bubbles: true }));
   pressKey(renameInput, "Enter");
   await tick(10);
   check("回车保存新名字", folderByName("工作资料")?.id === "work", JSON.stringify(store.laterOnProjects.map((p) => p.name)));
@@ -195,6 +196,7 @@ const cardFolderOptions = () => [...document.querySelectorAll(".card .project-se
   await tick(10);
   const escInput = document.querySelector(".project-rename");
   escInput.value = "这个名字不要";
+  escInput.dispatchEvent(new window.Event("input", { bubbles: true }));
   pressKey(escInput, "Escape");
   await tick(10);
   check("Esc 取消，名字保持不变", store.laterOnProjects.find((p) => p.id === "work").name === "工作资料");
@@ -205,6 +207,7 @@ const cardFolderOptions = () => [...document.querySelectorAll(".card .project-se
   await tick(10);
   const blurInput = document.querySelector(".project-rename");
   blurInput.value = "工作与灵感";
+  blurInput.dispatchEvent(new window.Event("input", { bubbles: true }));
   pointerdown(document.querySelector("main"));
   blurInput.blur();
   await tick(10);
@@ -215,6 +218,7 @@ const cardFolderOptions = () => [...document.querySelectorAll(".card .project-se
   await tick(10);
   const dupInput = document.querySelector(".project-rename");
   dupInput.value = "设计灵感";
+  dupInput.dispatchEvent(new window.Event("input", { bubbles: true }));
   dupInput.blur();
   await tick(10);
   check("重名不会被改写", store.laterOnProjects.find((p) => p.id === "work").name === "工作与灵感");

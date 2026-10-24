@@ -112,7 +112,8 @@ for (const script of document.querySelectorAll("script[src]")) {
 }
 // Execute the module after its Teleport targets exist.
 const previewScript = fs.readdirSync(path.join(built, "assets")).filter(name => name.endsWith(".png")).reduce((script, name) =>
-  script.replaceAll(`/assets/${name}`, `data:image/png;base64,${fs.readFileSync(path.join(built, "assets", name)).toString("base64")}`), page.script);
+  script.replaceAll(`/assets/${name}`, `data:image/png;base64,${fs.readFileSync(path.join(built, "assets", name)).toString("base64")}`), page.script)
+  .replaceAll("/article-cover-placeholder.png", imageData("article-cover-placeholder.png"));
 document.body.append(scriptElement(previewScript));
 const images = [
   ...document.querySelectorAll("img[src], link[rel=icon]"),

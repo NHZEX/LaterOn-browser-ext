@@ -29,91 +29,14 @@
 
       <div class="workspace">
         <aside id="projectSidebar" class="project-sidebar" data-i18n-aria-label="projectNav" aria-label="项目导航">
-          <!-- 「待整理」单独占一块，钉在侧栏最上面：它不是一个普通筛选项，
-               而是一个待办——有东西堆在这里就该去归位。有内容时整块高亮。
-               仍然带 .project-nav，所以点击切换、拖收藏进来归类的行为都照旧。 -->
-          <button class="project-nav inbox-card" data-project="unfiled">
-            <span class="inbox-icon">
-              <!-- 用户提供的收藏夹图标：重绘为真正的矢量路径，以便跟随 currentColor。 -->
-              <svg class="nav-art-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <defs>
-                  <mask id="lateron-favorites-front">
-                    <rect width="24" height="24" fill="#000"/>
-                    <path d="M3 10.4h5.1l1.55 1.75h9.1A2.25 2.25 0 0 1 21 14.4v4.15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 18.55Z" fill="#fff"/>
-                    <path d="m12 13.2.94 1.9 2.1.3-1.52 1.48.36 2.1L12 18l-1.88.98.36-2.1-1.52-1.48 2.1-.3Z" fill="#000"/>
-                  </mask>
-                </defs>
-                <path d="M6.1 3.4h4.15l1.4 1.55h6.2a1.8 1.8 0 0 1 1.8 1.8v8.1H6.1Z" opacity=".28"/>
-                <path d="M4.45 6.7H8.7l1.45 1.6h6.7a1.9 1.9 0 0 1 1.9 1.9v7H4.45Z" opacity=".5"/>
-                <rect width="24" height="24" mask="url(#lateron-favorites-front)"/>
-              </svg>
-            </span>
-            <span class="inbox-body">
-              <strong class="inbox-title" data-i18n="inbox">等待整理</strong>
-              <small class="inbox-hint" data-i18n="noInbox">还没有要整理的</small>
-            </span>
-            <span class="inbox-count" id="unfiledCount">0</span>
-          </button>
-          <button class="project-nav top-entry" data-project="all">
-            <span class="nav-icon all-icon">
-              <!-- 用户提供的三列项目面板：保留层次明暗，颜色跟随 currentColor。 -->
-              <svg class="nav-art-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <defs>
-                  <mask id="lateron-project-columns">
-                    <rect width="24" height="24" fill="#000"/>
-                    <rect x="2.3" y="3" width="5.7" height="18" rx="1.8" fill="#fff"/>
-                    <rect x="9.15" y="3" width="5.7" height="18" rx="1.8" fill="#fff"/>
-                    <rect x="16" y="3" width="5.7" height="18" rx="1.8" fill="#fff"/>
-                    <rect x="3.45" y="5.15" width="3.4" height="1.55" rx=".78" fill="#000"/>
-                    <rect x="3.45" y="8.1" width="3.4" height="1.55" rx=".78" fill="#000"/>
-                    <rect x="3.55" y="12.2" width="3.2" height="5.9" rx="1.15" fill="#000" opacity=".42"/>
-                    <rect x="10.3" y="5.15" width="3.4" height="1.55" rx=".78" fill="#000"/>
-                    <rect x="10.3" y="8.1" width="3.4" height="1.55" rx=".78" fill="#000"/>
-                    <rect x="10.4" y="12.2" width="3.2" height="5.9" rx="1.15" fill="#000" opacity=".42"/>
-                    <rect x="17.15" y="5.15" width="3.4" height="1.55" rx=".78" fill="#000"/>
-                    <rect x="17.15" y="8.1" width="3.4" height="1.55" rx=".78" fill="#000"/>
-                    <rect x="17.25" y="12.2" width="3.2" height="5.9" rx="1.15" fill="#000" opacity=".42"/>
-                  </mask>
-                </defs>
-                <g mask="url(#lateron-project-columns)">
-                  <rect x="2.3" y="3" width="5.7" height="18" rx="1.8"/>
-                  <rect x="9.15" y="3" width="5.7" height="18" rx="1.8" opacity=".52"/>
-                  <rect x="16" y="3" width="5.7" height="18" rx="1.8" opacity=".3"/>
-                </g>
-              </svg>
-            </span>
-            <span data-i18n="allProjectsOverview">全部项目</span><strong class="nav-count" id="allCount">0</strong>
-          </button>
-          <!-- 项目列表始终接在“全部项目”下方，并通过缩进和较小尺寸表达从属关系。 -->
-          <div class="projects-section">
-            <div id="projectList" class="project-list"></div>
-          </div>
-          <div class="sidebar-footer">
-            <button id="openArchive" class="sidebar-setting" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h18v4H3zM5 8v12h14V8M9 12h6"/></svg><span data-i18n="archive">归档</span></button>
-            <button id="openSettings" class="sidebar-setting" type="button" title="设置" aria-label="设置">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-              <span data-i18n="settings">设置</span>
-            </button>
-            <p class="sidebar-slogan" data-i18n="slogan">有价值的网页，留给 LaterOn。</p>
-          </div>
-          <div id="sidebarResizer" class="sidebar-resizer" role="separator" tabindex="0" aria-orientation="vertical" aria-controls="projectSidebar" data-i18n-aria-label="resizeSidebar" aria-label="调整侧栏宽度" data-i18n-title="resizeSidebarHint" title="拖动调整宽度，点击打开宽度控制；双击或 Enter 恢复默认，方向键微调"></div>
-          <div id="sidebarSizeControls" class="sidebar-size-controls" role="group" data-i18n-aria-label="resizeSidebar" aria-label="调整侧栏宽度" hidden>
-            <button type="button" data-sidebar-size="narrower" data-i18n-title="narrowSidebar" data-i18n-aria-label="narrowSidebar" title="缩窄侧栏" aria-label="缩窄侧栏">−</button>
-            <button type="button" data-sidebar-size="wider" data-i18n-title="widenSidebar" data-i18n-aria-label="widenSidebar" title="加宽侧栏" aria-label="加宽侧栏">+</button>
-            <button type="button" data-sidebar-size="reset" data-i18n="resetSidebar" data-i18n-title="resetSidebar" title="恢复默认宽度">恢复默认</button>
-          </div>
         </aside>
 
         <main>
         <section id="collectionToolbar" class="collection-bar"></section>
 
-        <section id="emptyState" class="empty" hidden>
-          <img class="empty-icon" src="/icon128.png" vite-ignore alt="" />
-          <h2 data-i18n="quiet">这里还很安静</h2>
-          <p data-i18n="quietHint">打开一个有价值的网页，点击浏览器工具栏中的 LaterOn 图标即可添加。</p>
-        </section>
+        <div id="libraryEmptyState"></div>
         <section id="cardGrid" class="grid" aria-live="polite"></section>
-        <section id="boardGrid" class="board-grid" aria-live="polite" hidden></section>
+        <div id="boardView"></div>
         </main>
 
       </div>
@@ -141,22 +64,6 @@
               <svg viewBox="0 0 24 24"><path d="M4 7h16m-10 4v6m4-6v6M9 7l1-3h4l1 3m3 0-1 13H7L6 7"/></svg>
             </button>
           </footer>
-        </div>
-      </article>
-    </template>
-
-    <!-- 图板视图：一个类目 = 一张图板。封面由这个类目里最新几篇的封面拼成
-         （一张大的 + 两张小的），下方是类目名、简介和篇数。 -->
-    <template id="boardTemplate">
-      <article class="board-card">
-        <div class="board-cover" data-count="0"></div>
-        <button class="board-edit" type="button" data-i18n-title="editProjectAria" data-i18n-aria-label="editProjectAria" title="编辑类目简介" aria-label="编辑类目简介">
-          <svg viewBox="0 0 24 24"><path d="M4 20h4L20 8l-4-4L4 16zM14 6l4 4"/></svg>
-        </button>
-        <div class="board-body">
-          <h3 class="board-name"></h3>
-          <p class="board-note"></p>
-          <p class="board-meta"></p>
         </div>
       </article>
     </template>

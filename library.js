@@ -1,6 +1,7 @@
 import { normalizeFilter, normalizeSort, matchesReadFilter as matchesReading, matchesSearch } from "./src/collection/filter";
+import { projectCoverFor as resolveProjectCover, nextCoverFallback, formatSavedTime } from "./src/library/shared";
 
-// Transitional controller: Vue owns the header/toolbar DOM; later slices replace the grids and project navigation.
+// Transitional controller: Vue owns navigation, boards, empty states and controls; card rendering and remaining operations migrate in later slices.
 /** @param {import("./src/library/useLibraryControls").LibraryControls} controls */
 export function startLibraryPage(controls) {
 const view = controls.state;
@@ -24,17 +25,14 @@ const ORDER_KEY = "laterOnOrder";
 // 用户自己上传的封面（体积大）：单独放一个键，不和收藏列表混在一个数组里。
 // 否则每次读写列表都要「连图一起搬」，数据攒多了哪个页面打开都会卡很久。
 const COVERS_KEY = "laterOnCovers";
-// 图钉图标：菜单里的「置顶 / 取消置顶」和列表上的置顶角标共用这一个形状。
+// 图钉图标：菜单里的「置顶 / 取消置顶」沿用项目列表的实心形状。
 // 路径是「实心」画法（Material 的 push_pin），因为角标只有十几像素——
 // 描边款在这个尺寸下会糊成一团黑，根本看不出是图钉。用实心 + currentColor 填充，
 // 小到 11px 也还认得出「钉子 + 针」的轮廓。
-// ⚠️ 放在文件最上面的常量区：renderProjects() 在页面初始化时就会用到它，
-// 声明在下面会踩到 const 的暂时性死区，整个页面直接白屏。
 const PIN_FILL_PATH = "M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z";
 let items = [];
 let projects = [];
 let orders = {};
-let activeProject = "all";
 // 首页用品牌 slogan；用户明确进入某个导航范围后，标签页改成对应范围名称。
 let pageTitleMode = "home";
 let autoMarkRead = true;
@@ -59,9 +57,6 @@ let drag = null;
 let dragHomeFrame = null;   // 原位置留下的那个空虚线框（绝对定位浮层，不占格子）
 let selectMode = false;
 const selectedIds = new Set();
-let renamingId = null;        // 正在改名的项目 id（null = 当前没有在改名）
-let renameDraft = "";         // 改名输入框里的内容，重渲染时不会丢
-let renameFocusPending = false;
 let folderMenu = null;        // 项目的「更多 / 右键」菜单
 let folderDragId = null;      // 正在拖拽排序的项目 id（null = 当前没在拖）
 let currentItemId = null;     // 当前正在读的文章 id（来自 CURRENT_ITEM_KEY，两个视图共享）
@@ -74,9 +69,7 @@ let folderDragBlocked = false; // 这次按下是从「改名输入框 / ⋯ 按
 
 const grid = document.querySelector("#cardGrid");
 const boardGrid = document.querySelector("#boardGrid");
-const empty = document.querySelector("#emptyState");
 const template = document.querySelector("#cardTemplate");
-const boardTemplate = document.querySelector("#boardTemplate");
 const searchInput = document.querySelector("#searchInput");
 const toast = document.querySelector("#toast");
 const tr = (key, vars) => {
@@ -114,14 +107,14 @@ function syncDocumentTitle() {
   let pageName = "";
   if (pageTitleMode === "home") {
     pageName = tr("slogan");
-  } else if (activeProject === "unfiled") {
+  } else if (view.activeProject === "unfiled") {
     pageName = tr("inbox");
-  } else if (activeProject === "archive") {
+  } else if (view.activeProject === "archive") {
     pageName = tr("archive");
-  } else if (activeProject === "all") {
+  } else if (view.activeProject === "all") {
     pageName = tr("allProjectsOverview");
   } else {
-    pageName = projects.find((project) => project.id === activeProject)?.name || tr("allProjectsOverview");
+    pageName = projects.find((project) => project.id === view.activeProject)?.name || tr("allProjectsOverview");
   }
   document.title = `LaterOn - ${pageName}`;
 }
@@ -204,7 +197,7 @@ async function init() {
   const launchParams = new URLSearchParams(window.location.search);
   const launchedFromSidepanel = launchParams.get("from") === "sidepanel";
   // 普通打开仍落在“全部项目”首页；只有用户从侧栏主动展开时，才延续侧栏的项目现场。
-  activeProject = launchedFromSidepanel
+  view.activeProject = launchedFromSidepanel
     ? normalizeProject(launchParams.get("project") || result[ACTIVE_PROJECT_KEY])
     : "all";
   pageTitleMode = launchedFromSidepanel ? "section" : "home";
@@ -367,8 +360,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
     const nextProject = normalizeProject(changes[ACTIVE_PROJECT_KEY].newValue);
     // 自己点击导航时本地状态已经先更新；别让随后到达的 storage 回声把首页标题
     // 从 slogan 又改回「全部项目」。只有另一个视图真正切换了范围才接管。
-    if (nextProject !== activeProject) {
-      activeProject = nextProject;
+    if (nextProject !== view.activeProject) {
+      view.activeProject = nextProject;
       pageTitleMode = "section";
       renderProjects();
       render();
@@ -395,22 +388,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
-document.querySelectorAll(".project-nav").forEach((button) => {
-  button.addEventListener("click", () => selectProject(button.dataset.project));
-  enableDropTarget(button);
-});
-
-document.querySelector("#openArchive")?.addEventListener("click", () => selectProject("archive"));
-
-const projectsSection = document.querySelector(".projects-section");
-
-function syncProjectsVisibility() {
-  // 项目列表始终可见：现在它已经通过缩进和更小的行高明确从属于「全部项目」，
-  // 首页不会再被误认成重复入口，同时任何视图下都能直接切换或拖拽归类。
-  projectsSection?.classList.add("is-visible");
-}
-
-document.querySelector("#openSettings")?.addEventListener("click", async (event) => {
+async function openSettings(event) {
   const url = chrome.runtime.getURL("settings.html");
   // 默认就在「当前这个标签页」里切到设置页，点设置页的「返回」正好回到刚才的收藏墙。
   // 按住 ⌘ / Ctrl / Shift 点，仍按老习惯在新标签页打开。
@@ -421,7 +399,7 @@ document.querySelector("#openSettings")?.addEventListener("click", async (event)
   const tab = await chrome.tabs.getCurrent();
   if (tab?.id) await chrome.tabs.update(tab.id, { url });
   else chrome.tabs.create({ url });
-});
+}
 
 async function createProject(nameValue) {
   const name = String(nameValue || "").trim();
@@ -587,18 +565,10 @@ function enableReorder({ container, selector, idAttr, commit, dragImageHotspotX 
     drag.layout = snapshotLayout(container, selector, idAttr);
     showDragHomeFrame();
     container.classList.add("is-reordering");
-    requestAnimationFrame(() => el.classList.add("dragging"));
+    const session = drag;
+    requestAnimationFrame(() => { if (drag === session) el.classList.add("dragging"); });
   });
-  container.addEventListener("dragend", () => {
-    document.querySelectorAll(".dragging").forEach((el) => el.classList.remove("dragging"));
-    dragPreview?.remove();
-    dragPreview = null;
-    // 先收再清：clearReorderPreview 要靠 drag 去找容器和快照，
-    // 所以「置空」必须排在它后面（拖到别处或按 Esc 取消不会触发 drop，这里兜底）。
-    clearReorderPreview();
-    drag = null;
-    clearDropHighlights();
-  });
+  container.addEventListener("dragend", endReorder);
   container.addEventListener("dragover", (event) => {
     if (!drag || drag.container !== container || !drag.layout) return;
     event.preventDefault();
@@ -621,6 +591,17 @@ function enableReorder({ container, selector, idAttr, commit, dragImageHotspotX 
     );
     commit(index).catch(() => {});
   });
+}
+
+function endReorder() {
+  document.querySelectorAll(".dragging").forEach((el) => el.classList.remove("dragging"));
+  dragPreview?.remove();
+  dragPreview = null;
+  // 先收再清：clearReorderPreview 要靠 drag 去找容器和快照，
+  // 所以「置空」必须排在它后面（拖到别处或按 Esc 取消不会触发 drop，这里兜底）。
+  clearReorderPreview();
+  drag = null;
+  clearDropHighlights();
 }
 
 // 卡片：拖一张卡片到另一个位置 → 换阅读顺序（每个项目各存一份，互不影响）。
@@ -805,8 +786,13 @@ async function commitBoardOrder(dropIndex) {
   boardGrid.classList.remove("no-transition");
 }
 
-// ── 项目排序的接线（挂在列表上，行是每次渲染重建的）──────────
+// ── 项目排序的接线（委托到稳定容器，行由 Vue 管理）──────────
 const projectListEl = document.querySelector("#projectList");
+projectListEl.addEventListener("dragstart", (event) => {
+  const row = event.target.closest(".project-row");
+  if (row) startFolderDrag(event, row.dataset.id, row);
+});
+projectListEl.addEventListener("dragend", endFolderDrag);
 projectListEl.addEventListener("pointerdown", (event) => {
   // 记下这次按压是不是从「改名输入框 / ⋯ 按钮」上开始的，
   // 因为拖拽事件的 target 是整行，读不出内层元素。
@@ -834,14 +820,14 @@ async function saveSortSetting() {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     if (folderMenu) { closeFolderMenu(); return; }
-    if (renamingId) { stopRename(); return; }
+    if (view.renamingId) { stopRename(); return; }
     if (selectMode) setSelectMode(false);
     return;
   }
   // F2 = 给正在查看的项目改名（和系统的文件管理器一致的习惯）。
-  if (event.key === "F2" && !isTypingTarget(event.target) && projects.some((project) => project.id === activeProject)) {
+  if (event.key === "F2" && !isTypingTarget(event.target) && projects.some((project) => project.id === view.activeProject)) {
     event.preventDefault();
-    startRename(activeProject, projects.find((project) => project.id === activeProject).name);
+    startRename(view.activeProject, projects.find((project) => project.id === view.activeProject).name);
     return;
   }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
@@ -857,7 +843,7 @@ function isTypingTarget(element) {
 
 // 当前在看哪个范围：全部项目 / 待整理 / 某个项目。自定义顺序按范围各存一份。
 function orderScope() {
-  return activeProject || "all";
+  return view.activeProject || "all";
 }
 
 // 这个范围里所有收藏的「当前顺序」：先按存下来的自定义顺序，
@@ -889,7 +875,15 @@ function customOrderComparator(scopedItems) {
   };
 }
 
+function syncCollection() {
+  // Remove temporary drag nodes before Vue reconciles its keyed rows and boards.
+  if (folderDragId) endFolderDrag();
+  if (drag?.container === boardGrid) endReorder();
+  controls.updateCollection({ items, projects, covers });
+}
+
 function render() {
+  syncCollection();
   for (const id of selectedIds) {
     if (!items.some((entry) => entry.id === id)) selectedIds.delete(id);
   }
@@ -899,15 +893,14 @@ function render() {
 }
 
 function renderCardsView() {
-  boardGrid.replaceChildren();
   // 搜索是全局的：搜索框里有字时一律在「全部收藏」里找，不受当前所在项目限制。
   // （以前是在当前项目的范围里找，人在某个项目里搜一个明明存在的标题会一无所获，
   //   还以为这篇收藏丢了。）「未读 / 已读」那一档仍然生效——它是用户自己拨过去的开关，
   // 不该被搜索悄悄改掉；没结果时的提示里也说了可以切它。
   const scopedItems = items.filter((item) => {
-    if (activeProject === "archive") return itemIsArchived(item);
-    if (itemIsArchived(item) && activeProject !== item.projectId) return false;
-    return !!view.query || activeProject === "all" || (activeProject === "unfiled" ? !item.projectId : item.projectId === activeProject);
+    if (view.activeProject === "archive") return itemIsArchived(item);
+    if (itemIsArchived(item) && view.activeProject !== item.projectId) return false;
+    return !!view.query || view.activeProject === "all" || (view.activeProject === "unfiled" ? !item.projectId : item.projectId === view.activeProject);
   });
   let visible = scopedItems.filter((item) => {
     // 「未读」= 还没读完（未读 + 在读）；「已读」= 手动标完成的那批。
@@ -931,14 +924,9 @@ function renderCardsView() {
   // 同步「正在读」高亮（不丢滚动：只增删/重排发生变化的卡片）。
   applyCurrentHighlight();
 
-  empty.hidden = visible.length > 0;
-  if (!visible.length && items.length) {
-    empty.querySelector("h2").textContent = tr("noMatches");
-    empty.querySelector("p").textContent = tr("noMatchesHint");
-  } else if (!items.length) {
-    empty.querySelector("h2").textContent = tr("quiet");
-    empty.querySelector("p").textContent = tr("quietHint");
-  }
+  view.empty = visible.length === 0;
+  view.emptyTitle = items.length ? "noMatches" : "quiet";
+  view.emptyHint = items.length ? "noMatchesHint" : "quietHint";
 }
 
 // ── 图板视图 ──────────────────────────────────────────────
@@ -948,7 +936,7 @@ function renderCardsView() {
 // 搜索时也让位给卡片列表：搜索要找的是「文章」，不是「类目」——所以只要搜索框里有字，
 // 即便是「全部项目」也直接铺出命中的卡片（见 renderCardsView 里的全局搜索）。
 function isBoardView() {
-  return (activeProject === "all" || activeProject === "archive") && !view.query;
+  return (view.activeProject === "all" || view.activeProject === "archive") && !view.query;
 }
 
 // 哪些控件在当前视图下该出现：排序和批量选择只对卡片列表有意义，
@@ -956,243 +944,16 @@ function isBoardView() {
 function syncViewUI() {
   const board = isBoardView();
   grid.hidden = board;
-  boardGrid.hidden = !board;
   view.board = board;
   if (board && selectMode) setSelectMode(false);
 }
 
-// 图板和卡片复用相同的阅读筛选规则。
-function matchesReadFilter(item) {
-  return matchesReading(item, view.filter);
-}
-
-// 类目分组：一个项目一块图板。
-// 「待整理」（没归到任何项目的收藏）不占一块，也不在侧栏当筛选项——
-// 那些收藏在「全部项目」的卡片视图里照样看得到，只是不再单独成一类。
-// 顶部「未读 / 已读」筛选照样生效——只影响每组里算进来的篇数和封面。
-function boardGroups() {
-  const groups = projects.filter((project) => !!project.archived === (activeProject === "archive")).map((project) => ({
-    id: project.id,
-    name: project.name,
-    note: project.note || "",
-    cover: project.cover || "",
-    // 用户在图板设置里自己挑的封面组合（收藏 id，按顺序，最多 3 个）。
-    pick: Array.isArray(project.coverPick) ? project.coverPick : [],
-    items: items.filter((item) => item.projectId === project.id && matchesReadFilter(item)),
-    // 这个项目里的全部收藏（不管筛选）。只给「自己挑的封面」用：
-    // 那是用户明确指定的门面，不该因为切一下未读/已读就换一张脸。
-    own: items.filter((item) => item.projectId === project.id)
-  }));
-  // 按存下来的图板顺序排（拖过就有顺序，没拖过就是项目的创建顺序）。
-  const byId = new Map(groups.map((group) => [group.id, group]));
-  const ordered = [];
-  for (const id of boardOrderIds()) {
-    const group = byId.get(id);
-    if (group) ordered.push(group);
-  }
-  for (const group of groups) if (!ordered.includes(group)) ordered.push(group);
-  // 真正的空项目也要显示：这里叫“全部项目”，而且用户刚从末尾加号创建的项目
-  // 返回首页后必须找得到。只有“本来有内容、但当前阅读筛选下一篇都不剩”的项目才隐藏。
-  // 注意：搜索时根本不会走到这里——有搜索词时视图直接切到卡片列表（见 isBoardView），
-  // 因为搜索要找的是「文章」，按类目名去筛图板是另一回事。
-  return ordered.filter((group) => activeProject === "archive" || group.items.length > 0 || group.own.length === 0);
-}
-
 function renderBoards() {
+  ++libraryRenderToken;
   for (const [, card] of cardMap) card.remove();
   cardMap.clear();
   grid.replaceChildren();
-
-  const groups = boardGroups();
-  const total = groups.reduce((sum, group) => sum + group.items.length, 0);
-  const unfinished = groups.reduce((sum, group) => sum + group.items.filter((item) => item.status !== "done").length, 0);
-  // 没归到项目里的收藏不占图板，但得让人知道还有这么多没归位，
-  // 否则顶上的篇数和卡片视图对不上，会以为收藏丢了。
-  const loose = items.filter((item) => !item.projectId && matchesReadFilter(item)).length;
-  // 「全部项目」是项目总览，不把未归类收藏伪装成一个项目统计；
-  // 待整理数量只在左侧待整理入口显示。
-  view.count = tr("boardCount", { groups: groups.length, total, unfinished });
-
-  boardGrid.replaceChildren();
-  for (const group of groups) boardGrid.append(createBoardCard(group));
-  if (activeProject !== "archive") boardGrid.append(createProjectBoard());
-
-  empty.hidden = groups.length > 0;
-  if (!groups.length && items.length) {
-    empty.querySelector("h2").textContent = tr("noBoard");
-    empty.querySelector("p").textContent = tr("noBoardHint");
-  } else if (!items.length) {
-    empty.querySelector("h2").textContent = tr("quiet");
-    empty.querySelector("p").textContent = tr("quietHint");
-  }
 }
-
-function createProjectBoard() {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "board-create";
-  button.setAttribute("aria-label", tr("newProjectButton"));
-  button.title = tr("newProjectButton");
-
-  const plus = document.createElement("span");
-  plus.className = "board-create-plus";
-  plus.textContent = "+";
-  plus.setAttribute("aria-hidden", "true");
-  const label = document.createElement("strong");
-  label.textContent = tr("newProject");
-  button.append(plus, label);
-  button.addEventListener("click", () => { promptCreateProject().catch(() => showToast(tr("createProjectFailed"))); });
-  return button;
-}
-
-function createBoardCard(group) {
-  const fragment = boardTemplate.content.cloneNode(true);
-  const card = fragment.querySelector(".board-card");
-  const cover = fragment.querySelector(".board-cover");
-  card.dataset.project = group.id;
-  // 整块图板可拖：拖它就能换这个类目在图板墙上的位置（和拖卡片同一套逻辑）。
-  // 右上角那个改简介的铅笔是按钮，按下时不会触发拖拽。
-  card.draggable = activeProject !== "archive";
-  if (group.cover) {
-    // 用户给这个类目设了自定义封面：整块铺满，不再拼多篇。
-    cover.append(createBoardCellFromSrc(group.cover));
-    cover.dataset.count = "1";
-  } else {
-    const picked = boardCoverItems(group);
-    if (!picked.length) {
-      cover.append(createBoardCellFromSrc(""));
-    } else {
-      for (const item of picked) cover.append(createBoardCell(item));
-    }
-    // 拼图布局由张数决定：1 张铺满、2 张左右各半、3 张左边一张大的 + 右边上下两张。
-    cover.dataset.count = String(Math.max(picked.length, 1));
-  }
-
-  const name = fragment.querySelector(".board-name");
-  name.textContent = group.name;
-  name.title = group.name;
-  const note = boardNote(group);
-  const noteEl = fragment.querySelector(".board-note");
-  noteEl.textContent = note.text;
-  noteEl.classList.toggle("is-auto", note.auto);
-  noteEl.title = note.text;
-  fragment.querySelector(".board-meta").textContent = boardMeta(group);
-  return card;
-}
-
-// 拼封面用哪几篇：
-//   ① 用户在「编辑项目」里自己挑过 → 就照他挑的顺序来（那是他指定的门面，
-//      所以从「这个项目的全部收藏」里找，不受顶部未读/已读筛选影响）；
-//   ② 没挑过，或者挑的那几篇被删了 / 挪走了 / 封面没了 → 自动：最新的优先，有封面的优先
-//      （没封面的只用来补空位）。
-function boardCoverItems(group) {
-  const picked = (group.pick || [])
-    .map((id) => (group.own || group.items).find((item) => item.id === id))
-    .filter((item) => item && resolveImage(item));
-  if (picked.length) return picked.slice(0, 3);
-  const sorted = [...(group.own || group.items)].sort((a, b) => b.savedAt - a.savedAt);
-  const withCover = sorted.filter((item) => resolveImage(item));
-  const withoutCover = sorted.filter((item) => !resolveImage(item));
-  return [...withCover, ...withoutCover].slice(0, 3);
-}
-
-function createBoardPlaceholder() {
-  const image = document.createElement("img");
-  image.className = "board-placeholder";
-  image.src = "article-cover-placeholder.png";
-  image.alt = "";
-  return image;
-}
-
-function createBoardCell(item) {
-  const cell = document.createElement("div");
-  cell.className = "board-cell";
-  const src = resolveImage(item);
-  if (!src) {
-    cell.append(createBoardPlaceholder());
-    return cell;
-  }
-  const img = document.createElement("img");
-  img.className = "board-img";
-  img.referrerPolicy = "no-referrer";
-  img.alt = "";
-  img.loading = "lazy";
-  img.addEventListener("error", () => {
-    const fallback = nextCoverFallback(img.src);
-    if (fallback) img.src = fallback;
-    else cell.replaceChildren(createBoardPlaceholder());
-  });
-  img.src = src;
-  cell.append(img);
-  return cell;
-}
-
-// 给一个现成的图片地址（比如用户在「编辑项目」里上传的自定义封面）造一块封面单元。
-function createBoardCellFromSrc(src) {
-  const cell = document.createElement("div");
-  cell.className = "board-cell";
-  if (!src) {
-    cell.append(createBoardPlaceholder());
-    return cell;
-  }
-  const img = document.createElement("img");
-  img.className = "board-img";
-  img.alt = "";
-  img.loading = "lazy";
-  img.addEventListener("error", () => cell.replaceChildren(createBoardPlaceholder()));
-  img.src = src;
-  cell.append(img);
-  return cell;
-}
-
-// 简介：自己写过就用自己写的；没写过就按类目里的内容自动生成一句概览
-// （主要来源 + 最近更新时间），这样每张图板下面都不会空着。
-function boardNote(group) {
-  const written = (group.note || "").trim();
-  if (written) return { text: written, auto: false };
-  const list = group.own || group.items;
-  if (!list.length) return { text: tr("emptyBoardNote"), auto: true };
-  const counts = new Map();
-  for (const item of list) {
-    const source = (item.source || "").trim();
-    if (source) counts.set(source, (counts.get(source) || 0) + 1);
-  }
-  const topSources = [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 2)
-    .map(([source]) => source);
-  const latest = Math.max(...list.map((item) => Number(item.savedAt) || 0));
-  const parts = [];
-  if (topSources.length) parts.push(tr("mainlyFrom", { sources: topSources.join(document.documentElement.lang === "en" ? ", " : "、") }));
-  if (latest) parts.push(tr("updatedAt", { time: formatTime(latest) }));
-  return { text: parts.join(" · ") || tr("itemCount", { n: list.length }), auto: true };
-}
-
-function boardMeta(group) {
-  const list = group.own || group.items;
-  const count = list.length;
-  if (!count) return tr("emptyCollection");
-  const unread = list.filter((item) => item.status !== "done").length;
-  const english = document.documentElement.lang === "en";
-  return unread ? (english ? `${count} saves · ${unread} ${tr("notFinished")}` : `${count} 篇 · ${unread} ${tr("notFinished")}`)
-    : (english ? `${count} saves · ${tr("allRead")}` : `${count} 篇 · ${tr("allRead")}`);
-}
-
-boardGrid.addEventListener("click", (event) => {
-  const card = event.target.closest(".board-card");
-  if (!card) return;
-  const projectId = card.dataset.project;
-  if (event.target.closest(".board-edit")) { editBoard(projectId); return; }
-  selectProject(projectId);   // 进这个类目看卡片列表
-});
-
-// 图板上右键 = 和侧栏里一样的项目菜单（重命名 / 编辑简介 / 删除）。
-boardGrid.addEventListener("contextmenu", (event) => {
-  const card = event.target.closest(".board-card");
-  if (!card || card.dataset.project === "unfiled") return;
-  event.preventDefault();
-  openFolderMenu(card.dataset.project, event.clientX, event.clientY);
-});
 
 async function editBoard(projectId) {
   const project = projects.find((entry) => entry.id === projectId);
@@ -1328,27 +1089,6 @@ function renderCards(visible, start, token) {
     initialLocateItemId = null;
   }
   if (end < visible.length) nextLibraryRender(() => renderCards(visible, end, token));
-}
-
-// YouTube 的最大分辨率封面（maxresdefault）对部分视频并不存在，
-// 加载失败时逐级降到 hq720 / hqdefault / mqdefault，而不是让卡片留下空白。
-const COVER_CHAIN = ["maxresdefault.jpg", "hq720.jpg", "hqdefault.jpg", "mqdefault.jpg"];
-function nextCoverFallback(currentSrc) {
-  let url;
-  try {
-    url = new URL(currentSrc);
-  } catch {
-    return "";
-  }
-  const matched = /^\/vi\/([^/]+)\/([^/]+\.jpg)$/.exec(url.pathname);
-  if (!matched || url.hostname !== "i.ytimg.com") return "";
-  const index = COVER_CHAIN.indexOf(matched[2]);
-  if (index === -1) return "";
-  const next = COVER_CHAIN[index + 1];
-  if (!next) return "";
-  url.pathname = `/vi/${matched[1]}/${next}`;
-  url.search = "";
-  return url.href;
 }
 
 // 把「正在读」那篇标出来（全屏与侧栏都会用到这个共享标记）。
@@ -1518,11 +1258,11 @@ async function editItem(item) {
 
 function selectProject(projectId, { asHome = false } = {}) {
   clearSearch();
-  activeProject = normalizeProject(projectId);
+  view.activeProject = normalizeProject(projectId);
   pageTitleMode = asHome ? "home" : "section";
   renderProjects();
   render();
-  chrome.storage.local.set({ [ACTIVE_PROJECT_KEY]: activeProject });
+  chrome.storage.local.set({ [ACTIVE_PROJECT_KEY]: view.activeProject });
 }
 
 function normalizeProject(projectId) {
@@ -1553,135 +1293,8 @@ async function toggleProjectPin(id) {
 }
 
 function renderProjects() {
+  syncCollection();
   syncDocumentTitle();
-  const counts = new Map();
-  let unfiled = 0;
-  for (const item of items) {
-    if (item.projectId) counts.set(item.projectId, (counts.get(item.projectId) || 0) + 1);
-    else unfiled += 1;
-  }
-  document.querySelector("#allCount").textContent = items.filter((item) => !itemIsArchived(item)).length;
-  document.querySelector("#openArchive")?.classList.toggle("active", activeProject === "archive");
-  document.querySelector("#unfiledCount").textContent = unfiled;
-  syncProjectsVisibility();
-  // 「待整理」那块：有内容就高亮，并把提示写成一句要去办的事。
-  const inbox = document.querySelector(".inbox-card");
-  if (inbox) {
-    inbox.classList.toggle("has-items", unfiled > 0);
-    inbox.querySelector(".inbox-hint").textContent = unfiled
-      ? tr("inboxPending", { n: unfiled })
-      : tr("noInbox");
-  }
-  document.querySelectorAll(".project-nav").forEach((button) => button.classList.toggle("active", button.dataset.project === activeProject));
-
-  // 项目列表的 DOM 始终维护完整，但只在具体项目里显示；首页已有图板，
-  // 等待整理也保持独立，避免同一批项目在左侧重复出现。
-  const projectList = document.querySelector("#projectList");
-  // 正在改名时，重建列表会打断输入；先记下焦点是否在改名输入框上，重建后再还回去。
-  const hadRenameFocus = !!document.activeElement?.classList?.contains("project-rename");
-  projectList.replaceChildren();
-  const pinCount = projects.filter((project) => project.pinned).length;
-  const divider = document.createElement("div");
-  divider.className = "project-pin-sep";
-  divider.setAttribute("role", "separator");
-  divider.setAttribute("aria-label", tr("pinnedProjects"));
-
-  projects.filter((project) => !project.archived).forEach((project, index) => {
-    const row = document.createElement("div");
-    row.className = "project-row";
-    row.dataset.id = project.id;
-    row.dataset.project = project.id; // 拖拽放下时要读它，缺了会把归属写成 undefined
-
-    row.classList.toggle("is-pinned", !!project.pinned);
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `project-nav${activeProject === project.id ? " active" : ""}`;
-    button.dataset.project = project.id;
-    button.setAttribute("aria-label", project.name);
-    button.title = tr("projectTip", { name: project.name, pinned: project.pinned ? tr("pinnedPrefix") : "" });
-    // 每行左侧不是文件夹图标，而是该项目的缩略图（和选项目浮层里的一样）：
-    // 项目自带封面就用封面，否则取项目里某篇的封面，都没有就用名字首字做占位色块。
-    const thumb = projectThumb(project.name, projectCoverFor(project.id));
-    // 置顶的项目在缩略图右下角挂一枚图钉：一眼能看出「它不是因为名字排第一，是钉住的」。
-    if (project.pinned) thumb.append(pinBadge());
-    button.append(thumb);
-
-    if (project.id === renamingId) {
-      // 改名中：名字位置换成输入框（回车保存、Esc 取消、点到别处自动保存）。
-      button.classList.add("is-renaming");
-      const input = document.createElement("input");
-      input.className = "project-rename";
-      input.value = renameDraft;
-      input.maxLength = 28;
-      input.autocomplete = "off";
-      input.setAttribute("aria-label", tr("projectNameLabel"));
-      input.addEventListener("input", () => { renameDraft = input.value; });
-      input.addEventListener("click", (event) => event.stopPropagation());
-      input.addEventListener("dblclick", (event) => event.stopPropagation());
-      input.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") { event.preventDefault(); input.blur(); }
-        else if (event.key === "Escape") { event.preventDefault(); stopRename(); }
-      });
-      input.addEventListener("blur", () => commitRename(project.id, input));
-      button.append(input);
-    } else {
-      const name = document.createElement("span");
-      name.className = "project-name";
-      name.textContent = project.name;
-      name.title = tr("projectTip", { name: project.name, pinned: project.pinned ? tr("pinnedPrefix") : "" });
-      button.append(name);
-    }
-
-    const count = document.createElement("strong");
-    count.className = "nav-count";   // 和顶部两个入口同一个小圆标样式
-    count.textContent = counts.get(project.id) || 0;
-    button.append(count);
-
-    button.addEventListener("click", () => { if (project.id !== renamingId) selectProject(project.id); });
-    button.addEventListener("dblclick", (event) => {
-      if (project.id === renamingId) return;
-      event.preventDefault();
-      startRename(project.id, project.name);
-    });
-    button.addEventListener("contextmenu", (event) => {
-      event.preventDefault();
-      openFolderMenu(project.id, event.clientX, event.clientY);
-    });
-
-    const more = document.createElement("button");
-    more.type = "button";
-    more.className = "project-more";
-    more.title = tr("moreActions");
-    more.setAttribute("aria-label", tr("projectAria", { name: project.name }));
-    more.textContent = "⋯";
-    more.addEventListener("click", (event) => {
-      event.stopPropagation();
-      const rect = more.getBoundingClientRect();
-      openFolderMenu(project.id, rect.right, rect.bottom + 6);
-    });
-
-    row.append(button, more);
-    // 拖拽排序：整行可拖，抓着上下移动就能换顺序。
-    row.draggable = true;
-    row.addEventListener("dragstart", (event) => startFolderDrag(event, project.id, row));
-    row.addEventListener("dragend", endFolderDrag);
-    // 拖拽收藏到项目：监听挂在外层行上，这样右侧「⋯」那一小块也能接收放下。
-    enableDropTarget(row);
-    projectList.append(row);
-    // 置顶区和其余项目之间画一条细线：告诉用户「上面这几个是钉住的，拖下来就是取消置顶」。
-    if (pinCount && index === pinCount - 1 && projects.length > pinCount) projectList.append(divider.cloneNode(true));
-  });
-
-  const renameInput = projectList.querySelector(".project-rename");
-  if (renameInput && (hadRenameFocus || renameFocusPending)) {
-    // 第一次进入改名：全选，方便直接输入新名字；重渲染导致焦点丢失：光标放到末尾，接着打。
-    const selectAll = renameFocusPending;
-    renameFocusPending = false;
-    renameInput.focus();
-    const end = renameInput.value.length;
-    renameInput.setSelectionRange(selectAll ? 0 : end, end);
-  }
-
   refreshCardProjectOptions();
 }
 
@@ -1698,32 +1311,36 @@ function refreshCardProjectOptions() {
   }
 }
 
-function enableDropTarget(target) {
-  if (target.dataset.project === "all") return;
-  target.addEventListener("dragover", (event) => {
-    // 正在拖的是「项目自己」（排序），这不是「把收藏放进项目」，别抢。
-    if (isFolderDrag(event)) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-    clearDropHighlights();
-    target.classList.add("drop-target");
-  });
-  target.addEventListener("dragleave", (event) => {
-    if (!isFolderDrag(event) && !target.contains(event.relatedTarget)) target.classList.remove("drop-target");
-  });
-  target.addEventListener("drop", async (event) => {
-    if (isFolderDrag(event)) return; // 交给列表上的排序逻辑处理
-    event.preventDefault();
-    const itemId = event.dataTransfer.getData("text/plain");
-    const destination = target.dataset.project;
-    const projectId = destination === "unfiled" ? null : destination;
-    const projectName = projectId ? projects.find((project) => project.id === projectId)?.name : tr("inbox");
-    clearDropHighlights();
-    if (!itemId || !items.some((item) => item.id === itemId)) return;
-    if (!await updateItem(itemId, { projectId })) return;
-    showToast(tr("movedIntoProject", { name: projectName || tr("genericProject") }));
-  });
+// Stable-container delegation keeps legacy drag mechanics independent of Vue row creation.
+const sidebar = document.querySelector("#projectSidebar");
+function itemDropTarget(event) {
+  if (isFolderDrag(event)) return null;
+  return event.target.closest(".project-row, .inbox-card");
 }
+sidebar.addEventListener("dragover", (event) => {
+  const target = itemDropTarget(event);
+  if (!target) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  clearDropHighlights();
+  target.classList.add("drop-target");
+});
+sidebar.addEventListener("dragleave", (event) => {
+  const target = itemDropTarget(event);
+  if (target && !target.contains(event.relatedTarget)) target.classList.remove("drop-target");
+});
+sidebar.addEventListener("drop", async (event) => {
+  const target = itemDropTarget(event);
+  if (!target) return;
+  event.preventDefault();
+  const itemId = event.dataTransfer?.getData("text/plain");
+  const projectId = target.dataset.project === "unfiled" ? null : target.dataset.project;
+  const projectName = projectId ? projects.find(project => project.id === projectId)?.name : tr("inbox");
+  clearDropHighlights();
+  if (!itemId || !items.some(item => item.id === itemId)) return;
+  if (!await updateItem(itemId, { projectId })) return;
+  showToast(tr("movedIntoProject", { name: projectName || tr("genericProject") }));
+});
 
 function clearDropHighlights() {
   document.querySelectorAll(".drop-target").forEach((element) => element.classList.remove("drop-target"));
@@ -1741,7 +1358,7 @@ function isFolderDrag(event) {
 
 function startFolderDrag(event, projectId, row) {
   // 从改名输入框或「⋯」按钮上按下的，交给它们自己处理（选文字 / 开菜单）。
-  if (folderDragBlocked || renamingId) {
+  if (folderDragBlocked || view.renamingId) {
     event.preventDefault();
     return;
   }
@@ -1814,10 +1431,11 @@ async function commitFolderOrder() {
   const index = folderDropIndex();
   const dragged = projects.find((project) => project.id === folderDragId);
   if (index == null || !dragged) return;
-  const rest = projects.filter((project) => project.id !== dragged.id);
+  const visible = projects.filter((project) => !project.archived);
+  const rest = visible.filter((project) => project.id !== dragged.id);
   const [min, max] = folderDropRange();
   const at = Math.max(min, Math.min(max, index));
-  if (projects.indexOf(dragged) === at) return;
+  if (visible.indexOf(dragged) === at) return;
   const response = await LaterOnStorage.run("moveProject", { id: dragged.id, beforeId: rest[at]?.id ?? null });
   projects = response.projects;
   renderProjects();
@@ -1830,7 +1448,7 @@ async function commitFolderOrder() {
 // 这种动作的结果变得不可预测（拖上去就变成置顶，再拖下来就丢掉置顶）。
 // 返回值是允许的下标区间 [最小, 最大]，下标按「去掉被拖的那项之后」的列表算。
 function folderDropRange() {
-  const rest = projects.filter((project) => project.id !== folderDragId);
+  const rest = projects.filter((project) => !project.archived && project.id !== folderDragId);
   const pins = rest.filter((project) => project.pinned).length;
   const dragged = projects.find((project) => project.id === folderDragId);
   return dragged?.pinned ? [0, pins] : [pins, rest.length];
@@ -1854,22 +1472,7 @@ function endFolderDrag() {
 // 封面组合里的第一张，否则取该项目里某篇的封面。
 // 侧栏项目行和卡片上的「所属项目」浮层共用这一个，两处的缩略图才永远一致。
 function projectCoverFor(projectId) {
-  const project = projects.find((entry) => entry.id === projectId);
-  if (project?.cover) return project.cover;
-  const inProject = items.filter((entry) => (entry.projectId || "") === projectId);
-  // resolveImage 兼容三种来源：本地上传的封面（local://<id> 指针）、旧的 data: 内联、远程 URL。
-  // 挑过的就按挑的顺序找第一张能用的——和图板上「第 1 张占大格」保持一致。
-  for (const id of (Array.isArray(project?.coverPick) ? project.coverPick : [])) {
-    const picked = inProject.find((entry) => entry.id === id);
-    const src = picked && resolveImage(picked);
-    if (src) return src;
-  }
-  // 取第一篇「能解析出图」的收藏当这个项目的门面。
-  for (const entry of inProject) {
-    const src = resolveImage(entry);
-    if (src) return src;
-  }
-  return null;
+  return resolveProjectCover({ items, projects, covers }, projectId);
 }
 
 // 图钉图标（置顶 / 取消置顶共用）：slashed = true 时叠一道斜杠表示「取消」。
@@ -1889,65 +1492,26 @@ function pinIconSvg(slashed = false) {
   return svg;
 }
 
-// 置顶角标：缩略图右下角的一枚小图钉。
-function pinBadge() {
-  const badge = document.createElement("span");
-  badge.className = "project-pin-badge";
-  badge.title = tr("pinned");
-  badge.append(pinIconSvg());
-  return badge;
-}
-
-// 没有封面时的占位：项目名首字 + 一块暖色底，看起来仍是「图板缩略图」。
-function projectThumbPlaceholder(name) {
-  const placeholder = document.createElement("span");
-  placeholder.className = "project-ph";
-  placeholder.textContent = (name || "·").trim().slice(0, 1);
-  return placeholder;
-}
-
-// 项目缩略图（封面 / 首字占位），和「选项目」浮层里每行左侧那张小图同一套外观。
-function projectThumb(name, cover) {
-  const box = document.createElement("span");
-  box.className = "nav-icon project-thumb";
-  if (cover) {
-    const img = document.createElement("img");
-    img.alt = "";
-    img.loading = "lazy";
-    img.referrerPolicy = "no-referrer";
-    // 远程封面被防盗链挡掉时退回占位色块，不留一个破图。
-    img.addEventListener("error", () => box.replaceChildren(projectThumbPlaceholder(name)));
-    img.src = cover;
-    box.append(img);
-  } else {
-    box.append(projectThumbPlaceholder(name));
-  }
-  return box;
-}
-
 function startRename(id, currentName) {
   closeFolderMenu();
-  renamingId = id;
-  renameDraft = currentName ?? projects.find((project) => project.id === id)?.name ?? "";
-  renameFocusPending = true;
+  view.renamingId = id;
+  view.renameDraft = currentName ?? projects.find((project) => project.id === id)?.name ?? "";
   renderProjects();
 }
 
 function stopRename() {
-  renamingId = null;
-  renameDraft = "";
-  renameFocusPending = false;
+  view.renamingId = null;
+  view.renameDraft = "";
   renderProjects();
 }
 
-async function commitRename(id, input) {
+async function commitRename(id, value) {
   // 已经取消或提交过了（Esc / 重复触发）就忽略，免得 blur 又把旧值写回去。
-  if (renamingId !== id) return;
-  const name = input.value.trim();
+  if (view.renamingId !== id) return;
+  const name = value.trim();
   const project = projects.find((entry) => entry.id === id);
-  renamingId = null;
-  renameDraft = "";
-  renameFocusPending = false;
+  view.renamingId = null;
+  view.renameDraft = "";
   if (!project) { renderProjects(); return; }
   if (!name || name === project.name) { renderProjects(); return; }
   if (projects.some((entry) => entry.id !== id && entry.name === name)) {
@@ -1988,7 +1552,7 @@ async function deleteProject(id) {
   covers = response.covers;
   orders = response.orders;
   if (!items.some((item) => item.id === currentItemId)) currentItemId = null;
-  if (activeProject === id) activeProject = "all";
+  if (view.activeProject === id) view.activeProject = "all";
   renderProjects();
   render();
   showToast(tr(response.affected ? "projectDeletedWithItems" : "projectDeleted", { name: project.name, n: response.affected }));
@@ -2432,7 +1996,10 @@ function finishBulk() {
   setSelectMode(false);
 }
 
-controls.bind({ filter: setFilter, search: render, sort: () => { render(); saveSortSetting(); }, home: goHome, select: () => setSelectMode(!selectMode) });
+controls.bind({ filter: setFilter, search: render, sort: () => { render(); saveSortSetting(); }, home: goHome, select: () => setSelectMode(!selectMode),
+  project: selectProject, createProject: () => { promptCreateProject().catch(() => showToast(tr("createProjectFailed"))); },
+  editProject: editBoard, projectMenu: openFolderMenu, rename: startRename, cancelRename: stopRename,
+  commitRename: (id, value) => { commitRename(id, value).catch(() => showToast(tr("operationFailed"))); }, settings: openSettings });
 document.querySelector("#bulkSelectAll")?.addEventListener("click", () => {
   const allSelected = selectedIds.size >= grid.children.length && grid.children.length > 0;
   [...grid.children].forEach((card) => {
@@ -2449,13 +2016,7 @@ document.querySelector("#bulkDelete")?.addEventListener("click", bulkDelete);
 document.querySelector("#bulkDone")?.addEventListener("click", () => setSelectMode(false));
 
 function formatTime(timestamp) {
-  const diff = Date.now() - timestamp;
-  const day = 86400000;
-  if (diff < 60000) return tr("justNow");
-  if (diff < 3600000) return tr("minutesAgo", { n: Math.floor(diff / 60000) });
-  if (diff < day) return tr("hoursAgo", { n: Math.floor(diff / 3600000) });
-  if (diff < day * 30) return tr("daysAgo", { n: Math.floor(diff / day) });
-  return new Intl.DateTimeFormat(document.documentElement.lang === "en" ? "en" : "zh-CN", { month: "short", day: "numeric" }).format(timestamp);
+  return formatSavedTime(timestamp, Date.now(), tr, document.documentElement.lang === "en");
 }
 
 let toastTimer = null;

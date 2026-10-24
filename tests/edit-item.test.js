@@ -285,7 +285,7 @@ async function partPage(page) {
 
   try {
     if (isLibrary) {
-      await waitFor("收藏库已显示待整理数量", () => document.querySelector("#unfiledCount").textContent === "2");
+      await waitFor("收藏库已显示待整理数量", () => document.querySelector("#unfiledCount")?.textContent === "2");
       click(document.querySelector('.project-nav[data-project="unfiled"]'));
     }
     await waitFor("两个页面均能加载收藏卡片", () => !!card("item-1") && !!card("item-2"));
