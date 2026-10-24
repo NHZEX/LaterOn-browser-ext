@@ -64,11 +64,12 @@ export function boardNote(group: BoardGroup, translate: Translate, formatTime: (
   const written = group.note.trim();
   if (written) return { text: written, auto: false };
   if (!group.own.length) return { text: translate("emptyBoardNote"), auto: true };
-  const counts = group.own.reduce<Readonly<Record<string, number>>>((counts, item) => {
+  const counts = new Map<string, number>();
+  group.own.forEach(item => {
     const source = item.source?.trim();
-    return source ? { ...counts, [source]: (counts[source] ?? 0) + 1 } : counts;
-  }, {});
-  const sources = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([source]) => source);
+    if (source) counts.set(source, (counts.get(source) ?? 0) + 1);
+  });
+  const sources = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 2).map(([source]) => source);
   const latest = Math.max(...group.own.map(item => Number(item.savedAt) || 0));
   const parts = [sources.length ? translate("mainlyFrom", { sources: sources.join(english ? ", " : "、") }) : "",
     latest ? translate("updatedAt", { time: formatTime(latest) }) : ""].filter(Boolean);

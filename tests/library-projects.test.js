@@ -37,4 +37,22 @@ assert.deepEqual(rules.boardNote({ ...group, note: "  Written note  " }, transla
 assert.equal(rules.boardMeta(group, translate, false), "4 篇 · 3 没看完", "Metadata describes the complete project");
 assert.equal(rules.boardMeta({ ...group, own: [] }, translate, false), "无收藏");
 assert.equal(rules.boardNote({ ...group, own: [] }, translate, String, false).text, "空项目");
+
+const mixedSources = freeze([
+  { source: " Site B ", savedAt: 1 }, { source: "Site A", savedAt: 2 },
+  { source: "Site B", savedAt: 3 }, { source: " Site A ", savedAt: 4 },
+  { source: "Site C", savedAt: 5 }, { source: "  ", savedAt: 6 }, { savedAt: 7 }
+]);
+assert.deepEqual(rules.boardNote({ ...group, own: mixedSources }, translate, String, false),
+  { text: "来自 Site B、Site A · 更新 7", auto: true }, "Trim sources, ignore blanks and preserve first-seen order for equal counts");
+assert.equal(rules.boardNote({ ...group, own: mixedSources }, translate, String, true).text,
+  "来自 Site B, Site A · 更新 7", "English joins the same top sources with commas");
+
+const manySources = freeze(Array.from({ length: 5000 }, (_, index) => ({ source: `site-${index}.example`, savedAt: index + 1 })));
+const largeProject = freeze({ ...group, own: [...manySources,
+  { source: "site-4999.example", savedAt: 5001 }, { source: " site-4999.example ", savedAt: 5002 },
+  { source: "site-4000.example", savedAt: 5003 }] });
+assert.deepEqual(rules.boardNote(largeProject, translate, String, false),
+  { text: "来自 site-4999.example、site-4000.example · 更新 5003", auto: true },
+  "Large projects count every source and retain the most frequent sources and latest save without mutating input");
 console.log("PASS project projections, archive/filter semantics, stable covers and metadata with immutable inputs");
