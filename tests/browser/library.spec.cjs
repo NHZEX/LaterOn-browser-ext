@@ -21,6 +21,65 @@ const settleCards = page => page.locator("#cardGrid .card").evaluateAll(cards =>
   Promise.all(cards.flatMap(card => card.getAnimations().map(animation => animation.finished.catch(() => {})))));
 
 for (const [theme, language] of [["light", "zh-CN"], ["dark", "en"]]) {
+  test(`D3 编辑、封面上传与项目命令持久化（${theme}/${language}）`, async ({ page, context, extension }) => {
+    const errors = []; page.on("pageerror", error => errors.push(error.message));
+    await context.route("https://assets.example.test/**", route => route.abort());
+    await seed(extension.worker, { theme, language, count: 2 });
+    await page.setViewportSize({ width: 375, height: 900 });
+    await page.goto(libraryUrl(extension));
+    const first = page.locator('#cardGrid [data-id="n-0"]');
+    const modal = page.locator(".lod-root:not([hidden])");
+    const title = modal.locator('[data-field="title"]');
+    const save = () => modal.locator(".lod-ok").click();
+    const stored = key => extension.worker.evaluate(async key => (await chrome.storage.local.get(key))[key], key);
+    await expect(first).toBeVisible(); await first.locator(".edit").focus(); await page.keyboard.press("Enter"); await expect(title).toBeFocused();
+    await title.fill("Cancelled"); await page.keyboard.press("Escape"); await expect(modal).toHaveCount(0);
+    await expect(first.locator(".edit")).toBeFocused(); await expect(first.locator("h2")).toHaveText("Title 0 收藏卡片");
+    await page.keyboard.press("Enter"); await title.fill("Edited in Chromium");
+    await modal.locator('input[type="file"]').setInputFiles({ name: "cover.png", mimeType: "image/png",
+      buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jrLkAAAAASUVORK5CYII=", "base64") });
+    await expect(modal.locator(".lod-cover-preview img")).toHaveAttribute("src", /^data:image\/jpeg;base64,/);
+    const bounds = await modal.locator(".lod-panel").boundingBox();
+    expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.x + bounds.width).toBeLessThanOrEqual(375);
+    await page.screenshot({ path: test.info().outputPath(`library-edit-${theme}.png`), fullPage: true });
+    await save(); await expect(modal).toHaveCount(0); await expect(first.locator("h2")).toHaveText("Edited in Chromium");
+    await expect(first.locator(".edit")).toBeFocused();
+    const coverData = (await stored("laterOnCovers"))["n-0"];
+    expect(coverData).toMatch(/^data:image\/jpeg;base64,/); expect((await stored("laterOnItems"))[0].image).toBe("local://n-0");
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.locator('.project-nav[data-project="all"]').click(); await page.locator(".board-create").click();
+    await modal.locator('[data-field="name"]').fill("D3 Project"); await save(); await expect(modal).toHaveCount(0);
+    const id = (await stored("laterOnProjects"))[0].id;
+    const row = page.locator(`.project-row[data-id="${id}"]`);
+    await expect(row.locator(".project-name")).toHaveText("D3 Project");
+    await row.locator(".project-nav").focus(); await page.keyboard.press("F2"); const rename = row.locator(".project-rename");
+    await expect(rename).toBeFocused(); await rename.fill("D3 Renamed"); await page.keyboard.press("Enter");
+    await expect(row.locator(".project-name")).toHaveText("D3 Renamed"); await expect(row.locator(".project-nav")).toBeFocused();
+    await page.locator('.project-nav[data-project="unfiled"]').click();
+    await first.locator(".project-select").focus(); await page.keyboard.press("Enter");
+    const picker = page.locator("#lateron-folder-picker");
+    await picker.locator(".lon-folder").filter({ hasText: "D3 Renamed" }).click(); await picker.locator(".lon-primary").click();
+    await expect(first).toHaveCount(0); await expect(row.locator(".nav-count")).toHaveText("1");
+    await page.locator('.project-nav[data-project="all"]').click();
+    const board = page.locator(`.board-card[data-project="${id}"]`);
+    await board.locator(".board-edit").focus(); await page.keyboard.press("Enter"); await modal.locator('[data-field="note"]').fill("Project note from Chromium");
+    await modal.locator(".lod-pick").click(); await save(); await expect(modal).toHaveCount(0);
+    await expect(board.locator(".board-note")).toHaveText("Project note from Chromium");
+    expect((await stored("laterOnProjects"))[0].coverPick).toEqual(["n-0"]);
+    expect((await stored("laterOnProjects"))[0].cover).toBeUndefined();
+    await row.locator(".project-more").click(); await page.getByRole("menu").locator('[data-action="archive"]').click();
+    await expect(row).toHaveCount(0); await expect(board).toBeVisible();
+    await board.click({ button: "right" }); await page.getByRole("menu").locator('[data-action="archive"]').click();
+    await expect(row).toBeVisible(); await expect(first).toBeVisible();
+    await page.reload(); await row.locator(".project-nav").click(); await expect(first.locator("h2")).toHaveText("Edited in Chromium");
+    await expect(first.locator(".cover-img")).toHaveAttribute("src", coverData);
+    expect((await stored("laterOnProjects"))[0]).toMatchObject({ name: "D3 Renamed", note: "Project note from Chromium", archived: false, coverPick: ["n-0"] });
+    expect(errors).toEqual([]);
+  });
+}
+
+for (const [theme, language] of [["light", "zh-CN"], ["dark", "en"]]) {
   test(`Vue 收藏卡片保留封面、缺图、键盘操作与布局（${theme}/${language}）`, async ({ page, context, extension }) => {
     const errors = [];
     page.on("pageerror", error => errors.push(error.message));

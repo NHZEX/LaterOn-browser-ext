@@ -6,6 +6,7 @@ import type { Translate } from "../../../src/shared/i18n";
 import ProjectThumbnail from "./ProjectThumbnail.vue";
 
 const props = defineProps<{ project: NavigationProject; controls: LibraryControls; translate: Translate }>();
+const projectButton = shallowRef<HTMLButtonElement | null>(null);
 const renameInput = shallowRef<HTMLInputElement | null>(null);
 const renaming = computed(() => props.controls.state.renamingId === props.project.id);
 const menuOpen = computed(() => props.controls.menu.value?.kind === "project" && props.controls.menu.value.id === props.project.id);
@@ -43,16 +44,17 @@ function keydown(event: KeyboardEvent): void {
 }
 function commit(): void { props.controls.commitRename(props.project.id, props.controls.state.renameDraft); }
 function focusRename(): void {
-  if (!renaming.value || !renameInput.value) return;
-  renameInput.value.focus();
-  renameInput.value.select();
+  if (renaming.value && renameInput.value) {
+    renameInput.value.focus();
+    renameInput.value.select();
+  } else if (document.activeElement === document.body) projectButton.value?.focus({ preventScroll: true });
 }
 watch(renaming, focusRename, { flush: "post" });
 </script>
 
 <template>
   <div class="project-row" :class="{ 'is-pinned': project.pinned }" :data-id="project.id" :data-project="project.id" draggable="true">
-    <button type="button" class="project-nav" :class="{ active: controls.state.activeProject === project.id, 'is-renaming': renaming }"
+    <button ref="projectButton" type="button" class="project-nav" :class="{ active: controls.state.activeProject === project.id, 'is-renaming': renaming }"
       :data-project="project.id" :aria-label="project.name" :title="tip" aria-haspopup="menu" :aria-expanded="menuOpen"
       @click="select" @dblclick="rename" @contextmenu="menu" @keydown="menuKey">
       <ProjectThumbnail :name="project.name" :cover="project.cover" :pinned="project.pinned" :translate="translate" />

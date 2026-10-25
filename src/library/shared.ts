@@ -1,8 +1,9 @@
 import { matchesReadFilter, matchesSearch } from "../collection/filter";
 import type { ReadFilter, SortMode } from "../collection/filter";
 import { resolveImage } from "../collection/item-edit";
-import type { StoredItem, StoredProject } from "../storage/contracts";
+import type { ProjectChanges, StoredItem, StoredProject } from "../storage/contracts";
 import type { Translate } from "../shared/i18n";
+import type { PromptOptions, PromptValues } from "./useLibraryCommands";
 
 export interface LibraryCollection {
   readonly items: readonly StoredItem[];
@@ -70,6 +71,8 @@ export interface BoardGroup {
   readonly own: readonly StoredItem[];
 }
 
+// 项目封面优先自定义图，其次所选组合中可用的图，最后取项目内可用封面。
+// 项目行缩略图、编辑预览和所属项目浮层共用此规则，保持显示来源一致。
 export function projectCoverFor(collection: LibraryCollection, id: string): string {
   const project = collection.projects.find(project => project.id === id);
   if (project?.cover) return project.cover;
@@ -78,12 +81,49 @@ export function projectCoverFor(collection: LibraryCollection, id: string): stri
   return [...picked, ...items].map(item => resolveImage(item, collection.covers)).find(Boolean) ?? "";
 }
 
+export function projectEditOptions(collection: LibraryCollection, project: StoredProject, t: Translate): PromptOptions {
+  // 预览展示项目实际使用的图；派生封面移除后仍会自动出现，因此 derived 禁用其移除按钮。
+  // 组合候选只取项目内有图的收藏，最新优先，最多 48 张；已有选择保留顺序并剔除失效 ID。
+  // candidates 启用最多 3 张的组合选择及拖动排序，单篇编辑不传该配置。
+  const cover = projectCoverFor(collection, project.id);
+  const own = collection.items.filter(item => item.projectId === project.id);
+  return { title: t("editProjectTitle", { name: project.name ?? "" }), fields: [
+    { name: "name", label: t("projectNameLabel"), value: project.name ?? "", placeholder: t("projectNamePlaceholder"), maxLength: 28 },
+    { name: "note", label: t("projectNoteLabel"), value: project.note ?? "", placeholder: t("projectNotePlaceholder"), multiline: true, rows: 3, maxLength: 200 }],
+    cover: { name: "cover", label: t("cover"), value: cover, derived: !project.cover, note: t("coverDefaultNote"),
+      removedNote: t(project.cover || !cover ? "coverRemoved" : "coverReady"), candidates: [...own].sort((a, b) => (b.savedAt ?? 0) - (a.savedAt ?? 0))
+        .filter(item => resolveImage(item, collection.covers)).slice(0, 48).map(item => ({ id: item.id, src: resolveImage(item, collection.covers), title: item.title || item.url || "" })),
+      picks: (project.coverPick ?? []).filter(id => own.some(item => item.id === id)), picksName: "coverPick", picksLabel: t("coverPicks"), maxPicks: 3, picksNote: t("coverPicksHint") },
+    confirmText: t("save") };
+}
+
+export function projectEditChanges(collection: LibraryCollection, original: StoredProject, shownCover: string, values: PromptValues): ProjectChanges {
+  // 名称清空仍沿用原名；简介清空则回到自动生成。只提交实际改动，保留并发修改的其它字段。
+  const name = typeof values.name === "string" ? values.name.trim() : original.name ?? "";
+  const note = typeof values.note === "string" ? values.note.trim() : original.note?.trim() ?? "";
+  const cover = typeof values.cover === "string" ? values.cover : shownCover;
+  // 缺少 coverPick 表示没有可选封面，维持原选择；空数组表示用户主动清空，回到自动组合。
+  const alive = (ids: readonly string[]) => ids.filter(id => collection.items.some(item => item.id === id && item.projectId === original.id));
+  const oldPick = alive(original.coverPick ?? []);
+  const pick = Array.isArray(values.coverPick) ? alive(values.coverPick) : oldPick;
+  // 封面与打开时实际展示的图比较，不能把自动封面顺手固化，否则它不再随项目内容更新。
+  return { ...(name && name !== original.name ? { name } : {}), ...(note !== (original.note ?? "").trim() ? { note } : {}),
+    ...(cover !== shownCover && cover !== (original.cover ?? "") ? { cover } : {}),
+    ...(pick.join(",") !== oldPick.join(",") ? { coverPick: pick } : {}) };
+}
+
 export function projectNavigation(collection: LibraryCollection): readonly NavigationProject[] {
   return collection.projects.filter(project => !project.archived).map(project => ({
     id: project.id, name: project.name ?? "", pinned: !!project.pinned,
     count: collection.items.filter(item => item.projectId === project.id).length,
     cover: projectCoverFor(collection, project.id)
   }));
+}
+
+// 所属项目浮层与项目导航复用计数、归档过滤和封面规则，另在首行提供等待整理。
+export function projectPickerFolders(collection: LibraryCollection, t: Translate): readonly NavigationProject[] {
+  return [{ id: "", name: t("inbox"), pinned: false, count: collection.items.filter(item => !item.projectId).length,
+    cover: projectCoverFor(collection, "") }, ...projectNavigation(collection)];
 }
 
 export function boardGroups(collection: LibraryCollection, filter: ReadFilter, archive: boolean): readonly BoardGroup[] {

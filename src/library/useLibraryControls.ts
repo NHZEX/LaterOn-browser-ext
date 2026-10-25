@@ -6,6 +6,9 @@ import type { ReadFilter, SortMode } from "../collection/filter";
 import type { LibraryMenuAction, LibraryMenuRequest, LibraryMenuTarget } from "./menu";
 import { useLibrarySelection } from "./useLibrarySelection";
 import { useLibraryBulk } from "./useLibraryBulk";
+import { useLibraryCommands } from "./useLibraryCommands";
+import { useLibraryProjects } from "./useLibraryProjects";
+import { useLibraryItems } from "./useLibraryItems";
 
 interface ControlState {
   filter: ReadFilter;
@@ -30,12 +33,7 @@ interface ControlActions {
   readonly sort: () => void;
   readonly home: () => void;
   readonly project: (id: string) => void;
-  readonly createProject: () => void;
-  readonly editProject: (id: string) => void;
-  readonly menuAction: (target: LibraryMenuTarget, action: LibraryMenuAction) => void;
-  readonly rename: (id: string) => void;
-  readonly cancelRename: () => void;
-  readonly commitRename: (id: string, value: string) => void;
+  readonly openItem: (id: string) => Promise<void>;
   readonly settings: (event: MouseEvent) => void;
   readonly cardsRendered: (complete: boolean) => void;
 }
@@ -59,6 +57,9 @@ export function useLibraryControls() {
   const unfiled = computed(() => collection.value.items.filter(item => !item.projectId).length);
   const total = computed(() => collection.value.items.filter(item => !collection.value.projects.some(project => project.id === item.projectId && project.archived)).length);
   const actions = shallowRef<ControlActions | null>(null);
+  const commands = useLibraryCommands(collection);
+  const projects = useLibraryProjects(state, commands, closeMenu);
+  const items = useLibraryItems(commands, projects.createFromPicker, () => { clearSearch(); actions.value?.search(); });
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
 
   function bind(next: ControlActions): void { actions.value = next; }
@@ -83,19 +84,34 @@ export function useLibraryControls() {
   function updateOrders(value: CardOrders): void { orders.value = value; }
   function cardsRendered(complete: boolean): void { actions.value?.cardsRendered(complete); }
   function project(id: string): void { actions.value?.project(id); }
-  function createProject(): void { actions.value?.createProject(); }
-  function editProject(id: string): void { actions.value?.editProject(id); }
+  function createProject(): void { void projects.create(); }
+  function editProject(id: string): void { void projects.edit(id); }
   function projectMenu(id: string, x: number, y: number, trigger: HTMLElement | null = null): void { menu.value = { kind: "project", id, x, y, trigger }; }
   function itemMenu(id: string, x: number, y: number, trigger: HTMLElement | null = null): void { menu.value = { kind: "item", id, x, y, trigger }; }
   function closeMenu(): void { menu.value = null; }
-  function menuAction(target: LibraryMenuTarget, action: LibraryMenuAction): void { actions.value?.menuAction(target, action); }
-  function rename(id: string): void { actions.value?.rename(id); }
-  function cancelRename(): void { actions.value?.cancelRename(); }
-  function commitRename(id: string, value: string): void { actions.value?.commitRename(id, value); }
+  async function menuAction(target: LibraryMenuTarget, action: LibraryMenuAction): Promise<void> {
+    try {
+      if (target.kind === "project") {
+        if (action === "pin") await projects.pin(target.id);
+        else if (action === "rename") projects.rename(target.id);
+        else if (action === "edit") await projects.edit(target.id);
+        else if (action === "archive") await projects.archive(target.id);
+        else if (action === "delete") await projects.remove(target.id);
+      } else {
+        if (action === "open") await actions.value?.openItem(target.id);
+        else if (action === "edit") await items.edit(target.id);
+        else if (action === "delete") await items.remove(target.id);
+        else if (action === "select") selection.item(target.id, !selectedIds.value.has(target.id));
+      }
+    } catch { commands.toast("operationFailed"); }
+  }
+  function rename(id: string): void { projects.rename(id); }
+  function cancelRename(): void { projects.cancelRename(); }
+  function commitRename(id: string, value: string): void { void projects.commitRename(id, value); }
   function settings(event: MouseEvent): void { actions.value?.settings(event); }
-  function dispose(): void { clearTimeout(searchTimer); closeMenu(); bulk.dispose(); selection.dispose(); actions.value = null; }
+  function dispose(): void { clearTimeout(searchTimer); closeMenu(); commands.dispose(); projects.dispose(); items.dispose(); bulk.dispose(); selection.dispose(); actions.value = null; }
 
-  return { state, collection, navigation, boards, boardSummary, unfiled, total, cards, cardView, selectedIds, selection, bulk, updateCollection, updateOrders, cardsRendered, bind, setFilter, setSearch, clearSearch, setSort,
+  return { state, collection, navigation, boards, boardSummary, unfiled, total, cards, cardView, selectedIds, selection, bulk, commands, projects, items, updateCollection, updateOrders, cardsRendered, bind, setFilter, setSearch, clearSearch, setSort,
     home, select, project, createProject, editProject, menu, projectMenu, itemMenu, closeMenu, menuAction, rename, cancelRename, commitRename, settings, dispose };
 }
 

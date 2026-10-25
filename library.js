@@ -1,8 +1,8 @@
 import { nextTick } from "vue";
 import { normalizeFilter, normalizeSort } from "./src/collection/filter";
-import { projectCoverFor as resolveProjectCover, cardTarget } from "./src/library/shared";
+import { projectPickerFolders, cardTarget } from "./src/library/shared";
 
-// Vue owns rendering, menus, selection and bulk operations; this transitional controller retains dialogs, drag and page adapters.
+// Vue owns rendering and collection commands; this transitional controller retains drag, navigation and page adapters.
 /** @param {import("./src/library/useLibraryControls").LibraryControls} controls */
 export function startLibraryPage(controls) {
 const view = controls.state;
@@ -117,15 +117,6 @@ function normalizeItems(list) {
   return LaterOnItemState.normalizeItems(list);
 }
 
-// ── 封面取值 / 搬家 / 写回 ──────────────────────────────────
-// item.image 里存的可能是三种东西：
-//   ① 远程图片网址（自动抓取的）——直接用
-//   ② local://<收藏id> —— 用户上传的封面，本体在 COVERS_KEY 那个键里，按 id 取
-//   ③ data: 开头的老数据（封面搬家功能上线前存的）——兼容直接用
-function resolveImage(item) {
-  return LaterOnItemEdit.resolveImage(item, covers);
-}
-
 // 一次性搬家：把还躺在收藏列表里的 base64 封面挪到单独的键里。
 // 搬完列表数据回归「纯文字」，哪个页面打开都快。已搬过（没有 data: 封面）就什么都不做。
 async function migrateLegacyCovers(rawItems) {
@@ -137,11 +128,6 @@ async function migrateLegacyCovers(rawItems) {
   } catch { return null; }
 }
 
-// 三档：未读 / 在读 / 已读（已完成）。点一下「标为已读」按钮 = 标记完成，再点取消；
-// 「在读」由点开文章自动进入——这样「点过但没读完」不再被算作已读。
-function nextStatus(status) {
-  return LaterOnItemState.nextStatus(status);
-}
 // 筛选只认这三档。第一次打开还没有偏好，或存入了异常值时，默认展示「未读」；
 // 用户手动切换后会写进 FILTER_KEY，以后恢复上次选择。
 // 搜索是临时查看状态；切换项目或移动收藏后离开搜索结果，避免旧关键词继续过滤新页面。
@@ -380,27 +366,6 @@ async function openSettings(event) {
   else chrome.tabs.create({ url });
 }
 
-async function createProject(nameValue) {
-  const name = String(nameValue || "").trim();
-  if (!name) return;
-  try {
-    const response = await LaterOnStorage.run("createProject", { name });
-    projects = sortPinnedFirst(response.projects);
-    selectProject(response.project.id);
-    showToast(tr(response.existed ? "projectExists" : "projectCreated", { name: response.project.name }));
-  } catch { showToast(tr("createProjectFailed")); }
-}
-
-async function promptCreateProject() {
-  const result = await LaterOnDialog.prompt({
-    title: tr("newProject"),
-    message: tr("newProjectHint"),
-    fields: [{ name: "name", label: tr("projectNameLabel"), placeholder: tr("projectNamePlaceholder"), maxLength: 28 }],
-    confirmText: tr("create")
-  });
-  if (result?.ok) await createProject(result.values?.name);
-}
-
 // 点左上角的 LaterOn 标识 = 回「全屏首页」。
 // 首页 = 这一页刚打开时的那一屏：全部项目（图板总览）+ 筛选回到「未读」+ 没有搜索词 + 滚到顶。
 // 之所以要一次性复位这么多：钻进某个项目或筛到「未读」之后，用户对「怎么退回去」是没有把握的，
@@ -412,34 +377,17 @@ function goHome() {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-// 事件委托：整页只挂一个监听器，避免给每张卡片单独绑监听。
+// 文章打开暂由网格委托；卡片编辑、阅读、移动和删除事件已由 Vue 接管。
 grid.addEventListener("click", (event) => {
   const card = event.target.closest(".card");
   if (!card) return;
   const item = items.find((entry) => entry.id === card.dataset.id);
   if (!item) return;
-  if (event.target.closest(".read-toggle")) updateItem(item.id, { status: nextStatus(item.status) });
-  else if (event.target.closest(".delete")) deleteItem(item.id);
-  else if (event.target.closest(".edit")) editItem(item);
-  else if (event.target.closest(".title-link, .cover-link")) openItem(event, item);
+  if (event.target.closest(".title-link, .cover-link")) openItem(event, item);
   // 来源、摘要和卡片留白也是用户自然会点的区域。卡片本身又能拖拽，
   // 如果这些位置只显示操作光标却没有反应，就会形成误导性死区。
   // 排除所有真正的交互控件后，其余卡片区域统一按“打开文章”处理。
   else if (!event.target.closest("button, select, input, label, a")) openItem(event, item);
-});
-grid.addEventListener("change", (event) => {
-  const select = event.target.closest(".project-select");
-  if (!select) return;
-  const card = event.target.closest(".card");
-  const item = items.find((entry) => entry.id === card.dataset.id);
-  if (item) {
-    if (view.selecting) {
-      select.value = item.projectId || "";
-      return;
-    }
-    clearSearch();
-    updateItem(item.id, { projectId: select.value || null });
-  }
 });
 // 卡片上右键 = 这一篇的菜单（打开 / 标记已读 / 编辑 / 移动 / 多选 / 删除）。
 // 和多选模式不冲突：多选时右键照样出菜单，只是「多选」那一项变成「取消选择」。
@@ -461,34 +409,6 @@ grid.addEventListener("keydown", (event) => {
   controls.itemMenu(card.dataset.id, rect.right, rect.top, event.target);
 });
 
-// ── 卡片上的「所属项目」：点一下弹出选项目浮层（和网页收藏时同一个窗口）────
-// 原生 <select> 的下拉我们不让它弹（mousedown 就拦掉），改成贴着这个按钮弹浮层。
-// 浮层里选中/新建项目后，直接改这篇的 projectId，不用再走原生下拉。
-const pickerReady = () => typeof window.openFolderPicker === "function";
-grid.addEventListener("mousedown", (event) => {
-  if (!pickerReady()) return; // 共享模块没加载就退回原生下拉
-  const select = event.target.closest(".project-select");
-  if (select) event.preventDefault();
-});
-grid.addEventListener("click", (event) => {
-  const select = event.target.closest(".project-select");
-  if (!select || !pickerReady()) return;
-  event.preventDefault();
-  const card = select.closest(".card");
-  const item = items.find((entry) => entry.id === card.dataset.id);
-  if (item) openCardProjectPicker(item, select);
-});
-grid.addEventListener("keydown", (event) => {
-  const select = event.target.closest(".project-select");
-  if (!select || !pickerReady()) return;
-  // 键盘聚焦到下拉时，回车 / 空格 / 方向键也改为打开浮层（而不是原生下拉）。
-  if (event.key === "Enter" || event.key === " " || event.key === "ArrowDown" || event.key === "ArrowUp") {
-    event.preventDefault();
-    const card = select.closest(".card");
-    const item = items.find((entry) => entry.id === card.dataset.id);
-    if (item) openCardProjectPicker(item, select);
-  }
-});
 // ── 拖拽排序（卡片视图和图板视图共用同一套）─────────────────
 // 把一个元素拖到另一个元素上：插到它前面（光标落在左半边）或后面（右半边），
 // 松手就把这个顺序存下来。
@@ -794,13 +714,13 @@ async function saveSortSetting() {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     if (controls.menu.value) { controls.closeMenu(); return; }
-    if (view.renamingId) { stopRename(); return; }
+    if (view.renamingId) { controls.cancelRename(); return; }
     return;
   }
   // F2 = 给正在查看的项目改名（和系统的文件管理器一致的习惯）。
   if (event.key === "F2" && !isTypingTarget(event.target) && projects.some((project) => project.id === view.activeProject)) {
     event.preventDefault();
-    startRename(view.activeProject, projects.find((project) => project.id === view.activeProject).name);
+    controls.rename(view.activeProject);
     return;
   }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
@@ -861,115 +781,6 @@ function syncViewUI() {
   view.board = board;
 }
 
-async function editBoard(projectId) {
-  const project = projects.find((entry) => entry.id === projectId);
-  if (!project) return;
-  // 在图板上点铅笔 = 直接编辑这个项目的「名称 / 简介 / 封面」，
-  // 比从前只能写一句简介更顺手。名称/封面留空就维持原样，简介留空则退回自动生成。
-  //
-  // 封面这里要显示「这个项目现在真正在用的那张」，而不是 project.cover（它常常是空的）：
-  //   自己传过 → 显示传的那张；没传过 → 显示挑过的第一张 / 项目里第一篇的封面
-  //   （侧栏缩略图也是这张）。显示的不是自定义封面时用 derived 标出来：
-  //   那种封面没有「移除」的意义（移除后还是它），所以弹窗里禁用「移除封面」并说明来路。
-  const storedCover = project.cover || "";
-  const shownCover = projectCoverFor(projectId) || "";
-
-  // 备选封面 = 这个项目里所有「能解析出图」的收藏，最新的排前面。
-  // 只给有图的：没图的挑上去也拼不出东西。（最多列 48 张，够挑的了。）
-  const candidates = items
-    .filter((item) => (item.projectId || "") === projectId && resolveImage(item))
-    .sort((a, b) => (Number(b.savedAt) || 0) - (Number(a.savedAt) || 0))
-    .slice(0, 48)
-    .map((item) => ({ id: item.id, src: resolveImage(item), title: item.title || item.url || "" }));
-  // 已经挑过的（按顺序），顺手把已经不存在的收藏剔除——存储里别留着死 id。
-  const pickAlive = (list) => (Array.isArray(list) ? list : []).filter((id) => items.some((item) => item.id === id));
-  const storedPick = pickAlive(project.coverPick);
-  // 当前显示的那张到底是怎么来的，决定封面栏的说明文案。
-  const source = storedCover ? "custom" : storedPick.length ? "picked" : shownCover ? "auto" : "none";
-  const coverNotes = {
-    custom: [tr("coverDefaultNote"), tr("coverRemoved")],
-    picked: [tr("coverDefaultNote"), tr("coverReady")],
-    auto: [tr("coverDefaultNote"), tr("coverReady")],
-    none: [tr("coverDefaultNote"), tr("coverRemoved")]
-  }[source];
-
-  const result = await LaterOnDialog.prompt({
-    title: tr("editProjectTitle", { name: project.name }),
-    fields: [
-      {
-        name: "name",
-        label: tr("projectNameLabel"),
-        value: project.name,
-        placeholder: tr("projectNamePlaceholder"),
-        maxLength: 28
-      },
-      {
-        name: "note",
-        label: tr("projectNoteLabel"),
-        value: project.note || "",
-        placeholder: tr("projectNotePlaceholder"),
-        multiline: true,
-        rows: 3,
-        maxLength: 200
-      }
-    ],
-    cover: {
-      name: "cover",
-      label: tr("cover"),
-      value: shownCover,
-      derived: !storedCover,
-      note: coverNotes[0],
-      removedNote: coverNotes[1],
-      // 封面组合：从项目里已抓到的封面里点选最多 3 张，拖拽决定顺序。
-      // 传了 candidates 才会出现这一块（收藏条目的编辑弹窗不传，界面不变）。
-      candidates,
-      picks: storedPick,
-      picksName: "coverPick",
-      picksLabel: tr("coverPicks"),
-      maxPicks: 3,
-      picksNote: tr("coverPicksHint")
-    },
-    confirmText: tr("save")
-  });
-  if (!result?.ok) return;
-  const nextName = (result.values?.name ?? "").trim();
-  const nextNote = (result.values?.note ?? "").trim();
-  const nextCover = (result.values?.cover ?? "") || "";
-  const nameChanged = nextName && nextName !== project.name;
-  const noteChanged = nextNote !== (project.note || "").trim();
-  // 封面动没动，要跟「打开弹窗时看到的那张」比。关键是别把自动取的那张
-  // 顺手写成项目自己的封面 —— 那样它就不再跟着项目里的新收藏变了。
-  const coverChanged = nextCover !== shownCover && nextCover !== storedCover;
-  // 封面组合：弹窗里给了备选就一定会带回一个数组（可能是空数组 = 全部取消）。
-  // 没给备选（比如这个项目里还没有任何封面）时这份结果里没有这个键，那就维持原样。
-  const nextPick = pickAlive(result.values?.coverPick ?? storedPick);
-  const pickChanged = nextPick.join(",") !== storedPick.join(",");
-  if (!nameChanged && !noteChanged && !coverChanged && !pickChanged) return;
-  // 名字若清空就沿用原来的，避免类目变成空白。
-  const finalName = nameChanged ? nextName : project.name;
-  if (nameChanged && projects.some((entry) => entry.id !== projectId && entry.name === finalName)) {
-    showToast(tr("duplicateProject"));
-    return;
-  }
-  const changes = {
-    ...(nameChanged ? { name: finalName } : {}),
-    ...(noteChanged ? { note: nextNote } : {}),
-    ...(coverChanged ? { cover: nextCover } : {}),
-    ...(pickChanged ? { coverPick: nextPick } : {})
-  };
-  const response = await LaterOnStorage.run("updateProject", { id: projectId, changes });
-  projects = response.projects;
-  render();
-  // 提示按实际改了什么来写，不啰嗦。
-  const changed = [
-    nameChanged ? tr("projectUpdateName") : "",
-    noteChanged ? tr("projectUpdateNote") : "",
-    coverChanged ? tr("projectUpdateCover") : "",
-    pickChanged ? tr("projectUpdateCollage") : ""
-  ].filter(Boolean).join(" · ");
-  showToast(nameChanged ? tr("projectUpdated", { name: finalName, changes: changed }) : tr("projectChangesSaved", { changes: changed }));
-}
-
 // Vue notifies after each committed batch, so positioning never races its DOM patch.
 function cardsRendered(complete) {
   if (!initialLocateItemId) return;
@@ -987,41 +798,6 @@ function findCard(id) {
 function locateCard(id) {
   const card = id && findCard(id);
   if (card && typeof card.scrollIntoView === "function") card.scrollIntoView({ block: "center", behavior: "smooth" });
-}
-
-// ── 编辑收藏的标题 / 摘要 ──────────────────────────────────
-// 没抓到摘要时存的就是「暂无摘要」这几个字，编辑时要把占位当成「空」显示给用户。
-// 自动抓取难免有偏差（标题带站名、摘要抓成导航文字），所以允许用户自己改。
-// 改过的会被标记为 titleEdited / descriptionEdited，
-// 之后再次收藏同一网址时，后台不会再拿自动抓取的结果覆盖掉用户手写的版本。
-async function editItem(item) {
-  const originalCover = resolveImage(item);
-  const result = await LaterOnDialog.prompt({
-    title: tr("editItem"),
-    message: LaterOnItemEdit.isEmptySummary(item.description) ? tr("missingSummaryHint") : "",
-    // 封面：可以自己上传一张本地图片（自动压缩后保存），也可以移除，显示回 Logo 占位。
-    cover: { name: "cover", label: tr("cover"), value: originalCover },
-    fields: [
-      { name: "title", label: tr("title"), value: item.title, maxLength: 200 },
-      {
-        name: "description",
-        label: tr("summary"),
-        value: LaterOnItemEdit.isEmptySummary(item.description) ? "" : item.description,
-        placeholder: tr("summaryPlaceholder"),
-        multiline: true,
-        maxLength: 500
-      }
-    ],
-    confirmText: tr("save")
-  });
-  if (!result?.ok) return;
-
-  const patch = LaterOnItemEdit.buildEditPatch(item, result.values || {}, originalCover);
-  if (!Object.keys(patch).length) { showToast(tr("noChanges")); return; }
-  if (!await updateItem(item.id, patch)) return;
-  // 立刻重画一次：存储的变更广播不一定会回到自己这个页面，靠它会显得「改了没反应」。
-  render();
-  showToast(tr("changesSaved"));
 }
 
 function selectProject(projectId, { asHome = false } = {}) {
@@ -1046,18 +822,6 @@ function sortPinnedFirst(list) {
   const pinned = list.filter((project) => project.pinned);
   const rest = list.filter((project) => !project.pinned);
   return [...pinned, ...rest];
-}
-
-// 置顶 / 取消置顶（右键菜单和「⋯」菜单里的同一项）。
-// 取消时不去猜「它原来在第几个」（没人记得住），只让它从置顶那一拨里退出来，
-// 落到最后一个还置顶的项目后面——位置基本不动，用户再拖一下就能微调。
-async function toggleProjectPin(id) {
-  const project = projects.find((entry) => entry.id === id);
-  if (!project) return;
-  const response = await LaterOnStorage.run("setProjectPinned", { id, pinned: !project.pinned });
-  projects = response.projects;
-  renderProjects();
-  showToast(tr(response.project.pinned ? "pinDone" : "unpinDone", { name: response.project.name }));
 }
 
 function renderProjects() {
@@ -1092,7 +856,7 @@ sidebar.addEventListener("drop", async (event) => {
   const projectName = projectId ? projects.find(project => project.id === projectId)?.name : tr("inbox");
   clearDropHighlights();
   if (!itemId || !items.some(item => item.id === itemId)) return;
-  if (!await updateItem(itemId, { projectId })) return;
+  if (!await controls.items.update(itemId, { projectId })) return;
   showToast(tr("movedIntoProject", { name: projectName || tr("genericProject") }));
 });
 
@@ -1220,104 +984,6 @@ function endFolderDrag() {
   clearDropHighlights();
 }
 
-// ── 项目：图标 / 改名 / 更多菜单 / 删除 ───────────────────
-
-// 项目封面：优先项目自己上传的封面（data URL），其次用户在「编辑项目」里挑的
-// 封面组合里的第一张，否则取该项目里某篇的封面。
-// 侧栏项目行和卡片上的「所属项目」浮层共用这一个，两处的缩略图才永远一致。
-function projectCoverFor(projectId) {
-  return resolveProjectCover({ items, projects, covers }, projectId);
-}
-
-function startRename(id, currentName) {
-  controls.closeMenu();
-  view.renamingId = id;
-  view.renameDraft = currentName ?? projects.find((project) => project.id === id)?.name ?? "";
-  renderProjects();
-}
-
-function stopRename() {
-  view.renamingId = null;
-  view.renameDraft = "";
-  renderProjects();
-}
-
-async function commitRename(id, value) {
-  // 已经取消或提交过了（Esc / 重复触发）就忽略，免得 blur 又把旧值写回去。
-  if (view.renamingId !== id) return;
-  const name = value.trim();
-  const project = projects.find((entry) => entry.id === id);
-  view.renamingId = null;
-  view.renameDraft = "";
-  if (!project) { renderProjects(); return; }
-  if (!name || name === project.name) { renderProjects(); return; }
-  if (projects.some((entry) => entry.id !== id && entry.name === name)) {
-    showToast(tr("projectExists", { name }));
-    renderProjects();
-    return;
-  }
-  const response = await LaterOnStorage.run("updateProject", { id, changes: { name } });
-  projects = response.projects;
-  renderProjects();
-  showToast(tr("renamedTo", { name }));
-}
-
-async function toggleProjectArchive(id) {
-  const project = projects.find((entry) => entry.id === id);
-  if (!project) return;
-  const archived = !project.archived;
-  const response = await LaterOnStorage.run("updateProject", { id, changes: { archived } });
-  projects = response.projects;
-  selectProject(archived ? "archive" : id);
-  showToast(tr(archived ? "projectArchived" : "projectRestored"));
-}
-
-async function deleteProject(id) {
-  const project = projects.find((entry) => entry.id === id);
-  if (!project) return;
-  const affected = items.filter((item) => item.projectId === id).length;
-  const confirmed = await LaterOnDialog.confirm({
-    tone: "danger",
-    title: tr("deleteProjectTitle", { name: project.name }),
-    message: affected ? tr("deleteProjectItems", { n: affected }) : tr("deleteEmptyProject"),
-    confirmText: tr("deleteProject")
-  });
-  if (!confirmed) return;
-  const response = await LaterOnStorage.run("deleteProject", { id });
-  projects = response.projects;
-  items = normalizeItems(response.items);
-  covers = response.covers;
-  orders = response.orders;
-  if (!items.some((item) => item.id === currentItemId)) currentItemId = null;
-  if (view.activeProject === id) view.activeProject = "all";
-  renderProjects();
-  render();
-  showToast(tr(response.affected ? "projectDeletedWithItems" : "projectDeleted", { name: project.name, n: response.affected }));
-}
-
-/** @param {import("./src/library/menu").LibraryMenuTarget} target
- * @param {import("./src/library/menu").LibraryMenuAction} action */
-async function runMenuAction(target, action) {
-  try {
-    if (target.kind === "project") {
-      const project = projects.find((entry) => entry.id === target.id);
-      if (!project) return;
-      if (action === "pin") await toggleProjectPin(project.id);
-      else if (action === "rename") startRename(project.id, project.name);
-      else if (action === "edit") await editBoard(project.id);
-      else if (action === "archive") await toggleProjectArchive(project.id);
-      else if (action === "delete") await deleteProject(project.id);
-      return;
-    }
-    const item = items.find((entry) => entry.id === target.id);
-    if (!item) return;
-    if (action === "open") await openItemInNewTab(item);
-    else if (action === "edit") await editItem(item);
-    else if (action === "select") controls.selection.item(item.id, !(view.selecting && controls.selectedIds.value.has(item.id)));
-    else if (action === "delete") await deleteItem(item.id);
-  } catch { showToast(tr("operationFailed")); }
-}
-
 async function openItemInNewTab(item) {
   const target = safeTarget(item.url);
   if (!target) { showToast(tr("invalidUrlShort")); return; }
@@ -1356,7 +1022,7 @@ async function openItem(event, item) {
 
   // 等侧栏脚本就绪后再跳转，避免侧栏刚打开时读到「正在导航」的空页面；超时也照样跳。
   await waitForSidePanelReady(destinationWindowId);
-  if (autoMarkRead && item.status === "unread") await updateItem(item.id, { status: "reading" });
+  if (autoMarkRead && item.status === "unread") await controls.items.update(item.id, { status: "reading" });
   // 同一网页已经开着时直接回到它；不牺牲当前收藏库标签，也不制造重复页面。
   if (openTab) {
     await globalThis.LaterOnTabs.activate(openTab);
@@ -1409,96 +1075,34 @@ async function waitForSidePanelReady(windowId) {
   return false;
 }
 
-async function commitItemMutation(operation, ids, patch) {
-  try {
-    const response = await LaterOnStorage.run("mutateItems", { operation, ids: [...ids], patch });
-    if (!response?.ok || !Array.isArray(response.items)) throw new Error(response?.error || "Item write failed");
-    items = normalizeItems(response.items);
-    covers = response.covers || {};
+// Browser/UI boundaries: typed modules own commands and consume their successful responses.
+controls.commands.bind({ storage: LaterOnStorage, translate: tr, toast: showToast, navigate: selectProject,
+  accept: (response) => {
+    if (response.items) {
+      items = normalizeItems(response.items);
+      if (!items.some((item) => item.id === currentItemId)) currentItemId = null;
+    }
+    if (response.projects) projects = sortPinnedFirst(response.projects);
+    if (response.covers) covers = response.covers;
+    if (response.orders) orders = response.orders;
     render();
     renderProjects();
-    return response;
-  } catch {
-    showToast(tr("operationFailed"));
-    return null;
-  }
-}
-
-async function updateItem(id, patch) {
-  return !!(await commitItemMutation("update", [id], patch));
-}
-
-// 卡片上点「所属项目」弹出的浮层：锚定在那个 <select> 按钮旁边。
-// 复用 picker-ui.js 的 openFolderPicker（和网页收藏时选「收藏到哪个项目」是同一个窗口），
-// 只是这里不弹整屏遮罩，而是贴着按钮出现；选中后直接改这篇的 projectId。
-function projectPickerFolders() {
-  const counts = new Map();
-  let unfiled = 0;
-  for (const entry of items) {
-    if (entry.projectId) counts.set(entry.projectId, (counts.get(entry.projectId) || 0) + 1);
-    else unfiled += 1;
-  }
-  // 每行左侧的封面缩略图用 projectCoverFor —— 和侧栏项目行是同一份逻辑，两处永远一致。
-  return [
-    { id: "", name: tr("inbox"), count: unfiled, cover: projectCoverFor("") },
-    ...projects.filter((project) => !project.archived).map((project) => ({ id: project.id, name: project.name, count: counts.get(project.id) || 0, cover: projectCoverFor(project.id) }))
-  ];
-}
-
-async function createProjectFromPicker(name) {
-  const response = await LaterOnStorage.run("createProject", { name }).catch(() => null);
-  if (response?.project) { projects = response.projects; renderProjects(); }
-  return response?.project || null;
-}
-
-function openCardProjectPicker(item, select) {
-  window.openFolderPicker({
-    anchor: select,
-    theme: settings.theme || "system",
-    language: document.documentElement.lang,
-    folders: projectPickerFolders(),
-    selected: item.projectId || "",
-    // 新建项目走后台协调器，并从响应更新 Vue，不依赖自身 storage 广播。
-    // onCreateProject 按约定返回「项目对象 {id,name}」（不是后台那层 {ok,project} 包装）。
-    onCreateProject: createProjectFromPicker,
-    onPick: async (projectId, name) => {
-      if (!await updateItem(item.id, { projectId })) return;
-      clearSearch();
-      render();
-      showToast(projectId ? tr("movedTo", { name }) : tr("movedToInbox"));
-    }
-  });
-}
-
-async function deleteItem(id) {
-  const target = items.find((entry) => entry.id === id);
-  if (!target) return;
-  // 删除是没法撤销的，删之前一定问一句。标题可能很长，截断免得把弹窗撑成一整段。
-  const raw = (target.title || "").trim() || tr("itemFallback");
-  const title = raw.length > 26 ? `${raw.slice(0, 26)}…` : raw;
-  const confirmed = await LaterOnDialog.confirm({
-    tone: "danger",
-    title: tr("deleteItemTitle", { title }),
-    message: tr("deleteCannotUndo"),
-    confirmText: tr("delete")
-  });
-  if (!confirmed) return;
-  const result = await commitItemMutation("delete", [id]);
-  if (result) showToast(tr("itemDeleted"));
-}
-
-// Browser/UI boundaries shared with the remaining single-item controller.
-controls.bulk.bind({ translate: tr, toast: showToast, mutate: commitItemMutation,
-  confirm: (config) => LaterOnDialog.confirm(config),
+  },
+  prompt: (config) => LaterOnDialog.prompt(config), confirm: (config) => LaterOnDialog.confirm(config),
+  closeDialog: () => LaterOnDialog.close(),
   pick: (request) => window.openFolderPicker({ ...request, theme: settings.theme || "system",
-    language: document.documentElement.lang, folders: projectPickerFolders(),
-    onCreateProject: (name) => request.current() ? createProjectFromPicker(name) : null }),
+    language: document.documentElement.lang, folders: projectPickerFolders(controls.collection.value, tr) }) });
+
+controls.bulk.bind({ translate: tr, toast: showToast, mutate: controls.commands.mutate,
+  confirm: controls.commands.confirm,
+  pick: (request) => window.openFolderPicker({ ...request, theme: settings.theme || "system",
+    language: document.documentElement.lang, folders: projectPickerFolders(controls.collection.value, tr),
+    onCreateProject: (name) => request.current() ? controls.projects.createFromPicker(name) : null }),
   openWindow: (url) => chrome.windows.create({ url: [...url], focused: true, type: "normal" }) });
 
 controls.bind({ filter: setFilter, search: render, sort: () => { render(); saveSortSetting(); }, home: goHome,
-  project: selectProject, createProject: () => { promptCreateProject().catch(() => showToast(tr("createProjectFailed"))); },
-  editProject: editBoard, menuAction: runMenuAction, rename: startRename, cancelRename: stopRename,
-  commitRename: (id, value) => { commitRename(id, value).catch(() => showToast(tr("operationFailed"))); }, settings: openSettings, cardsRendered });
+  project: selectProject, settings: openSettings, cardsRendered,
+  openItem: async (id) => { const item = items.find((entry) => entry.id === id); if (item) await openItemInNewTab(item); } });
 let toastTimer = null;
 let toastGeneration = 0;
 function showToast(message, duration = 1800, variant = "") {

@@ -201,8 +201,10 @@ module.exports = async function verifyLibraryPage(directory) {
       const failed = await rename(); input(failed, "Retry name"); key(failed, "Enter");
       await until(() => document.querySelector('#toast').textContent === window.LaterOnI18n.t("operationFailed"), "Rename failure is reported");
       assert.equal(project().name, "Renamed project");
-      assert.equal(row("p").querySelector('.project-name').textContent, "Renamed project");
-      const retry = await rename(); input(retry, "Retry name"); retry.blur();
+      const retry = document.querySelector('.project-rename');
+      assert.equal(retry.value, "Retry name", "Failed rename keeps the draft for retry");
+      assert.equal(document.activeElement, retry);
+      retry.blur();
       await until(() => project().name === "Retry name" && board("p").querySelector('.board-name').textContent === "Retry name", "Rename can be retried after failure");
 
       const video = "https://i.ytimg.com/vi/fixture/";

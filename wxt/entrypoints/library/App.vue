@@ -48,7 +48,7 @@ onBeforeUnmount(() => {
   </Teleport>
   <Teleport to="#libraryCards">
     <CollectionCards :items="controls.cards.value" :collection="controls.collection.value" :selected-ids="controls.selectedIds.value" :selection="controls.selection"
-      :board="controls.state.board" @select="controls.selection.toggle"
+      :board="controls.state.board" :actions="controls.items" @select="controls.selection.toggle"
       :current-item-id="controls.state.currentItemId" :translate="translate" :english="english" @rendered="controls.cardsRendered" />
   </Teleport>
   <Teleport to="#libraryEmptyState">

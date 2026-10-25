@@ -6,6 +6,7 @@ import type { LibraryCollection } from "../../../src/library/shared";
 import type { StoredItem } from "../../../src/storage/contracts";
 import type { Translate } from "../../../src/shared/i18n";
 import type { LibrarySelection } from "../../../src/library/useLibrarySelection";
+import type { LibraryItems } from "../../../src/library/useLibraryItems";
 import CardCover from "./CardCover.vue";
 
 const props = defineProps<{
@@ -13,6 +14,7 @@ const props = defineProps<{
   collection: LibraryCollection;
   selected: boolean;
   selection: LibrarySelection;
+  actions: LibraryItems;
   current: boolean;
   translate: Translate;
   english: boolean;
@@ -44,6 +46,22 @@ function preventProjectChange(event: KeyboardEvent): void {
   if (!typing && !["Enter", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"].includes(event.key)) return;
   event.preventDefault(); event.stopPropagation();
 }
+function edit(): void { void props.actions.edit(props.item.id); }
+function read(): void { void props.actions.read(props.item.id); }
+function remove(): void { void props.actions.remove(props.item.id); }
+// 所属项目仍显示原生 select，但鼠标按下及 Enter / Space / 上下键统一打开共享锚定浮层。
+// 实际选择由浮层提交，不让原生下拉再处理同一次操作。
+function move(event: MouseEvent | KeyboardEvent): void {
+  if (!(event.currentTarget instanceof HTMLElement)) return;
+  event.preventDefault(); props.actions.move(props.item.id, event.currentTarget);
+}
+function projectKey(event: KeyboardEvent): void { if (["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)) move(event); }
+function projectMouse(event: MouseEvent): void { event.preventDefault(); }
+function projectChange(event: Event): void {
+  if (!(event.target instanceof HTMLSelectElement)) return;
+  if (props.selection.active.value) { event.target.value = props.item.projectId || ""; return; }
+  void props.actions.moveTo(props.item.id, event.target.value || null);
+}
 watch(() => props.item.favicon, () => { faviconFailed.value = false; });
 </script>
 
@@ -52,7 +70,7 @@ watch(() => props.item.favicon, () => { faviconFailed.value = false; });
     :class="{ 'is-read': item.status === 'done', 'is-reading': item.status === 'reading', 'is-current': current, selected }" @click.capture="select" @keydown.capture="preventProjectChange">
     <label class="select-badge" :aria-label="translate('selectItem')"><input type="checkbox" class="select-check" :checked="selected" @change="changeSelection" /></label>
     <a class="cover-link" :href="target" target="_blank" rel="noreferrer"><CardCover :source="cover" /></a>
-    <button class="edit" :title="translate('editItemAria')" :aria-label="translate('editItemAria')">
+    <button class="edit" :title="translate('editItemAria')" :aria-label="translate('editItemAria')" @click="edit">
       <svg viewBox="0 0 24 24"><path d="M4 20h4L20 8l-4-4L4 16zM14 6l4 4" /></svg>
     </button>
     <div class="card-body">
@@ -61,13 +79,14 @@ watch(() => props.item.favicon, () => { faviconFailed.value = false; });
       <a class="title-link" :href="target" target="_blank" rel="noreferrer"><h2>{{ item.title }}</h2></a>
       <p class="description">{{ description }}</p>
       <footer>
-        <button class="read-toggle" :title="translate('readStateAria')" :aria-label="readLabel">{{ readLabel }}</button>
-        <select class="project-select" :value="item.projectId || ''" :aria-label="translate('projectMembership')">
+        <button class="read-toggle" :title="translate('readStateAria')" :aria-label="readLabel" @click="read">{{ readLabel }}</button>
+        <select class="project-select" :value="item.projectId || ''" :aria-label="translate('projectMembership')"
+          @mousedown="projectMouse" @click="move" @keydown="projectKey" @change="projectChange">
           <option value="">{{ translate('inbox') }}</option>
           <option v-for="project in projects" :key="project.id" :value="project.id">{{ project.name }}</option>
           <option v-if="unknownProject" :value="item.projectId || ''">{{ translate('newProject') }}</option>
         </select>
-        <button class="delete" :title="translate('deleteSave')" :aria-label="translate('deleteSave')">
+        <button class="delete" :title="translate('deleteSave')" :aria-label="translate('deleteSave')" @click="remove">
           <svg viewBox="0 0 24 24"><path d="M4 7h16m-10 4v6m4-6v6M9 7l1-3h4l1 3m3 0-1 13H7L6 7" /></svg>
         </button>
       </footer>

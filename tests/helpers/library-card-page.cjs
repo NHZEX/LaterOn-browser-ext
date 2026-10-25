@@ -27,7 +27,7 @@ function createLibraryPage(t, { items = [makeItem("a")], projects = [], covers =
     laterOnSettings: { language, theme: "light", defaultSort: "newest", autoMarkRead: false } });
   const listeners = new Set();
   const idle = new Map(), frames = new Map();
-  const commands = [], scrolled = [], opened = [], createdWindows = [];
+  const commands = [], writes = [], scrolled = [], opened = [], createdWindows = [];
   let sequence = 0, writeError = null, writeGate = null;
   window.fetch = async () => ({});
   window.scrollTo = () => {};
@@ -47,6 +47,7 @@ function createLibraryPage(t, { items = [makeItem("a")], projects = [], covers =
           const gate = writeGate; writeGate = null; gate.started(); await gate.wait;
         }
         if (writeError && Object.hasOwn(patch, writeError)) { writeError = null; throw Error("write unavailable"); }
+        writes.push(structuredClone(patch));
         Object.assign(store, structuredClone(patch)); // Deliberately no onChanged echo.
       }
     }, onChanged: { addListener: listener => listeners.add(listener), removeListener: listener => listeners.delete(listener) } },
@@ -75,7 +76,8 @@ function createLibraryPage(t, { items = [makeItem("a")], projects = [], covers =
   }
   window.eval(built.script);
 
-  const flush = () => clock.tickAsync(0);
+  // Advance the event clock too: Vue ignores bubbled events stamped before a listener was attached.
+  const flush = () => clock.tickAsync(1);
   async function frame() {
     const callbacks = [...frames.values()]; frames.clear();
     callbacks.forEach(callback => callback(window.performance.now()));
@@ -107,7 +109,7 @@ function createLibraryPage(t, { items = [makeItem("a")], projects = [], covers =
     writeGate = { wait, started };
     return { started: begun, release };
   }
-  return { window, document: window.document, store, commands, scrolled, opened, createdWindows, clock, flush, frame, idleTurn, until, broadcast,
+  return { window, document: window.document, store, commands, writes, scrolled, opened, createdWindows, clock, flush, frame, idleTurn, until, broadcast,
     pendingIdle: () => [...idle.values()], pendingFrames: () => [...frames.values()], failNextWrite: (key = "laterOnItems") => { writeError = key; }, holdNextWrite,
     card: id => window.document.querySelector(`#cardGrid .card[data-id="${id}"]`),
     ids: () => [...window.document.querySelectorAll("#cardGrid .card")].map(card => card.dataset.id),
