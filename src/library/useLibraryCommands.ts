@@ -44,13 +44,15 @@ export function useLibraryCommands(collection: Readonly<Ref<LibraryCollection>>)
   function bind(next: CommandEffects): void { effects.value = next; }
   function toast(key: string, values?: Parameters<Translate>[1]): void { effects.value?.toast(t(key, values)); }
   function navigate(id: string): void { effects.value?.navigate(id); }
-  async function execute<A extends CollectionAction>(action: A, fields: CommandFields<A>, failure = "operationFailed"): Promise<CollectionSuccess | null> {
+  async function execute<A extends CollectionAction>(action: A, fields: CommandFields<A>, failure = "operationFailed", beforeAccept?: () => void): Promise<CollectionSuccess | null> {
     const boundary = effects.value;
     if (!boundary) return null;
     try {
       const result = await boundary.storage.run(action, fields);
       // 卸载或适配器替换后，迟到响应不能再更新本页；成功仍由共享队列负责持久化。
       if (effects.value !== boundary) return null;
+      // 排序需先收起瞬态预览，再替换集合供 Vue 对账；其它命令无需此钩子。
+      beforeAccept?.();
       // 自身写入不保证收到 storage.onChanged，必须立即用成功响应更新页面。
       boundary.accept(result);
       return result;

@@ -80,7 +80,7 @@ function archive(): void { props.controls.project("archive"); }
     </button>
     <p class="sidebar-slogan">{{ translate('slogan') }}</p>
   </div>
-  <!-- Resize mechanics remain in the controller; Vue owns this stable markup. -->
+  <!-- Vue owns stable markup; useSidebarWidth owns resize listeners and their cleanup. -->
   <div id="sidebarResizer" class="sidebar-resizer" role="separator" tabindex="0" aria-orientation="vertical" aria-controls="projectSidebar"
     :aria-label="translate('resizeSidebar')" :title="translate('resizeSidebarHint')"></div>
   <div id="sidebarSizeControls" class="sidebar-size-controls" role="group" :aria-label="translate('resizeSidebar')" hidden>

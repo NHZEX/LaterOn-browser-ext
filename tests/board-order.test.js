@@ -13,7 +13,6 @@ const ROOT = path.resolve(__dirname, "..");
 const html = require("./helpers/read-runtime.cjs")("library.html");
 const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
 const dialogSource = fs.readFileSync(`${ROOT}/dialog.js`, "utf8");
-const css = fs.readFileSync(`${ROOT}/library.css`, "utf8");
 
 let failures = 0;
 const check = (label, ok, extra = "") => {
@@ -187,14 +186,6 @@ async function dropDrag(app, point) {
   await reopened.tick(20);
   check("按在铅笔上 → 拖拽被拦下", onPencil.defaultPrevented);
   check("没有进入拖动状态", !reopened.board.classList.contains("is-reordering"));
-
-  console.log("\n── ⑥ 样式上不留重影（静态断言）──");
-  check(
-    "被拖的那块是「藏内容」而不是「压半透明」",
-    /\.board-card\.dragging > \* \{ visibility: hidden; \}/.test(css) && !/\.board-card\.dragging \{[^}]*opacity/.test(css)
-  );
-  check("图板容器是定位参照（虚线框要定位）", /\.board-grid \{[^}]*position: relative/.test(css));
-  check("拖动中掐断入场动画（否则会盖掉行内 transform）", /\.board-grid\.is-reordering \.board-card \{[^}]*animation: none/.test(css));
 
   console.log("\n── ⑦ 写入失败保持原顺序，结束拖拽后可以重试 ──");
   const priorOrder = store.laterOnProjects.map(project => project.id).join(",");

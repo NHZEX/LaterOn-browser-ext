@@ -195,3 +195,39 @@ export function nextCoverFallback(currentSrc: string): string {
   url.search = "";
   return url.href;
 }
+
+export interface DragRect {
+  readonly left: number;
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+  readonly width: number;
+  readonly height: number;
+}
+export interface DragLayout {
+  readonly ids: readonly string[];
+  readonly rects: readonly DragRect[];
+}
+
+// 使用开始时的文档坐标快照；滚动与让位动画都不能改变拖放判定的依据。
+export function insertionIndex(layout: DragLayout, id: string, slot: number | null, x: number, y: number): number {
+  const from = layout.ids.indexOf(id);
+  const index = layout.rects.findIndex((rect, index) => index !== from
+    && y >= rect.top && y <= rect.bottom && x >= rect.left && x <= rect.right);
+  if (index >= 0) {
+    const rect = layout.rects[index]!;
+    const rest = index < from ? index : index - 1;
+    return x >= rect.left + rect.width / 2 ? rest + 1 : rest;
+  }
+  // 光标进入格子缝隙时维持上个落点，避免反复让开又挤回。
+  return slot ?? (layout.rects[0] && y < layout.rects[0].top ? 0 : Math.max(0, layout.ids.length - 1));
+}
+
+export function previewOffsets(layout: DragLayout, id: string, slot: number): readonly { readonly x: number; readonly y: number }[] {
+  const from = layout.ids.indexOf(id);
+  return layout.rects.map((rect, index) => {
+    const rest = index < from ? index : index - 1;
+    const target = layout.rects[index === from ? slot : rest < slot ? rest : rest + 1] ?? rect;
+    return { x: target.left - rect.left, y: target.top - rect.top };
+  });
+}

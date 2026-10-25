@@ -9,6 +9,8 @@ import { useLibraryBulk } from "./useLibraryBulk";
 import { useLibraryCommands } from "./useLibraryCommands";
 import { useLibraryProjects } from "./useLibraryProjects";
 import { useLibraryItems } from "./useLibraryItems";
+import { useLibraryDrag } from "./useLibraryDrag";
+import { useSidebarWidth } from "./useSidebarWidth";
 
 interface ControlState {
   filter: ReadFilter;
@@ -58,6 +60,8 @@ export function useLibraryControls() {
   const total = computed(() => collection.value.items.filter(item => !collection.value.projects.some(project => project.id === item.projectId && project.archived)).length);
   const actions = shallowRef<ControlActions | null>(null);
   const commands = useLibraryCommands(collection);
+  const drag = useLibraryDrag(state, commands, selection, () => setSort("custom"));
+  const sidebar = useSidebarWidth(commands.t);
   const projects = useLibraryProjects(state, commands, closeMenu);
   const items = useLibraryItems(commands, projects.createFromPicker, () => { clearSearch(); actions.value?.search(); });
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -80,8 +84,8 @@ export function useLibraryControls() {
   }
   function home(): void { actions.value?.home(); }
   function select(): void { selection.set(!state.selecting); }
-  function updateCollection(value: LibraryCollection): void { collection.value = value; }
-  function updateOrders(value: CardOrders): void { orders.value = value; }
+  function updateCollection(value: LibraryCollection): void { drag.cancel(); collection.value = value; }
+  function updateOrders(value: CardOrders): void { drag.cancel(); orders.value = value; }
   function cardsRendered(complete: boolean): void { actions.value?.cardsRendered(complete); }
   function project(id: string): void { actions.value?.project(id); }
   function createProject(): void { void projects.create(); }
@@ -109,9 +113,9 @@ export function useLibraryControls() {
   function cancelRename(): void { projects.cancelRename(); }
   function commitRename(id: string, value: string): void { void projects.commitRename(id, value); }
   function settings(event: MouseEvent): void { actions.value?.settings(event); }
-  function dispose(): void { clearTimeout(searchTimer); closeMenu(); commands.dispose(); projects.dispose(); items.dispose(); bulk.dispose(); selection.dispose(); actions.value = null; }
+  function dispose(): void { clearTimeout(searchTimer); closeMenu(); drag.dispose(); sidebar.dispose(); commands.dispose(); projects.dispose(); items.dispose(); bulk.dispose(); selection.dispose(); actions.value = null; }
 
-  return { state, collection, navigation, boards, boardSummary, unfiled, total, cards, cardView, selectedIds, selection, bulk, commands, projects, items, updateCollection, updateOrders, cardsRendered, bind, setFilter, setSearch, clearSearch, setSort,
+  return { state, collection, navigation, boards, boardSummary, unfiled, total, cards, cardView, selectedIds, selection, bulk, commands, projects, items, drag, sidebar, updateCollection, updateOrders, cardsRendered, bind, setFilter, setSearch, clearSearch, setSort,
     home, select, project, createProject, editProject, menu, projectMenu, itemMenu, closeMenu, menuAction, rename, cancelRename, commitRename, settings, dispose };
 }
 

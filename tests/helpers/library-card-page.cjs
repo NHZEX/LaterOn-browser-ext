@@ -43,7 +43,7 @@ function createLibraryPage(t, { items = [makeItem("a")], projects = [], covers =
         return structuredClone(Object.fromEntries(names.filter(key => key in store).map(key => [key, store[key]])));
       },
       async set(patch) {
-        if (writeGate && Object.hasOwn(patch, "laterOnItems")) {
+        if (writeGate && Object.hasOwn(patch, writeGate.key)) {
           const gate = writeGate; writeGate = null; gate.started(); await gate.wait;
         }
         if (writeError && Object.hasOwn(patch, writeError)) { writeError = null; throw Error("write unavailable"); }
@@ -102,11 +102,11 @@ function createLibraryPage(t, { items = [makeItem("a")], projects = [], covers =
     Object.assign(store, structuredClone(patch));
     listeners.forEach(listener => listener(structuredClone(changes), "local"));
   }
-  function holdNextWrite() {
+  function holdNextWrite(key = "laterOnItems") {
     let release, started;
     const begun = new Promise(resolve => { started = resolve; });
     const wait = new Promise(resolve => { release = resolve; });
-    writeGate = { wait, started };
+    writeGate = { wait, started, key };
     return { started: begun, release };
   }
   return { window, document: window.document, store, commands, writes, scrolled, opened, createdWindows, clock, flush, frame, idleTurn, until, broadcast,

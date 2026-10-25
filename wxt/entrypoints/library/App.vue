@@ -22,7 +22,7 @@ const translate: Translate = (key, values) => {
 };
 function refreshLanguage(): void { languageVersion.value++; }
 
-onMounted(() => window.addEventListener("lateron-language-change", refreshLanguage));
+onMounted(() => { window.addEventListener("lateron-language-change", refreshLanguage); props.controls.drag.mount(); });
 onBeforeUnmount(() => {
   window.removeEventListener("lateron-language-change", refreshLanguage);
   props.controls.dispose();
