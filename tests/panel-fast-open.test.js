@@ -121,7 +121,7 @@ const cases = [
     assert.equal(diag.cacheHit, true);
     assert.equal(diag.items, 1);
     assert.equal(diag.localStorageOk, true);
-    assert.equal(diag.page, 1200);
+    assert.ok(diag.page >= 1200 && diag.page <= 1202, "页面准备包含两帧与 Vue 事件调度步进");
     assert.ok(diag.data >= 2500);
     assert.ok(diag.firstPaint < diag.total, "缓存首屏先于存储校准");
     assert.ok(Array.isArray(diag.slow));

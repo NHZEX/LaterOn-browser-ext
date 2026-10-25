@@ -1,36 +1,29 @@
-const assert = require("assert");
-const fs = require("fs");
-const path = require("path");
-const vm = require("vm");
+const assert = require("node:assert/strict");
+const { test } = require("node:test");
+const { createPanelPage, makeStore } = require("./helpers/panel-page.cjs");
 
-const source = fs.readFileSync(path.join(__dirname, "..", "sidepanel.js"), "utf8");
-const start = source.indexOf("function ensureActiveProjectVisible() {");
-const end = source.indexOf("function normalizeProject", start);
-let buttonLeft = 600;
-const container = {
-  clientWidth: 320,
-  scrollWidth: 1200,
-  scrollLeft: 0,
-  getBoundingClientRect: () => ({ left: 100 }),
-  querySelector: () => ({
-    getBoundingClientRect: () => ({ left: 100 + buttonLeft - container.scrollLeft, right: 200 + buttonLeft - container.scrollLeft })
-  })
-};
-const context = vm.createContext({ document: { querySelector: () => container } });
-vm.runInContext(source.slice(start, end), context);
-const reveal = () => vm.runInContext("ensureActiveProjectVisible()", context);
-
-reveal();
-assert.strictEqual(container.scrollLeft, 388, "右侧屏外的当前项目应完整进入可视范围");
-reveal();
-assert.strictEqual(container.scrollLeft, 388, "已经完整可见时不重复滚动");
-buttonLeft = 50;
-reveal();
-assert.strictEqual(container.scrollLeft, 42, "切回左侧项目应向左定位");
-buttonLeft = 0;
-reveal();
-assert.strictEqual(container.scrollLeft, 0, "等待整理位于最左侧，滚动不能越界");
-container.clientWidth = 0;
-reveal();
-assert.strictEqual(container.scrollLeft, 0, "尚未布局时不滚动");
-console.log("PASS 侧栏当前项目左右定位、可见时保持位置及边界处理");
+test("真实侧栏项目切换只滚动横向目录，保持页面阅读位置", async t => {
+  const env = createPanelPage(t, { store: { ...makeStore(), laterOnProjects: [{ id: "right", name: "Right" }, { id: "left", name: "Left" }] } });
+  await env.until(() => env.item("fresh"), "侧栏首屏");
+  const container = env.document.querySelector("#projectFilters");
+  let left = 600, scrolls = 0;
+  env.window.scrollTo = () => scrolls++;
+  Object.defineProperties(container, { clientWidth: { value: 320, configurable: true }, scrollWidth: { value: 1200 } });
+  container.getBoundingClientRect = () => ({ left: 100 });
+  for (const button of container.children) button.getBoundingClientRect = () => ({ left: 100 + left - container.scrollLeft, right: 200 + left - container.scrollLeft });
+  env.click(container.querySelector('[data-project="right"]'));
+  await env.frame();
+  assert.equal(container.scrollLeft, 388);
+  env.click(container.querySelector('[data-project="right"]')); await env.frame();
+  assert.equal(container.scrollLeft, 388, "已可见时不重复滚动");
+  left = 50;
+  env.click(container.querySelector('[data-project="left"]')); await env.frame();
+  assert.equal(container.scrollLeft, 42);
+  left = 0;
+  env.click(container.querySelector('[data-project="unfiled"]')); await env.frame();
+  assert.equal(container.scrollLeft, 0, "等待整理回到左端且不越界");
+  Object.defineProperty(container, "clientWidth", { value: 0 });
+  env.click(container.querySelector('[data-project="right"]')); await env.frame();
+  assert.equal(container.scrollLeft, 0, "尚未布局时不滚动");
+  assert.equal(scrolls, 0, "不改变页面纵向滚动");
+});

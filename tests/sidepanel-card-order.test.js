@@ -6,8 +6,8 @@ const path = require("path");
 const { JSDOM, VirtualConsole } = require("jsdom");
 
 const ROOT = path.resolve(__dirname, "..");
-const html = fs.readFileSync(path.join(ROOT, "sidepanel.html"), "utf8");
-const source = fs.readFileSync(path.join(ROOT, "sidepanel.js"), "utf8");
+const html = require("./helpers/read-runtime.cjs")("sidepanel.html");
+const source = require("./helpers/read-runtime.cjs")("sidepanel-page.js");
 const i18n = fs.readFileSync(path.join(ROOT, "i18n.js"), "utf8");
 const tabNavigation = require("./helpers/read-runtime.cjs")("tab-navigation.js");
 const errors = [];

@@ -1,7 +1,7 @@
 // Run the real backend mutation code behind browser mocks used by DOM tests.
 const vm = require('vm');
-const read = require('./read-runtime.cjs');
-module.exports = function install(window) {
+const defaultRead = require('./read-runtime.cjs');
+module.exports = function install(window, read = defaultRead) {
   if (!window.chrome?.runtime || window.__itemMutationMock) return;
   window.__itemMutationMock = true;
   window.fetch ??= async () => ({}); // Built modulepreload fetches are an external resource boundary.

@@ -7,7 +7,7 @@ const FakeTimers = require("@sinonjs/fake-timers");
 const installMutations = require("./item-mutation");
 
 const root = path.resolve(__dirname, "../..");
-const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
+const defaultRead = require("./read-runtime.cjs");
 const epoch = 1_760_000_000_000;
 const clone = (value) => structuredClone(value);
 const makeItem = (overrides = {}) => ({
@@ -23,8 +23,11 @@ const makeStore = (items = [makeItem()]) => ({
 function createPanelPage(t, {
   store: initialStore = makeStore(), cache = null, pendingGet = false,
   getError = null, broadcast = false, slowCacheMs = 0, pageDelayMs = 0,
-  panel = true
+  panel = true, directory, setup = () => {}
 } = {}) {
+  const built = directory ? require("./library-page.cjs")(directory, "sidepanel") : null;
+  const read = built ? file => file === "sidepanel.html" ? built.html : file === "sidepanel-page.js" ? built.script
+    : fs.readFileSync(path.join(directory, file), "utf8") : defaultRead;
   const errors = [];
   const console = new VirtualConsole();
   console.on("jsdomError", (error) => errors.push(error.message));
@@ -41,6 +44,8 @@ function createPanelPage(t, {
   const frames = new Map();
   const idle = new Map();
   const listeners = new Set();
+  const messages = new Set(), activated = new Set(), updated = new Set();
+  const event = listeners => ({ addListener: listener => listeners.add(listener), removeListener: listener => listeners.delete(listener) });
   const store = clone(initialStore);
   const calls = [];
   const cacheWrites = [];
@@ -106,16 +111,18 @@ function createPanelPage(t, {
     },
     tabs: {
       query: async () => [{ id: 1, windowId: 7, active: true, url: "https://current.com" }],
-      update: async () => ({}), onActivated: { addListener() {} }, onUpdated: { addListener() {} }
+      update: async () => ({}), onActivated: event(activated), onUpdated: event(updated)
     },
     windows: { getCurrent: async () => ({ id: 7 }) },
     runtime: {
       getURL: (file) => `chrome-extension://lateron/${file}`,
-      sendMessage: async () => ({ ok: false }), onMessage: { addListener() {} }
+      sendMessage: async () => ({ ok: false }), onMessage: event(messages)
     }
   };
+  setup(window);
   // Register cleanup before executing scripts, including when an assertion fails.
   t.after(() => {
+    window.dispatchEvent(new window.Event("pagehide"));
     dom.window.close();
     clock.uninstall();
     frames.clear();
@@ -127,12 +134,14 @@ function createPanelPage(t, {
   clock.tick(pageDelayMs);
   if (panel) {
     window.eval(read("dialog.js"));
-    installMutations(window);
+    installMutations(window, read);
     window.eval(read("i18n.js"));
-    window.eval(read("sidepanel.js"));
+    window.eval(read("url-utils.js"));
+    window.eval(read("tab-navigation.js"));
+    window.eval(read("sidepanel-page.js"));
   }
 
-  const flush = () => clock.tickAsync(0);
+  const flush = () => clock.tickAsync(1);
   async function frame(ms = 16) {
     await clock.tickAsync(ms);
     const callbacks = [...frames.values()];
@@ -157,7 +166,12 @@ function createPanelPage(t, {
     assert.fail(`未达到预期状态：${label}`);
   }
   return {
-    window, document: window.document, store, calls, cacheWrites, clock,
+    window, document: window.document, store, calls, cacheWrites, clock, listeners, messages, activated, updated,
+    broadcast(patch) {
+      const changes = Object.fromEntries(Object.entries(patch).map(([key, value]) => [key, { oldValue: clone(store[key]), newValue: clone(value) }]));
+      Object.assign(store, clone(patch));
+      listeners.forEach(listener => listener(changes, "local"));
+    },
     frame, idleTurn, until, flush, releaseGet: () => releaseGet?.(),
     failNextWrite: (message = "storage unavailable") => { writeError = message; },
     item: (id) => window.document.querySelector(`.item[data-id="${id}"]`),

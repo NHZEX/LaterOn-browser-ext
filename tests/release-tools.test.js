@@ -149,6 +149,11 @@ async function verifyBuiltWorker(directory = builtDirectory) {
   verifyBuiltCollectionRules(directory);
   await verifyBuiltSettings(directory);
   await require("./helpers/verify-library-page.cjs")(directory);
+  for (const language of ["zh-CN", "en"]) {
+    const cleanups = [];
+    try { await require("./helpers/verify-sidepanel-page.cjs")({ after: fn => cleanups.push(fn) }, { directory, language }); }
+    finally { cleanups.toReversed().forEach(cleanup => cleanup()); }
+  }
 }
 
 function verifyBuiltCollectionRules(directory) {
@@ -156,7 +161,7 @@ function verifyBuiltCollectionRules(directory) {
     const dom = new JSDOM(fs.readFileSync(path.join(directory, `${name}.html`), "utf8"));
     try {
       const scripts = [...dom.window.document.scripts];
-      const page = scripts.find(script => name === "library" ? script.type === "module" : script.getAttribute("src") === `${name}.js`);
+      const page = scripts.find(script => script.type === "module");
       const context = vm.createContext({});
       for (const asset of ["item-edit.js", "item-state.js"]) {
         const helper = scripts.find(script => script.getAttribute("src")?.replace(/^\//, "") === asset);

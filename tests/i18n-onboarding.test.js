@@ -29,7 +29,7 @@ assert.strictEqual(dictionaries["zh-CN"].guideStepReadTitle, "全屏管理，侧
 assert.match(dictionaries["zh-CN"].guideStepReadHint, /30 天后自动清除/);
 
 const libraryHtml = read("wxt/entrypoints/library/index.html");
-const sidepanelHtml = read("sidepanel.html");
+const sidepanelHtml = read("wxt/entrypoints/sidepanel/index.html");
 assert.match(libraryHtml, /onboarding\.css/);
 assert.match(libraryHtml, /onboarding\.js/);
 assert.match(sidepanelHtml, /onboarding\.css/);

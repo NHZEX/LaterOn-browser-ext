@@ -23,8 +23,6 @@
     "reading-position-background.js",
     "content-reading-position.js",
     "sidepanel.css",
-    "sidepanel.html",
-    "sidepanel.js",
     "theme-vars.css",
     "translation.css",
     "modules/backup/background.js"

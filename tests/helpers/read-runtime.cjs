@@ -25,6 +25,8 @@ const scripts = Object.fromEntries(entries.map(([name, contents]) => {
 }));
 
 module.exports = (name) => {
+  if (name === "sidepanel.html") return require("./library-page.cjs")(undefined, "sidepanel").html;
+  if (name === "sidepanel-page.js" || name === "sidepanel.js") return require("./library-page.cjs")(undefined, "sidepanel").script;
   if (name === "library.html") return require("./library-page.cjs")().html;
   if (name === "library-page.js") return require("./library-page.cjs")().script;
   return scripts[name] ?? readFileSync(resolve(root, name), "utf8");

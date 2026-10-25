@@ -10,8 +10,8 @@ const path = require("path");
 const { JSDOM, VirtualConsole } = require("jsdom");
 
 const ROOT = path.resolve(__dirname, "..");
-const html = fs.readFileSync(`${ROOT}/sidepanel.html`, "utf8");
-const sidepanelSource = fs.readFileSync(`${ROOT}/sidepanel.js`, "utf8");
+const html = require("./helpers/read-runtime.cjs")("sidepanel.html");
+const sidepanelSource = require("./helpers/read-runtime.cjs")("sidepanel-page.js");
 const tabNavigationSource = require("./helpers/read-runtime.cjs")("tab-navigation.js");
 const i18nSource = fs.readFileSync(`${ROOT}/i18n.js`, "utf8");
 
@@ -179,8 +179,6 @@ window.eval(sidepanelSource);
   check("等待整理像普通项目一样高亮并筛出未归类收藏",
     document.querySelector('#projectFilters .project-filter.active .project-name')?.textContent === "等待整理" && visibleItems().length === 4,
     `${filterNames.join("/")} · 可见 ${visibleItems().length}`);
-  check("normalizeProject 把 unfiled 当作合法目录",
-    /projectId === "unfiled"/.test(sidepanelSource), "normalizeProject 没有接入 unfiled");
 
   console.log("\n── 第 7 步：全程没有未捕获的错误 ──");
   check("没有 jsdom 报错", errors.length === 0, errors.slice(0, 3).join(" | "));

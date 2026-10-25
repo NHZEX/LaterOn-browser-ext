@@ -7,7 +7,7 @@ const { buildSync } = require("esbuild");
 const { JSDOM } = require("jsdom");
 const root = path.resolve(__dirname, "../..");
 const built = path.join(root, ".output/chrome-mv3");
-let page;
+const pages = new Map();
 
 function sourceHash() {
   const hash = createHash("sha256");
@@ -36,11 +36,11 @@ function ensureBuilt() {
   fs.writeFileSync(marker, JSON.stringify({ hash }));
 }
 
-function readPage(directory) {
-  const html = fs.readFileSync(path.join(directory, "library.html"), "utf8");
+function readPage(directory, name) {
+  const html = fs.readFileSync(path.join(directory, `${name}.html`), "utf8");
   const dom = new JSDOM(html);
   const script = dom.window.document.querySelector('script[type="module"][src]');
-  if (!script) throw Error("Missing built library module");
+  if (!script) throw Error(`Missing built ${name} module`);
   const entry = path.resolve(directory, `.${new URL(script.src, "https://fixture/").pathname}`);
   dom.window.close();
   // Rebundle the already-built module graph for JSDOM, which has no ES module loader.
@@ -48,8 +48,8 @@ function readPage(directory) {
   return { html, script: outputFiles[0].text };
 }
 
-module.exports = function libraryPage(directory) {
-  if (directory) return readPage(directory);
-  if (!page) { ensureBuilt(); page = readPage(built); }
-  return page;
+module.exports = function builtPage(directory, name = "library") {
+  if (directory) return readPage(directory, name);
+  if (!pages.has(name)) { ensureBuilt(); pages.set(name, readPage(built, name)); }
+  return pages.get(name);
 };

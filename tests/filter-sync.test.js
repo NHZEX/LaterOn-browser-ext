@@ -8,8 +8,8 @@ const { JSDOM, VirtualConsole } = require("jsdom");
 const ROOT = path.resolve(__dirname, "..");
 const libraryHtml = require("./helpers/read-runtime.cjs")("library.html");
 const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
-const panelHtml = fs.readFileSync(`${ROOT}/sidepanel.html`, "utf8");
-const panelSource = fs.readFileSync(`${ROOT}/sidepanel.js`, "utf8");
+const panelHtml = require("./helpers/read-runtime.cjs")("sidepanel.html");
+const panelSource = require("./helpers/read-runtime.cjs")("sidepanel-page.js");
 
 const errors = [];
 function makeVirtualConsole() {

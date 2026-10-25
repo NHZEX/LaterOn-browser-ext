@@ -77,7 +77,7 @@ async function checkPage(page) {
       await tick();
       assert(broken.querySelector('.board-placeholder'), 'failed remote images fall back too');
     } else {
-      assert.equal(document.querySelector('.item[data-id="a"] .thumb-logo')?.getAttribute('src'), 'article-cover-placeholder.png');
+      assert.equal(new URL(document.querySelector('.item[data-id="a"] .thumb-logo').src).pathname, '/article-cover-placeholder.png');
       assert.equal(document.querySelector('.item[data-id="a"] .thumb-img'), null);
     }
     // Exercise the actual image error handlers in both page entries.

@@ -122,3 +122,65 @@ test("真实删除入口经后台协调器持久化，重开后收藏和封面�
   await expect(page.locator('[data-id="placeholder"]')).toBeVisible();
   await expect(card).toHaveCount(0);
 });
+
+for (const [language, theme] of [["zh-CN", "light"], ["en", "dark"]]) {
+  test(`E1 原生控件、键盘与收藏库双向同步：${language}/${theme}`, async ({ context, page, extension }, testInfo) => {
+    const errors = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await extension.worker.evaluate(async ({ language, theme }) => {
+      await chrome.storage.local.clear();
+      const item = (id, projectId, status) => ({ id, projectId, status, title: `Beta ${id}`, url: `https://example.test/${id}`, description: "Summary", source: "example.test", image: "", favicon: "", savedAt: Date.now() });
+      await chrome.storage.local.set({ laterOnOnboardingSeen: true,
+        laterOnItems: [item("a", "p", "unread"), item("b", "q", "reading"), item("c", "q", "done"), item("u", null, "unread")],
+        laterOnProjects: [{ id: "p", name: "Project P" }, { id: "q", name: "Project Q" }],
+        laterOnActiveProject: "p", laterOnFilter: "unread", laterOnFilterChosen: true,
+        laterOnSettings: { language, theme, autoMarkRead: false }, laterOnCovers: {} });
+    }, { language, theme });
+    const library = await context.newPage();
+    await library.setViewportSize({ width: 1200, height: 800 });
+    library.on("pageerror", error => errors.push(error.message));
+    await library.goto(extension.url.replace("sidepanel.html", "library.html?from=sidepanel&project=p&filter=unread"));
+    await expect(library.locator('#cardGrid .card[data-id="a"]')).toBeVisible();
+    await page.goto(extension.url);
+    const cards = page.locator("#items .item");
+    await expect(cards).toHaveCount(1);
+    await expect(page.locator('html')).toHaveAttribute("lang", language);
+    await expect(page.locator('html')).toHaveAttribute("data-theme", theme);
+    await expect(page.locator('[data-project="q"] strong')).toHaveText("2");
+    const search = page.locator("#searchInput");
+    await search.focus();
+    await search.fill("  EXAMPLE.TEST/B  ");
+    await expect(cards).toHaveCount(1);
+    await expect(page.locator('[data-id="b"]')).toBeVisible();
+    await expect(search).toBeFocused();
+    const done = page.locator('.filter[data-filter="done"]');
+    await done.focus(); await page.keyboard.press("Space");
+    await expect(cards).toHaveCount(0);
+    await expect(done).toHaveAttribute("aria-pressed", "true");
+    await expect(done).toBeFocused();
+    await search.fill("");
+    const project = page.locator('[data-project="q"]');
+    await project.focus(); await page.keyboard.press("Enter");
+    await expect(page.locator('[data-id="c"]')).toBeVisible();
+    await expect(project).toBeFocused();
+    await expect(library.locator('.project-nav[data-project="q"]')).toHaveClass(/active/);
+    await expect(library.locator('#cardGrid .card[data-id="c"]')).toBeVisible();
+    await library.locator('.nav-item[data-filter="unread"]').click();
+    await expect(page.locator('[data-id="b"]')).toBeVisible();
+    await expect(page.locator('.filter[data-filter="unread"]')).toHaveAttribute("aria-pressed", "true");
+    expect(await extension.worker.evaluate(async () => {
+      const { laterOnFilter, laterOnActiveProject } = await chrome.storage.local.get(["laterOnFilter", "laterOnActiveProject"]);
+      return { filter: laterOnFilter, project: laterOnActiveProject };
+    })).toEqual({ filter: "unread", project: "q" });
+    for (const width of [375, 640]) {
+      await page.setViewportSize({ width, height: 800 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    }
+    await page.setViewportSize({ width: 375, height: 800 });
+    await page.screenshot({ path: testInfo.outputPath(`e1-${language}-${theme}.png`), fullPage: true });
+    await page.reload();
+    await expect(page.locator('[data-id="b"]')).toBeVisible();
+    await expect(project).toHaveAttribute("aria-pressed", "true");
+    expect(errors).toEqual([]);
+  });
+}

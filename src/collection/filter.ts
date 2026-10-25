@@ -15,6 +15,7 @@ export function normalizeSearch(value: string): string {
   return value.trim().toLowerCase();
 }
 
+// 「未读」包含未读和在读（尚未读完）；「已读」只包含用户标记完成的收藏。
 export function matchesReadFilter(item: Pick<StoredItem, "status">, filter: ReadFilter): boolean {
   return filter === "all" || (filter === "done" ? item.status === "done" : item.status !== "done");
 }

@@ -37,7 +37,7 @@ function sidepanel(t, options) {
     }
   });
   scripts.observe(window.document.head, { childList: true });
-  window.eval(read("i18n.js")); require("./helpers/item-mutation")(window); window.eval(read("sidepanel.js"));
+  window.eval(read("i18n.js")); require("./helpers/item-mutation")(window); window.eval(read("sidepanel-page.js"));
   t.after(() => { scripts.disconnect(); window.close(); assert.deepEqual(errors, []); });
   return { window, document: window.document, store, writes, failNextWrite() { fail = true; },
     card: id => window.document.querySelector('#items .item[data-id="' + id + '"]'),

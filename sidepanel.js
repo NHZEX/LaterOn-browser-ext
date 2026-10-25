@@ -1,3 +1,27 @@
+import { normalizeFilter } from "./src/collection/filter";
+import { normalizePanelProject } from "./src/sidepanel/shared";
+
+// E1 过渡控制器：仅保留卡片、缓存和浏览器适配；搜索、筛选、项目与计数由 Vue 拥有。
+export function startSidepanelPage(controls) {
+let alive = true;
+const cleanups = [];
+const timers = new Set();
+const idle = new Set();
+const setTimeout = (fn, ms) => {
+  const id = window.setTimeout(() => { timers.delete(id); if (alive) fn(); }, ms);
+  timers.add(id);
+  return id;
+};
+const clearTimeout = (id) => { timers.delete(id); window.clearTimeout(id); };
+function listen(target, event, handler, options) {
+  target.addEventListener(event, handler, options);
+  cleanups.push(() => target.removeEventListener(event, handler, options));
+}
+function listenChrome(event, handler) {
+  event.addListener(handler);
+  cleanups.push(() => event.removeListener?.(handler));
+}
+controls.connect(render);
 const STORAGE_KEY = "laterOnItems";
 const PROJECTS_KEY = "laterOnProjects";
 const ACTIVE_PROJECT_KEY = "laterOnActiveProject";
@@ -34,7 +58,7 @@ const windowIdReady = chrome.windows.getCurrent().then(
 );
 
 // 完整界面会等待这个握手完成，再将当前标签页跳转到文章。
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+listenChrome(chrome.runtime.onMessage, (message, _sender, sendResponse) => {
   if (message.type !== "PING_SIDEPANEL") return;
   windowIdReady.then((id) => sendResponse({ ready: sidePanelReady && id === message.windowId }));
   return true;   // 异步应答
@@ -44,9 +68,7 @@ let items = [];
 let projects = [];
 let archivedProjectIds = new Set();
 let currentItem = null;
-let filter = DEFAULT_FILTER;
-let query = "";
-let activeProject = "unfiled";
+const scope = controls.state;
 let autoMarkRead = true;   // 点开文章是否自动标记为「在读」（与设置页同步）
 let sortMode = "newest";   // 全屏那边的排序方式（只有 custom 会影响这里的先后顺序）
 let orders = {};           // 用户拖出来的自定义顺序（与全屏共享：{ 范围: [收藏 id] }）
@@ -73,9 +95,13 @@ let locateTimer = null;       // 滚动动画结束后复查用的定时器
 // 侧栏拖宽后它会变成 64px，再写死 58px 就会让卡片上沿藏在吸顶栏下面。
 const TOPBAR_FALLBACK_H = 58;
 const LOCATE_EDGE_GAP = 10;
-const nextFrame = (fn) => (typeof requestAnimationFrame === "function" ? requestAnimationFrame(fn) : setTimeout(fn, 16));
+const frames = new Set();
+const nextFrame = (fn) => {
+  if (typeof window.requestAnimationFrame !== "function") { setTimeout(fn, 16); return; }
+  const id = window.requestAnimationFrame(() => { frames.delete(id); if (alive) fn(); });
+  frames.add(id);
+};
 const nowMs = () => (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now());
-let searchTimer = null;
 let itemContextMenu = null;
 // 侧栏卡片拖拽：只在拖动开始时记录一次布局，过程中用 transform 预览位置，
 // 不反复挪 DOM，避免卡片在鼠标下方来回跳动。
@@ -93,27 +119,6 @@ function readToggleLabel(status) {
   return status === "done" ? tr("unreadButton") : tr("readButton");
 }
 
-// 筛选只认这三档。第一次打开还没有偏好，或存入了异常值时，默认展示「未读」；
-// 用户手动切换后会写进 FILTER_KEY，以后恢复上次选择。
-function normalizeFilter(value) {
-  return LaterOnFilter.normalizeFilter(value);
-}
-// 把三个筛选按钮的高亮同步成当前的 filter（全屏那边改了筛选，这边也要亮对按钮）。
-function syncFilterButtons() {
-  document.querySelectorAll(".filters .filter").forEach((button) => {
-    button.classList.toggle("active", button.dataset.filter === filter);
-  });
-}
-// 切换筛选：本地先生效，再写进共享存储，让全屏界面跟着切。
-async function setFilter(value) {
-  const next = normalizeFilter(value);
-  if (next === filter) { syncFilterButtons(); return; }
-  filter = next;
-  syncFilterButtons();
-  render();
-  try { await chrome.storage.local.set({ [FILTER_KEY]: filter, [FILTER_CHOSEN_KEY]: true }); } catch { /* 存不下就算了，本地筛选照常用 */ }
-}
-
 const list = document.querySelector("#items");
 const empty = document.querySelector("#emptyState");
 const template = document.querySelector("#itemTemplate");
@@ -124,7 +129,7 @@ const status = document.querySelector("#status");
 // 如果这里直接同步 init()，首屏缓存很快时骨架会在第一次 paint 前就被移除，
 // 用户只会看到“突然出现的正式内容”，看不到正在加载的反馈。
 if (typeof requestAnimationFrame === "function") {
-  requestAnimationFrame(() => requestAnimationFrame(() => init()));
+  nextFrame(() => nextFrame(() => init()));
 } else {
   setTimeout(() => init(), 16);
 }
@@ -277,11 +282,11 @@ async function init() {
   // 语言读取完成后再应用翻译；此时如果首屏已经画出来，只重画一次文字和当前列表。
   // 不等待它，避免一次冷 storage 读取把侧栏首屏拖到几秒之后。
   languagePromise.then(() => {
+    if (!alive) return;
     window.LaterOnI18n?.applyStatic();
     if (currentItem) syncSaveButtonState(!!currentItemId);
     if (sidePanelReady || cacheHit) {
       render();
-      renderProjectFilters();
     }
   });
 
@@ -306,13 +311,13 @@ async function init() {
     items = normalizeItems(cached);
     const paintStart = nowMs();
     render();
-    renderProjectFilters();
     seg.paint = Math.round(nowMs() - paintStart);
   }
   if (typeof window.LaterOnBoot?.stage === "function") window.LaterOnBoot.stage(tr("readingSaves"));
 
   // ③ 现在才等存储结果（它从 ① 就开始跑了）。
   const stored = await storedPromise;
+  if (!alive) return;
   seg.data = Math.round(nowMs() - storageStart);
   // 读取失败和“存储里确实没有收藏”不是一回事。以前两者都落成 {}，随后会把
   // 秒开缓存覆盖成空数组；一次偶发 I/O 错误就可能让下一次也失去可见内容。
@@ -320,7 +325,6 @@ async function init() {
     seg.error = stored.__laterOnLoadError;
     if (!cacheHit) {
       render();
-      renderProjectFilters();
     }
     reportOpenSpeed(seg, bootStart, cacheHit);
     sidePanelReady = true;
@@ -334,6 +338,7 @@ async function init() {
   LaterOnStorage.initialize(stored);
   const migrateStart = nowMs();
   const migrated = await migrateLegacyCovers(stored[STORAGE_KEY]);
+  if (!alive) return;
   seg.migrate = Math.round(nowMs() - migrateStart);
   // 读回来的这批数据有多大？体积是「读数据慢」最常见的解释——
   // 早期版本把封面 base64 直接塞在条目里，能塞到好几兆，读完必然慢。
@@ -341,17 +346,15 @@ async function init() {
   items = normalizeItems(migrated || stored[STORAGE_KEY]);
   archivedProjectIds = new Set((stored[PROJECTS_KEY] || []).filter((project) => project.archived).map((project) => project.id));
   projects = (stored[PROJECTS_KEY] || []).filter((project) => !project.archived);
-  activeProject = normalizeProject(stored[ACTIVE_PROJECT_KEY]);
+  scope.project = normalizeProject(stored[ACTIVE_PROJECT_KEY]);
   currentItemId = stored[CURRENT_ITEM_KEY] || null;
   autoMarkRead = (stored[SETTINGS_KEY] || {}).autoMarkRead !== false;
   sortMode = (stored[SETTINGS_KEY] || {}).defaultSort || "newest";
   orders = stored[ORDER_KEY] || {};
   // 全屏那边可能已经切过筛选了，打开侧栏时接着用同一档。
-  filter = stored[FILTER_CHOSEN_KEY] ? normalizeFilter(stored[FILTER_KEY]) : DEFAULT_FILTER;
-  syncFilterButtons();
+  scope.filter = stored[FILTER_CHOSEN_KEY] ? normalizeFilter(stored[FILTER_KEY]) : DEFAULT_FILTER;
   const paintStart2 = nowMs();
   render();
-  renderProjectFilters();
   // 没用上缓存时，这一次才是「第一屏」，它才是用户真正等的那一刻。
   if (!cacheHit) seg.paint = Math.round(nowMs() - paintStart2);
   // 把这次打开的分段耗时记下来并（慢的时候）直接显示在界面上。
@@ -367,11 +370,10 @@ async function init() {
   loadCurrentPage();
 }
 
-chrome.storage.onChanged.addListener((changes, area) => {
+listenChrome(chrome.storage.onChanged, (changes, area) => {
   if (area === "local" && changes[STORAGE_KEY]) {
     items = normalizeItems(changes[STORAGE_KEY].newValue || []);
     render();
-    renderProjectFilters();
     // 阅读状态等数据刷新不能按旧标签页覆盖用户刚选择的项目。
     if (currentItem?.url) syncCurrentTabItem(currentItem.url, { followProject: false });
   }
@@ -382,13 +384,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes[PROJECTS_KEY]) {
     archivedProjectIds = new Set((changes[PROJECTS_KEY].newValue || []).filter((project) => project.archived).map((project) => project.id));
     projects = (changes[PROJECTS_KEY].newValue || []).filter((project) => !project.archived);
-    if (activeProject !== "unfiled" && !projects.some((project) => project.id === activeProject)) activeProject = "unfiled";
+    if (scope.project !== "unfiled" && !projects.some((project) => project.id === scope.project)) scope.project = "unfiled";
     render();
-    renderProjectFilters();
   }
   if (area === "local" && changes[ACTIVE_PROJECT_KEY]) {
-    activeProject = normalizeProject(changes[ACTIVE_PROJECT_KEY].newValue);
-    renderProjectFilters();
+    scope.project = normalizeProject(changes[ACTIVE_PROJECT_KEY].newValue);
+
     render();
   }
   if (area === "local" && changes[SETTINGS_KEY]) {
@@ -408,7 +409,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes[FILTER_KEY]) {
     // 全屏那边切了筛选 → 这边跟着切（反过来同理）。自己写的值不会变，被这个判断挡掉。
     const next = normalizeFilter(changes[FILTER_KEY].newValue);
-    if (next !== filter) { filter = next; syncFilterButtons(); render(); }
+    if (next !== scope.filter) { scope.filter = next; render(); }
   }
 });
 
@@ -416,6 +417,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 async function loadCovers() {
   try {
     const stored = await chrome.storage.local.get(COVERS_KEY);
+    if (!alive) return;
     covers = stored[COVERS_KEY] || {};
     render();
   } catch { /* 封面读不到就先不显示图 */ }
@@ -470,6 +472,7 @@ async function loadCurrentPage() {
   resetCurrentPage();
   try {
     const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!alive) return;
     const tab = globalThis.LaterOnUrl?.unwrapSuspendedTab(activeTab) || activeTab;
     if (!tab?.id) throw new Error(tr("noCurrentPage"));
     if (!/^https?:/i.test(tab.url || "")) {
@@ -507,8 +510,8 @@ function applyCurrentPage(result, generation, options) {
   if (currentItem.image) setCurrentThumb(currentItem.image);
 }
 
-chrome.tabs.onActivated.addListener(() => loadCurrentPage());
-chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+listenChrome(chrome.tabs.onActivated, () => loadCurrentPage());
+listenChrome(chrome.tabs.onUpdated, (_tabId, changeInfo, tab) => {
   if (tab.active && (changeInfo.status === "complete" || changeInfo.url)) loadCurrentPage();
 });
 
@@ -565,12 +568,12 @@ function syncCurrentTabItem(url, { followProject = true } = {}) {
     // 切换到另一个已收藏标签页时，目标文章可能属于另一个项目。
     // 必须先切换项目再定位，否则它会被旧项目的筛选挡住，卡片根本不在 DOM 里。
     const targetProject = normalizeProject(matched.projectId || "unfiled");
-    if (followProject && targetProject !== activeProject) {
-      activeProject = targetProject;
-      renderProjectFilters();
+    if (followProject && targetProject !== scope.project) {
+      scope.project = targetProject;
+
       render();
       // 与全屏界面共享当前项目；侧栏跟随标签页后，下次打开也继续停在这里。
-      chrome.storage.local.set({ [ACTIVE_PROJECT_KEY]: activeProject }).catch(() => {});
+      chrome.storage.local.set({ [ACTIVE_PROJECT_KEY]: scope.project }).catch(() => {});
     }
     // render() 之后由 applyCurrentAndLocate 负责高亮与定位；
     // 项目没变时则直接复用已经画好的卡片。
@@ -585,7 +588,7 @@ function syncCurrentTabItem(url, { followProject = true } = {}) {
   window.scrollTo({ top: 0, behavior: "auto" });
 }
 
-saveButton.addEventListener("click", async () => {
+listen(saveButton, "click", async () => {
   if (!currentItem || currentItemId) return;
   saveButton.disabled = true;
   // 统一交给后台处理（和快捷键、右键菜单同一条链路）：
@@ -614,8 +617,8 @@ document.querySelector("#openLibrary").addEventListener("click", async () => {
       type: "OPEN_LIBRARY",
       context: {
         source: "sidepanel",
-        projectId: activeProject,
-        filter,
+        projectId: scope.project,
+        filter: scope.filter,
         focusItemId: currentItemId
       }
     });
@@ -628,13 +631,8 @@ document.querySelector("#openLibrary").addEventListener("click", async () => {
     else status.textContent = tr("libraryOpenFailed");
   }
 });
-document.querySelector("#searchInput").addEventListener("input", (event) => {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => { query = LaterOnFilter.normalizeSearch(event.target.value); render(); }, 120);
-});
-
 // 事件委托：整页只挂一个监听器，避免给每张卡片单独绑监听。
-list.addEventListener("click", (event) => {
+listen(list, "click", (event) => {
   const article = event.target.closest(".item");
   if (!article) return;
   // 浏览器通常会在拖拽结束后抑制 click，但不同平台行为不完全一致；
@@ -659,12 +657,12 @@ list.addEventListener("click", (event) => {
 
 // ── 侧栏卡片拖拽排序 ─────────────────────────────────────
 // 整张卡片都是拖动区域；按钮、下拉和输入控件仍只执行它们自己的操作。
-list.addEventListener("dragstart", (event) => {
+listen(list, "dragstart", (event) => {
   const article = event.target.closest(".item");
   if (!article) return;
   // 搜索结果会跨越多个项目，此时没有唯一的排序范围；禁止在搜索结果里改顺序，
   // 避免把别的项目的卡片误写进当前项目的顺序。
-  if (query) {
+  if (scope.query) {
     event.preventDefault();
     return;
   }
@@ -711,10 +709,10 @@ list.addEventListener("dragstart", (event) => {
     Math.max(0, Math.min(bounds.height, event.clientY - bounds.top))
   );
   list.classList.add("is-reordering");
-  requestAnimationFrame(() => article.classList.add("dragging"));
+  nextFrame(() => article.classList.add("dragging"));
 });
 
-list.addEventListener("dragover", (event) => {
+listen(list, "dragover", (event) => {
   if (!cardDrag?.rects?.length) return;
   event.preventDefault();
   if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
@@ -727,7 +725,7 @@ list.addEventListener("dragover", (event) => {
   previewSidepanelOrder(index);
 });
 
-list.addEventListener("drop", (event) => {
+listen(list, "drop", (event) => {
   if (!cardDrag) return;
   event.preventDefault();
   const index = cardDrag.slot ?? sidepanelInsertionIndex(
@@ -740,7 +738,7 @@ list.addEventListener("drop", (event) => {
   });
 });
 
-list.addEventListener("dragend", finishSidepanelDrag);
+listen(list, "dragend", finishSidepanelDrag);
 
 function sidepanelInsertionIndex(x, y) {
   if (!cardDrag?.rects) return 0;
@@ -802,7 +800,7 @@ function finishSidepanelDrag() {
 }
 
 function sidepanelOrderScope() {
-  return activeProject || "unfiled";
+  return scope.project || "unfiled";
 }
 
 function sidepanelScopeOrder(scopedItems) {
@@ -839,7 +837,7 @@ async function commitSidepanelCardOrder(dropIndex) {
   });
 }
 
-list.addEventListener("contextmenu", (event) => {
+listen(list, "contextmenu", (event) => {
   const link = event.target.closest(".open-item");
   const article = link?.closest(".item");
   if (!article) return;
@@ -876,7 +874,7 @@ function showItemContextMenu(item, x, y) {
   const height = rect.height || 120;
   menu.style.left = `${Math.min(Math.max(margin, x - width), Math.max(margin, window.innerWidth - width - margin))}px`;
   menu.style.top = `${Math.min(Math.max(margin, y), Math.max(margin, window.innerHeight - height - margin))}px`;
-  requestAnimationFrame(() => menu.classList.add("is-open"));
+  nextFrame(() => menu.classList.add("is-open"));
   menu.querySelector("button")?.focus({ preventScroll: true });
 }
 
@@ -916,23 +914,22 @@ async function openItemInNewTab(item) {
   }
 }
 
-document.addEventListener("pointerdown", (event) => {
+listen(document, "pointerdown", (event) => {
   if (itemContextMenu && !itemContextMenu.contains(event.target)) closeItemContextMenu();
 }, true);
-document.addEventListener("keydown", (event) => {
+listen(document, "keydown", (event) => {
   if (event.key === "Escape") closeItemContextMenu();
 });
-document.addEventListener("scroll", closeItemContextMenu, true);
-window.addEventListener("blur", closeItemContextMenu);
-window.addEventListener("resize", closeItemContextMenu);
-document.querySelectorAll(".filters .filter").forEach((button) => button.addEventListener("click", () => {
-  setFilter(button.dataset.filter);
-}));
-
+listen(document, "scroll", closeItemContextMenu, true);
+listen(window, "blur", closeItemContextMenu);
+listen(window, "resize", closeItemContextMenu);
 // 剩下的排在浏览器空闲时继续，鼠标点什么都不会被卡住。
 function nextIdle(fn) {
-  if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(fn, { timeout: 300 });
-  else window.setTimeout(fn, 16);
+  if (typeof window.requestIdleCallback === "function") {
+    const id = window.requestIdleCallback(() => { idle.delete(id); if (alive) fn(); }, { timeout: 300 });
+    idle.add(id);
+  }
+  else setTimeout(fn, 16);
 }
 
 // 骨架屏 / 「正在打开…」提示条：真内容一画出来就撤掉，让真界面露面。
@@ -945,32 +942,13 @@ function hideBootPlaceholder() {
 }
 
 function render() {
+  if (!alive) return;
   // 只要画得出东西（秒开缓存也好、真数据也好），骨架屏就完成使命了。
   hideBootPlaceholder();
-  const visible = items.filter((item) => {
-    // 搜索是全局的（和全屏页同一个规矩）：搜索框里有字时一律在「全部收藏」里找，
-    // 不受上面那排项目筛选影响——否则在某个项目里搜一个明明存在的标题会一无所获，
-    // 还以为是收藏丢了。「未读 / 已读」那一档仍然生效，它是用户自己拨过去的开关。
-    if (archivedProjectIds.has(item.projectId)) return false;
-    const matchesProject = !!query
-      || activeProject === "all"
-      || (activeProject === "unfiled" ? !item.projectId : item.projectId === activeProject);
-    // 「未读」= 还没读完（未读 + 在读）；「已读」= 手动标完成的那批。
-    return matchesProject && LaterOnFilter.matchesReadFilter(item, filter) && LaterOnFilter.matchesSearch(item, query);
-  });
-  // 全屏那边选了「自定义顺序」并拖过卡片 —— 侧栏用同一份顺序，两边看到的先后一致。
-  if (sortMode === "custom") {
-    const rank = new Map((orders[activeProject || "all"] || []).map((id, index) => [id, index]));
-    visible.sort((a, b) => {
-      const ra = rank.has(a.id) ? rank.get(a.id) : Number.MAX_SAFE_INTEGER;
-      const rb = rank.has(b.id) ? rank.get(b.id) : Number.MAX_SAFE_INTEGER;
-      if (ra !== rb) return ra - rb;
-      return (b.savedAt || 0) - (a.savedAt || 0);
-    });
-  }
+  controls.update({ items, projects, archivedProjectIds, orders, sortMode });
+  const visible = controls.visible.value;
   const token = ++renderToken;
   renderComplete = false;   // 这一轮还没画完，先别拿半张列表的坐标去做定位
-  document.querySelector("#itemCount").textContent = tr("cardCount", { n: visible.length });
 
   // 已经不在列表里的卡片先撤掉（删掉的收藏要立刻从界面消失）。
   const visibleIds = new Set(visible.map((item) => item.id));
@@ -1128,67 +1106,8 @@ function saveLocateDiag(record) {
   } catch {}
 }
 
-function renderProjectFilters() {
-  const counts = new Map();
-  let unfiled = 0;
-  for (const item of items) {
-    if (item.projectId) counts.set(item.projectId, (counts.get(item.projectId) || 0) + 1);
-    else unfiled += 1;
-  }
-  const container = document.querySelector("#projectFilters");
-  container.replaceChildren();
-  // 侧栏只保留「等待整理 + 具体项目」：它陪伴当前阅读范围，不承担全库总览。
-  // 「等待整理」和普通项目走完全相同的点击、存储与跨视图同步逻辑。
-  const choices = [
-    { id: "unfiled", name: tr("inbox"), count: unfiled },
-    ...projects.map((project) => ({ ...project, count: counts.get(project.id) || 0 }))
-  ];
-  choices.forEach((choice) => {
-    const button = document.createElement("button");
-    button.className = `project-filter${activeProject === choice.id ? " active" : ""}`;
-    const name = document.createElement("span");
-    name.className = "project-name";
-    name.textContent = choice.name;
-    const count = document.createElement("strong");
-    count.textContent = choice.count;
-    button.append(name, count);
-    button.addEventListener("click", () => {
-      activeProject = normalizeProject(choice.id);
-      renderProjectFilters();
-      render();
-      chrome.storage.local.set({ [ACTIVE_PROJECT_KEY]: activeProject });
-    });
-    container.append(button);
-  });
-  // 等本轮布局完成，只移动横向项目栏，保留正在阅读的网页滚动位置。
-  nextFrame(ensureActiveProjectVisible);
-}
-
-function ensureActiveProjectVisible() {
-  const container = document.querySelector("#projectFilters");
-  const active = container?.querySelector(".project-filter.active");
-  if (!active || !container.clientWidth) return;
-  const viewport = container.getBoundingClientRect();
-  const button = active.getBoundingClientRect();
-  const gap = 8;
-  const left = viewport.left + gap;
-  const right = viewport.left + container.clientWidth - gap;
-  let delta = 0;
-  if (button.left < left) delta = button.left - left;
-  else if (button.right > right) delta = button.right - right;
-  if (delta) {
-    container.scrollLeft = Math.max(0, Math.min(
-      container.scrollWidth - container.clientWidth,
-      container.scrollLeft + delta
-    ));
-  }
-}
-
 function normalizeProject(projectId) {
-  if (projectId === "unfiled") return "unfiled";
-  // 「全部项目」只属于全屏图板总览；侧栏没有这个范围，收到 all 或失效项目时
-  // 回到「等待整理」，保证始终有一个真实可见的目录处于选中状态。
-  return projects.some((project) => project.id === projectId) ? projectId : "unfiled";
+  return normalizePanelProject(projectId, projects);
 }
 
 function normalizeItems(list) {
@@ -1412,7 +1331,6 @@ async function commitItemMutation(operation, ids, patch) {
     items = normalizeItems(response.items);
     covers = response.covers || {};
     render();
-    renderProjectFilters();
     return response;
   } catch {
     status.textContent = tr("operationFailed");
@@ -1490,4 +1408,19 @@ function setCurrentThumb(src) {
     else resetCurrentThumb();
   });
   probe.src = src;
+}
+
+return () => {
+  alive = false;
+  sidePanelReady = false;
+  loadGeneration++;
+  renderToken++;
+  pendingLocate = false;
+  closeItemContextMenu();
+  finishSidepanelDrag();
+  cleanups.forEach(stop => stop());
+  timers.forEach(id => window.clearTimeout(id));
+  frames.forEach(id => window.cancelAnimationFrame(id));
+  idle.forEach(id => window.cancelIdleCallback?.(id));
+};
 }

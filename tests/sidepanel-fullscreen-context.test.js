@@ -8,7 +8,6 @@ const ROOT = path.resolve(__dirname, "..");
 const read = (name) => fs.readFileSync(path.join(ROOT, name), "utf8");
 const libraryHtml = require("./helpers/read-runtime.cjs")("library.html");
 const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
-const sidepanelSource = read("sidepanel.js");
 const backgroundSource = read("background.js");
 
 const baseStore = () => ({
@@ -85,7 +84,22 @@ const tick = (window, ms = 100) => new Promise((resolve) => window.setTimeout(re
   assert.strictEqual(direct.window.document.title, "LaterOn - 有价值的网页，留给 LaterOn。");
   direct.dom.window.close();
 
-  assert.match(sidepanelSource, /type:\s*"OPEN_LIBRARY"[\s\S]*source:\s*"sidepanel"[\s\S]*projectId:\s*activeProject[\s\S]*filter[\s\S]*focusItemId:\s*currentItemId/);
+  const cleanups = [], requests = [], closed = [];
+  const panel = require("./helpers/panel-page.cjs").createPanelPage({ after: fn => cleanups.push(fn) }, { store: baseStore(), setup(window) {
+    window.chrome.tabs.query = async () => [{ id: 1, windowId: 7, active: true, url: "https://research.test/a" }];
+    window.chrome.runtime.sendMessage = async message => { requests.push(structuredClone(message)); return { ok: true }; };
+    window.chrome.sidePanel = { close: async options => closed.push(options.windowId) };
+  } });
+  try {
+    await panel.until(() => panel.item("reading")?.classList.contains("is-current"), "侧栏恢复阅读文章");
+    panel.click(panel.document.querySelector('.filter[data-filter="done"]'));
+    panel.click(panel.document.querySelector("#openLibrary"));
+    await panel.until(() => closed.length, "打开完整界面后关闭同窗口侧栏");
+    assert.deepStrictEqual(requests.find(message => message.type === "OPEN_LIBRARY"), {
+      type: "OPEN_LIBRARY", context: { source: "sidepanel", projectId: "p1", filter: "done", focusItemId: "reading" }
+    });
+    assert.deepStrictEqual(closed, [7]);
+  } finally { cleanups.toReversed().forEach(cleanup => cleanup()); }
   assert.match(backgroundSource, /openLibrary\(message\.context\)/);
   assert.match(backgroundSource, /target\.searchParams\.set\("from",\s*"sidepanel"\)/);
   console.log("PASS 侧栏展开全屏会同步项目、筛选和正在阅读位置，普通入口仍回首页");
