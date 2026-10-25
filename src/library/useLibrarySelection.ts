@@ -12,6 +12,7 @@ export function useLibrarySelection(state: { selecting: boolean; board: boolean 
   const allSelected = computed(() => visible.value.length > 0 && visible.value.every(item => picked.value.has(item.id)));
 
   function set(on: boolean): void {
+    // 新会话从空选择开始，所有退出路径也清空；重复进入当前会话则保留选择。
     const next = on && !state.board;
     if (next !== state.selecting) session.value++;
     if (!next || !state.selecting) picked.value = new Set();

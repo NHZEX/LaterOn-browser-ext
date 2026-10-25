@@ -25,6 +25,7 @@ export function collectionCards(collection: LibraryCollection, scope: CardScope,
   readonly visible: readonly StoredItem[];
 } {
   const archived = new Set(collection.projects.filter(project => project.archived).map(project => project.id));
+  // 搜索跨项目，阅读筛选仍生效；归档视图只搜归档，普通范围仍排除其它归档项目。
   const scoped = collection.items.filter(item => {
     if (scope.activeProject === "archive") return archived.has(item.projectId ?? "");
     if (archived.has(item.projectId ?? "") && scope.activeProject !== item.projectId) return false;
@@ -38,6 +39,7 @@ export function collectionCards(collection: LibraryCollection, scope: CardScope,
     if (scope.sort === "oldest") return -newest(a, b);
     if (scope.sort === "source") return (a.source ?? "").localeCompare(b.source ?? "");
     if (scope.sort === "custom") {
+      // 已排过的收藏在前；未进入保存顺序的新收藏接在后面，彼此按最新优先排列。
       const difference = (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER);
       if (difference) return difference;
     }
@@ -127,6 +129,8 @@ export function projectPickerFolders(collection: LibraryCollection, t: Translate
 }
 
 export function boardGroups(collection: LibraryCollection, filter: ReadFilter, archive: boolean): readonly BoardGroup[] {
+  // 图板只列真实项目；未归类收藏留在全部收藏的卡片视图与待整理选择入口中。
+  // 保留真正的空项目；普通项目若只是被阅读筛选过滤空则隐藏，归档项目继续显示。
   return collection.projects.filter(project => !!project.archived === archive).map(project => {
     const own = collection.items.filter(item => item.projectId === project.id);
     return { id: project.id, name: project.name ?? "", note: project.note ?? "", cover: project.cover ?? "",
@@ -135,6 +139,8 @@ export function boardGroups(collection: LibraryCollection, filter: ReadFilter, a
 }
 
 export function boardCoverItems(group: BoardGroup, covers: LibraryCollection["covers"]): readonly StoredItem[] {
+  // 封面、简介和统计使用完整项目 own，不随阅读筛选变化。有效自选封面保留用户顺序；
+  // 只有自选全部失效时才自动挑选，优先有图、再按最新排列。
   const picked = group.pick.map(id => group.own.find(item => item.id === id))
     .filter((item): item is StoredItem => !!item && !!resolveImage(item, covers));
   if (picked.length) return picked.slice(0, 3);
@@ -176,6 +182,7 @@ export function formatSavedTime(timestamp: number, now: number, translate: Trans
 }
 
 export function nextCoverFallback(currentSrc: string): string {
+  // 部分 YouTube 视频没有最高分辨率封面，逐级尝试较低规格，耗尽后由组件显示占位图。
   let url: URL;
   try { url = new URL(currentSrc); } catch { return ""; }
   const matched = /^\/vi\/([^/]+)\/([^/]+\.jpg)$/.exec(url.pathname);

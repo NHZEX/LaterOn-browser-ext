@@ -30,6 +30,7 @@ const unknownProject = computed(() => props.item.projectId && !projects.value.so
 const faviconFailed = ref(false);
 function hideFavicon(): void { faviconFailed.value = true; }
 function select(event: MouseEvent): void {
+  // 多选时标题和封面仍是真链接，需阻止默认跳转；复选框则保留原生点击与 Space 行为。
   if (!props.selection.active.value) return;
   if (event.target instanceof HTMLInputElement && event.target.classList.contains("select-check")) {
     event.stopPropagation(); return;
@@ -37,6 +38,7 @@ function select(event: MouseEvent): void {
   event.preventDefault(); event.stopPropagation(); emit("select", props.item.id);
 }
 function changeSelection(event: Event): void {
+  // 以原生 change 的 checked 为准，不依赖各环境表现不同的 label 点击翻转。
   if (!props.selection.active.value || !(event.target instanceof HTMLInputElement)) return;
   event.stopPropagation(); emit("select", props.item.id, event.target.checked);
 }

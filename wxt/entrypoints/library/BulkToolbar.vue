@@ -14,6 +14,7 @@ function remove(): void { void props.controls.bulk.remove(); }
 function move(event: MouseEvent): void { if (event.currentTarget instanceof HTMLElement) props.controls.bulk.move(event.currentTarget); }
 function outside(event: PointerEvent): void {
   if (!props.controls.state.selecting || !(event.target instanceof Element)) return;
+  // 卡片、操作栏和浮层内交互不退出多选；Shadow DOM 会把弹窗点击重定向到 .lod-root 宿主。
   if (event.target.closest(".card, .folder-menu, #bulkBar, #selectMode, #lateron-folder-picker, .lod-root")) return;
   done();
 }

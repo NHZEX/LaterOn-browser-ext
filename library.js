@@ -704,6 +704,7 @@ projectListEl.addEventListener("drop", (event) => {
   commitFolderOrder().catch(() => {});
 });
 async function saveSortSetting() {
+  // 排序写入共享设置，让侧栏与全屏保持一致，并在下次打开时恢复。
   try {
     const stored = await chrome.storage.local.get(SETTINGS_KEY);
     const settings = stored[SETTINGS_KEY] || {};
@@ -783,6 +784,7 @@ function syncViewUI() {
 
 // Vue notifies after each committed batch, so positioning never races its DOM patch.
 function cardsRendered(complete) {
+  // 目标不在当前筛选结果中时，等批次完成便结束定位，不为定位强行切换筛选。
   if (!initialLocateItemId) return;
   const targetId = initialLocateItemId;
   if (findCard(targetId)) {

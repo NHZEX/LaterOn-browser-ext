@@ -1,6 +1,7 @@
 import { computed, onScopeDispose, shallowRef, watch } from "vue";
 import type { StoredItem } from "../storage/contracts";
 
+// 首屏同步补入 48 张，其余排入空闲批次，避免大库渲染长时间占用主线程。
 const BATCH_SIZE = 48;
 
 /** Retain keyed cards already on screen; add new cards in cancellable idle batches. */

@@ -30,6 +30,7 @@ export function libraryMenuContent(collection: LibraryCollection, target: Librar
     const project = collection.projects.find(project => project.id === target.id);
     if (!project) return null;
     const title = project.name ?? "";
+    // 置顶是常用且可逆的操作，放在首项；误操作可直接取消置顶。
     return { title, heading: title, entries: [
       { action: "pin", label: translate(project.pinned ? "unpinProject" : "pinProject"), icon: project.pinned ? "unpin" : "pin" },
       { action: "rename", label: translate("rename"), icon: "pencil" },
@@ -42,6 +43,7 @@ export function libraryMenuContent(collection: LibraryCollection, target: Librar
   if (!item) return null;
   const title = item.title?.trim() || item.source || translate("itemFallback");
   const picked = selecting && selected.has(item.id);
+  // 右键菜单补充卡片不便操作的入口；阅读状态和移动项目已有卡片控件，不再重复。
   return { title, heading: title.length > 20 ? `${title.slice(0, 20)}…` : title, entries: [
     { action: "open", label: translate("itemOpen"), icon: "open" },
     { action: "edit", label: translate("itemEdit"), icon: "pencil" },

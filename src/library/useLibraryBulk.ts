@@ -30,6 +30,7 @@ export function useLibraryBulk(selection: LibrarySelection, collection: Readonly
   function closePicker(): void { picker?.close(); picker = undefined; }
   function bind(next: BulkEffects): void { effects.value = next; }
   function snapshot() {
+    // 确认框与移动浮层固定当次目标，后续选择不能改变它们；旧回调不能清理新会话。
     const boundary = effects.value;
     if (!boundary || pending.value || !selection.ids.value.size) return null;
     const session = selection.session.value;
