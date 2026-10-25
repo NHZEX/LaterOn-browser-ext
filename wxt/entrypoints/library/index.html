@@ -35,28 +35,14 @@
         <section id="collectionToolbar" class="collection-bar"></section>
 
         <div id="libraryEmptyState"></div>
-        <section id="cardGrid" class="grid" aria-live="polite"></section>
+        <div id="libraryCards"></div>
         <div id="boardView"></div>
         </main>
 
       </div>
     </div>
 
-    <div id="bulkBar" class="bulk-bar">
-          <span id="bulkCount" class="bulk-count" data-i18n="selectCount">已选 0 篇</span>
-      <div class="bulk-actions">
-        <button id="bulkSelectAll" type="button" data-i18n="selectAll">全选</button>
-        <button id="bulkRead" type="button" data-i18n="markDone">标完成</button>
-        <button id="bulkUnread" type="button" data-i18n="markUnread">标未读</button>
-        <button id="bulkOpenWindow" type="button" data-i18n="openInNewWindow">在新窗口打开</button>
-        <button id="bulkProject" class="bulk-project" type="button" data-i18n-aria-label="moveTo" aria-label="移动到项目" aria-haspopup="dialog">
-          <span data-i18n="moveTo">移动到…</span>
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
-        </button>
-        <button id="bulkDelete" type="button" class="danger" data-i18n="delete">删除</button>
-        <button id="bulkDone" type="button" class="primary" data-i18n="done">完成</button>
-      </div>
-    </div>
+    <div id="libraryBulkToolbar"></div>
     <div id="toast" class="toast" role="status"></div>
     <div id="app"></div>
     <script type="module" src="./main.ts"></script>

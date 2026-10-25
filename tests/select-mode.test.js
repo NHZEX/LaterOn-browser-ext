@@ -108,6 +108,7 @@ const ITEMS = ["a", "b", "c"].map((key, index) => ({
     el.dispatchEvent(event);
     return event;
   };
+  for (let attempt = 0; attempt < 200 && !document.querySelector("#cardGrid .card"); attempt++) await tick(5);
   const grid = document.querySelector("#cardGrid");
   const cardOf = (id) => grid.querySelector(`.card[data-id="${id}"]`);
   const isSelected = (id) => cardOf(id)?.classList.contains("selected");

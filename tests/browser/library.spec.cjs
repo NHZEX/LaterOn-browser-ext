@@ -220,8 +220,73 @@ for (const [theme, language] of [["light", "zh-CN"], ["dark", "en"]]) {
     await card.click({ button: "right", position: { x: 8, y: 8 } });
     await page.locator("#searchInput").click(); await expect(popup).toHaveCount(0);
     await card.click({ button: "right", position: { x: 8, y: 8 } });
+    await expect(popup).toBeVisible();
+    await expect(popup.locator('[data-action="open"]')).toBeFocused();
     await extension.worker.evaluate(() => chrome.storage.local.set({ laterOnItems: [] }));
     await expect(popup).toHaveCount(0); await expect(page.locator("#searchInput")).toBeFocused();
+    expect(errors).toEqual([]);
+  });
+}
+
+for (const [theme, language] of [["light", "zh-CN"], ["dark", "en"]]) {
+  test(`Vue 批量工具栏真实键盘、移动与删除持久化（${theme}/${language}）`, async ({ page, context, extension }) => {
+    const errors = []; page.on("pageerror", error => errors.push(error.message));
+    await context.route("https://assets.example.test/**", route => route.abort());
+    await seed(extension.worker, { theme, language, count: 4 });
+    await extension.worker.evaluate(() => chrome.storage.local.set({ laterOnProjects: [{ id: "p", name: "Bulk project" }] }));
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(libraryUrl(extension));
+    const first = page.locator('#cardGrid [data-id="n-0"]');
+    await expect(page.locator("#cardGrid .card")).toHaveCount(4);
+    await page.locator("#selectMode").focus(); await page.keyboard.press("Enter");
+    await first.locator(".select-check").focus(); await page.keyboard.press("Space");
+    await expect(first.locator(".select-check")).toBeChecked();
+    await first.locator(".read-toggle").focus(); await page.keyboard.press("Tab");
+    const projectSelect = first.locator(".project-select");
+    await expect(projectSelect).toBeFocused();
+    for (const key of ["End", "Home", "ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft", "Enter", "Space", "b"]) {
+      await page.keyboard.press(key);
+      await expect(projectSelect).toHaveValue("");
+      await expect(page.locator("#lateron-folder-picker")).toHaveCount(0);
+    }
+    await expect(first.locator(".select-check")).toBeChecked();
+    await expect(page.locator("#cardGrid .card")).toHaveCount(4);
+    expect(await extension.worker.evaluate(async () => (await chrome.storage.local.get("laterOnItems")).laterOnItems[0].projectId ?? null)).toBe(null);
+    await expect(page.locator("#bulkBar")).toBeVisible();
+    await expect(page.locator("#bulkRead")).toBeEnabled();
+    await page.locator("#bulkRead").focus();
+    await expect(page.locator("#bulkRead")).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(first).toHaveClass(/is-read/);
+    await expect(page.locator("#selectMode")).toBeFocused();
+    await expect.poll(() => extension.worker.evaluate(async () => (await chrome.storage.local.get("laterOnItems")).laterOnItems[0].status)).toBe("done");
+    await page.keyboard.press("Enter"); await page.locator("#bulkSelectAll").click();
+    await page.locator("#bulkProject").click();
+    const picker = page.locator("#lateron-folder-picker");
+    await picker.locator(".lon-folder").filter({ hasText: "Bulk project" }).click();
+    await picker.locator(".lon-primary").click();
+    await expect(picker).toHaveCount(0);
+    await expect(page.locator("#cardGrid .card")).toHaveCount(0);
+    await expect.poll(() => extension.worker.evaluate(async () => (await chrome.storage.local.get("laterOnItems")).laterOnItems.every(item => item.projectId === "p"))).toBe(true);
+    await page.locator('.project-nav[data-project="p"]').click();
+    await page.setViewportSize({ width: 375, height: 640 }); await settleCards(page);
+    await page.locator("#selectMode").click(); await page.locator("#bulkSelectAll").click();
+    const bar = page.locator("#bulkBar");
+    await expect(bar).toHaveCSS("opacity", "1");
+    const bounds = await bar.boundingBox();
+    expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.y).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(375); expect(bounds.y + bounds.height).toBeLessThanOrEqual(640);
+    await page.screenshot({ path: test.info().outputPath(`library-bulk-${theme}.png`) });
+    await page.locator("#bulkDelete").click(); await page.locator(".lod-root:not([hidden]) .lod-cancel").click();
+    await expect(bar).toHaveAttribute("aria-busy", "false");
+    await expect(page.locator(".select-check:checked")).toHaveCount(4);
+    await page.locator("#bulkDelete").click(); await page.locator(".lod-root:not([hidden]) .lod-ok").click();
+    await expect(page.locator("#cardGrid .card")).toHaveCount(0);
+    await page.reload(); await expect(page.locator("#cardGrid .card")).toHaveCount(0);
+    await expect.poll(() => extension.worker.evaluate(async () => {
+      const store = await chrome.storage.local.get(["laterOnItems", "laterOnCovers"]);
+      return { count: store.laterOnItems.length, covers: Object.keys(store.laterOnCovers).length };
+    })).toEqual({ count: 0, covers: 0 });
     expect(errors).toEqual([]);
   });
 }

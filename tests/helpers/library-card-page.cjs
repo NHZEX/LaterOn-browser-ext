@@ -27,8 +27,8 @@ function createLibraryPage(t, { items = [makeItem("a")], projects = [], covers =
     laterOnSettings: { language, theme: "light", defaultSort: "newest", autoMarkRead: false } });
   const listeners = new Set();
   const idle = new Map(), frames = new Map();
-  const commands = [], scrolled = [], opened = [];
-  let sequence = 0, writeError = null;
+  const commands = [], scrolled = [], opened = [], createdWindows = [];
+  let sequence = 0, writeError = null, writeGate = null;
   window.fetch = async () => ({});
   window.scrollTo = () => {};
   window.HTMLElement.prototype.scrollIntoView = function () { scrolled.push(this.dataset.id); };
@@ -43,6 +43,9 @@ function createLibraryPage(t, { items = [makeItem("a")], projects = [], covers =
         return structuredClone(Object.fromEntries(names.filter(key => key in store).map(key => [key, store[key]])));
       },
       async set(patch) {
+        if (writeGate && Object.hasOwn(patch, "laterOnItems")) {
+          const gate = writeGate; writeGate = null; gate.started(); await gate.wait;
+        }
         if (writeError && Object.hasOwn(patch, writeError)) { writeError = null; throw Error("write unavailable"); }
         Object.assign(store, structuredClone(patch)); // Deliberately no onChanged echo.
       }
@@ -56,7 +59,7 @@ function createLibraryPage(t, { items = [makeItem("a")], projects = [], covers =
       } },
     tabs: { async getCurrent() { return { id: 1, windowId: 1 }; }, async query() { return [{ id: 1, windowId: 1 }]; },
       async update(id, patch) { opened.push({ id, ...patch }); return { id }; }, async create(patch) { opened.push(patch); return { id: 2 }; } },
-    windows: { async getCurrent() { return { id: 1 }; } },
+    windows: { async getCurrent() { return { id: 1 }; }, async create(options) { createdWindows.push(structuredClone(options)); return { id: 2 }; } },
     sidePanel: { async open() {} }
   };
   const backend = vm.createContext({ chrome: window.chrome, crypto: window.crypto, Date, URL });
@@ -97,8 +100,15 @@ function createLibraryPage(t, { items = [makeItem("a")], projects = [], covers =
     Object.assign(store, structuredClone(patch));
     listeners.forEach(listener => listener(structuredClone(changes), "local"));
   }
-  return { window, document: window.document, store, commands, scrolled, opened, clock, flush, frame, idleTurn, until, broadcast,
-    pendingIdle: () => [...idle.values()], pendingFrames: () => [...frames.values()], failNextWrite: (key = "laterOnItems") => { writeError = key; },
+  function holdNextWrite() {
+    let release, started;
+    const begun = new Promise(resolve => { started = resolve; });
+    const wait = new Promise(resolve => { release = resolve; });
+    writeGate = { wait, started };
+    return { started: begun, release };
+  }
+  return { window, document: window.document, store, commands, scrolled, opened, createdWindows, clock, flush, frame, idleTurn, until, broadcast,
+    pendingIdle: () => [...idle.values()], pendingFrames: () => [...frames.values()], failNextWrite: (key = "laterOnItems") => { writeError = key; }, holdNextWrite,
     card: id => window.document.querySelector(`#cardGrid .card[data-id="${id}"]`),
     ids: () => [...window.document.querySelectorAll("#cardGrid .card")].map(card => card.dataset.id),
     click: selector => { const element = window.document.querySelector(selector); assert.ok(element, selector); element.click(); },

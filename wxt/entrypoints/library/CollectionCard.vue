@@ -5,16 +5,19 @@ import { cardTarget, formatSavedTime } from "../../../src/library/shared";
 import type { LibraryCollection } from "../../../src/library/shared";
 import type { StoredItem } from "../../../src/storage/contracts";
 import type { Translate } from "../../../src/shared/i18n";
+import type { LibrarySelection } from "../../../src/library/useLibrarySelection";
 import CardCover from "./CardCover.vue";
 
 const props = defineProps<{
   item: StoredItem;
   collection: LibraryCollection;
   selected: boolean;
+  selection: LibrarySelection;
   current: boolean;
   translate: Translate;
   english: boolean;
 }>();
+const emit = defineEmits<{ select: [id: string, force?: boolean] }>();
 const target = computed(() => cardTarget(props.item.url) || "#");
 const cover = computed(() => resolveImage(props.item, props.collection.covers));
 const readLabel = computed(() => props.translate(props.item.status === "done" ? "unreadButton" : "readButton"));
@@ -24,13 +27,30 @@ const projects = computed(() => props.collection.projects.filter(project => !pro
 const unknownProject = computed(() => props.item.projectId && !projects.value.some(project => project.id === props.item.projectId));
 const faviconFailed = ref(false);
 function hideFavicon(): void { faviconFailed.value = true; }
+function select(event: MouseEvent): void {
+  if (!props.selection.active.value) return;
+  if (event.target instanceof HTMLInputElement && event.target.classList.contains("select-check")) {
+    event.stopPropagation(); return;
+  }
+  event.preventDefault(); event.stopPropagation(); emit("select", props.item.id);
+}
+function changeSelection(event: Event): void {
+  if (!props.selection.active.value || !(event.target instanceof HTMLInputElement)) return;
+  event.stopPropagation(); emit("select", props.item.id, event.target.checked);
+}
+function preventProjectChange(event: KeyboardEvent): void {
+  if (!props.selection.active.value || !(event.target instanceof HTMLSelectElement)) return;
+  const typing = event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey;
+  if (!typing && !["Enter", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"].includes(event.key)) return;
+  event.preventDefault(); event.stopPropagation();
+}
 watch(() => props.item.favicon, () => { faviconFailed.value = false; });
 </script>
 
 <template>
   <article class="card" :data-id="item.id" draggable="true" tabindex="-1" :data-current-label="translate('currentReading')"
-    :class="{ 'is-read': item.status === 'done', 'is-reading': item.status === 'reading', 'is-current': current, selected }">
-    <label class="select-badge" :aria-label="translate('selectItem')"><input type="checkbox" class="select-check" :checked="selected" /></label>
+    :class="{ 'is-read': item.status === 'done', 'is-reading': item.status === 'reading', 'is-current': current, selected }" @click.capture="select" @keydown.capture="preventProjectChange">
+    <label class="select-badge" :aria-label="translate('selectItem')"><input type="checkbox" class="select-check" :checked="selected" @change="changeSelection" /></label>
     <a class="cover-link" :href="target" target="_blank" rel="noreferrer"><CardCover :source="cover" /></a>
     <button class="edit" :title="translate('editItemAria')" :aria-label="translate('editItemAria')">
       <svg viewBox="0 0 24 24"><path d="M4 20h4L20 8l-4-4L4 16zM14 6l4 4" /></svg>

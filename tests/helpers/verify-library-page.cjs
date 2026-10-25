@@ -108,6 +108,16 @@ module.exports = async function verifyLibraryPage(directory) {
       click("#selectMode");
       await tick();
       assert.equal(document.querySelector("#selectMode").getAttribute("aria-pressed"), "true");
+      click("#bulkSelectAll");
+      await until(() => document.querySelectorAll('.select-check:checked').length === 2, "Built bulk toolbar selects the full filtered list");
+      click("#bulkRead");
+      await until(() => ids() === "" && store.laterOnItems.every(item => item.status === "done"), "Built bulk action updates UI without an own broadcast");
+      assert.equal(document.querySelector("#selectMode").getAttribute("aria-pressed"), "false");
+      assert.equal(commands.filter(command => command.action === "mutateItems").length, 1);
+      // Restore this fixture's input before the remaining independent project checks.
+      broadcast({ laterOnItems: [item("a", "unread", 3), item("b", "reading", 2), item("c", "done", 1)] });
+      await until(() => ids() === "a,b", "Restore fixture after compiled bulk smoke");
+      click("#selectMode"); await tick();
       search("pending query");
       await tick();
       click("#homeBrand");

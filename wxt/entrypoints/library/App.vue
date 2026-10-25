@@ -8,6 +8,7 @@ import ProjectNavigation from "./ProjectNavigation.vue";
 import ProjectBoards from "./ProjectBoards.vue";
 import CollectionCards from "./CollectionCards.vue";
 import LibraryMenu from "./LibraryMenu.vue";
+import BulkToolbar from "./BulkToolbar.vue";
 
 const props = defineProps<{ controls: LibraryControls }>();
 const languageVersion = ref(0);
@@ -30,6 +31,7 @@ onBeforeUnmount(() => {
 
 <template>
   <Teleport to="body"><LibraryMenu :controls="controls" :translate="translate" /></Teleport>
+  <Teleport to="#libraryBulkToolbar"><BulkToolbar :controls="controls" :translate="translate" /></Teleport>
   <Teleport to="#libraryHeader">
     <LibraryHeader :filter="controls.state.filter" :search="controls.state.search" :translate="translate"
       @filter="controls.setFilter" @search="controls.setSearch" @home="controls.home" />
@@ -44,8 +46,9 @@ onBeforeUnmount(() => {
   <Teleport to="#boardView">
     <ProjectBoards :controls="controls" :translate="translate" :english="english" />
   </Teleport>
-  <Teleport to="#cardGrid">
-    <CollectionCards :items="controls.cards.value" :collection="controls.collection.value" :selected-ids="controls.selectedIds.value"
+  <Teleport to="#libraryCards">
+    <CollectionCards :items="controls.cards.value" :collection="controls.collection.value" :selected-ids="controls.selectedIds.value" :selection="controls.selection"
+      :board="controls.state.board" @select="controls.selection.toggle"
       :current-item-id="controls.state.currentItemId" :translate="translate" :english="english" @rendered="controls.cardsRendered" />
   </Teleport>
   <Teleport to="#libraryEmptyState">

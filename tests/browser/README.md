@@ -24,9 +24,12 @@ Remove-Item Env:PANEL_TEST_ORDER
 
 `tests/library-menus.test.js` 增加 6 个场景，检查只读菜单模型、首项聚焦、方向键 / Home / End、Escape 与关闭方式、过期帧、最新数据和语言、外部删除、项目写入失败后重试；自身存储广播关闭。浏览器检查另用原生 Enter、Tab / Shift+Tab、Shift+F10 验证激活与焦点顺序、菜单到弹窗的焦点移交、375px 定位、resize / 滚动关闭及真实存储外部更新。production 与自定义模式也检查实际编译菜单。
 
+`tests/library-bulk.test.js` 增加 12 个实际编译页面场景，验证分批渲染前的完整全选、隐藏选择、状态 / 移动 / 删除的失败重试、挂起写入及重复提交、确认目标固定、同会话新增选择和旧会话回调、外部删除及浮层卸载清理。存储写入使用 Promise 闸门，自身广播关闭；新窗口只模拟外部 API。Chromium 另增深浅主题和中英文两条真实操作链，覆盖原生 Space 选择、Enter 批量阅读、焦点、项目移动、删除取消 / 确认与重载持久化、375px 工具栏布局。production / 自定义模式同时验证批量写入后的 UI 和存储结果。
+
 ```powershell
 node --test tests/library-cards.test.js
 node --test tests/library-menus.test.js
+node --test tests/library-bulk.test.js
 pnpm exec playwright install --no-shell chromium
 pnpm test:browser
 ```

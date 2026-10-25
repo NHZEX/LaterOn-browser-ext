@@ -2,7 +2,7 @@ import { nextTick } from "vue";
 import { normalizeFilter, normalizeSort } from "./src/collection/filter";
 import { projectCoverFor as resolveProjectCover, cardTarget } from "./src/library/shared";
 
-// Vue owns page rendering and menus; this transitional controller retains dialogs, drag and bulk operations.
+// Vue owns rendering, menus, selection and bulk operations; this transitional controller retains dialogs, drag and page adapters.
 /** @param {import("./src/library/useLibraryControls").LibraryControls} controls */
 export function startLibraryPage(controls) {
 const view = controls.state;
@@ -46,8 +46,6 @@ let dragPreview = null;
 //   slot —— 当前算出的插入位置（用来判断要不要重排，避免抖动）
 let drag = null;
 let dragHomeFrame = null;   // 原位置留下的那个空虚线框（绝对定位浮层，不占格子）
-let selectMode = false;
-const selectedIds = new Set();
 let folderDragId = null;      // 正在拖拽排序的项目 id（null = 当前没在拖）
 let currentItemId = null;     // 当前正在读的文章 id（来自 CURRENT_ITEM_KEY，两个视图共享）
 // 从侧栏展开全屏时，等目标卡片真正分批渲染出来后再滚过去；普通打开首页不定位。
@@ -420,15 +418,6 @@ grid.addEventListener("click", (event) => {
   if (!card) return;
   const item = items.find((entry) => entry.id === card.dataset.id);
   if (!item) return;
-  if (selectMode) {
-    // 多选时卡片上的标题 / 封面还是真链接，不拦住默认行为的话，
-    // 选中的同时浏览器会顺手把文章打开（点了就跑的现状就是这么来的）。
-    // 顺带也拦下了左上角圆点里那个隐藏勾选框的「连带翻转」，避免一次点击翻两次。
-    event.preventDefault();
-    // 圆点自己接待：browser 的 label 行为在不同环境下表现不一致，靠它翻转很容易落空。
-    toggleSelect(item.id);
-    return;
-  }
   if (event.target.closest(".read-toggle")) updateItem(item.id, { status: nextStatus(item.status) });
   else if (event.target.closest(".delete")) deleteItem(item.id);
   else if (event.target.closest(".edit")) editItem(item);
@@ -439,20 +428,15 @@ grid.addEventListener("click", (event) => {
   else if (!event.target.closest("button, select, input, label, a")) openItem(event, item);
 });
 grid.addEventListener("change", (event) => {
-  if (selectMode) {
-    const check = event.target.closest(".select-check");
-    if (check) {
-      const card = event.target.closest(".card");
-      const item = items.find((entry) => entry.id === card.dataset.id);
-      if (item) toggleSelect(item.id, check.checked);
-    }
-    return;
-  }
   const select = event.target.closest(".project-select");
   if (!select) return;
   const card = event.target.closest(".card");
   const item = items.find((entry) => entry.id === card.dataset.id);
   if (item) {
+    if (view.selecting) {
+      select.value = item.projectId || "";
+      return;
+    }
     clearSearch();
     updateItem(item.id, { projectId: select.value || null });
   }
@@ -523,7 +507,7 @@ function enableReorder({ container, selector, idAttr, commit, dragImageHotspotX 
     const el = event.target.closest(selector);
     if (!el) return;
     // 拖拽是另一种明确操作：离开多选状态，避免拖动后仍保留旧的勾选。
-    if (selectMode) setSelectMode(false);
+    controls.selection.set(false);
     // 从按钮 / 下拉上按下的是想点它，不是想拖整块（图板上那个改简介的铅笔就是）。
     if (event.target.closest("button, select")) { event.preventDefault(); return; }
     const id = el.dataset[idAttr];
@@ -811,7 +795,6 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     if (controls.menu.value) { controls.closeMenu(); return; }
     if (view.renamingId) { stopRename(); return; }
-    if (selectMode) setSelectMode(false);
     return;
   }
   // F2 = 给正在查看的项目改名（和系统的文件管理器一致的习惯）。
@@ -846,12 +829,8 @@ function syncCollection() {
 
 function render() {
   syncCollection();
-  for (const id of selectedIds) {
-    if (!items.some((entry) => entry.id === id)) selectedIds.delete(id);
-  }
   syncViewUI();
   view.currentItemId = currentItemId;
-  updateSelectionUI();
   if (!isBoardView()) renderCardsView();
 }
 
@@ -879,9 +858,7 @@ function isBoardView() {
 // 图板视图（全部项目）下收起它们。
 function syncViewUI() {
   const board = isBoardView();
-  grid.hidden = board;
   view.board = board;
-  if (board && selectMode) setSelectMode(false);
 }
 
 async function editBoard(projectId) {
@@ -995,7 +972,6 @@ async function editBoard(projectId) {
 
 // Vue notifies after each committed batch, so positioning never races its DOM patch.
 function cardsRendered(complete) {
-  updateSelectionCount();
   if (!initialLocateItemId) return;
   const targetId = initialLocateItemId;
   if (findCard(targetId)) {
@@ -1337,7 +1313,7 @@ async function runMenuAction(target, action) {
     if (!item) return;
     if (action === "open") await openItemInNewTab(item);
     else if (action === "edit") await editItem(item);
-    else if (action === "select") startMultiSelect(item.id, !(selectMode && selectedIds.has(item.id)));
+    else if (action === "select") controls.selection.item(item.id, !(view.selecting && controls.selectedIds.value.has(item.id)));
     else if (action === "delete") await deleteItem(item.id);
   } catch { showToast(tr("operationFailed")); }
 }
@@ -1350,13 +1326,6 @@ async function openItemInNewTab(item) {
 
 function cssEscape(value) {
   return typeof CSS !== "undefined" && CSS.escape ? CSS.escape(value) : String(value).replace(/["\\]/g, "\\$&");
-}
-
-// 从右键菜单里点「多选」：进入多选模式，并把这一篇先勾上（取消则勾掉）。
-// 已经选中时这项变成「取消选择」，方便在多选状态里直接反悔。
-function startMultiSelect(itemId, on) {
-  if (!selectMode) setSelectMode(true);
-  toggleSelect(itemId, on);
 }
 
 // 在全屏收藏库里点一篇收藏：把「全屏」切换成「原文 + 侧栏」的阅读状态——
@@ -1518,154 +1487,18 @@ async function deleteItem(id) {
   if (result) showToast(tr("itemDeleted"));
 }
 
-// ── 批量操作 ─────────────────────────────────────────────
-function clearSelection() {
-  selectedIds.clear();
-}
+// Browser/UI boundaries shared with the remaining single-item controller.
+controls.bulk.bind({ translate: tr, toast: showToast, mutate: commitItemMutation,
+  confirm: (config) => LaterOnDialog.confirm(config),
+  pick: (request) => window.openFolderPicker({ ...request, theme: settings.theme || "system",
+    language: document.documentElement.lang, folders: projectPickerFolders(),
+    onCreateProject: (name) => request.current() ? createProjectFromPicker(name) : null }),
+  openWindow: (url) => chrome.windows.create({ url: [...url], focused: true, type: "normal" }) });
 
-function setSelectMode(on) {
-  const next = Boolean(on);
-  // 每次新进入多选都从空状态开始；任何退出路径都同时清理
-  // 内部数据和可视状态，包括“完成”、点页面空白处和批量操作完成。
-  if (!next || !selectMode) clearSelection();
-  selectMode = next;
-  grid.classList.toggle("selecting", next);
-  view.selecting = next;
-  const bar = document.querySelector("#bulkBar");
-  if (bar) bar.classList.toggle("is-open", next);
-  updateSelectionUI();
-}
-
-// 多选期间点击卡片以外的页面操作区，视为用户要离开多选；
-// 卡片本身、底部批量工具栏、“选择”按钮、项目浮层和确认弹窗保留原有交互。
-document.addEventListener("pointerdown", (event) => {
-  if (!selectMode) return;
-  const target = event.target;
-  // Shadow DOM 内的点击会重定向到浮层宿主，选项目和确认时不能清空选择。
-  if (target?.closest?.(".card, .folder-menu, #bulkBar, #selectMode, #lateron-folder-picker, .lod-root")) return;
-  setSelectMode(false);
-}, true);
-
-function toggleSelect(id, force) {
-  const willSelect = force !== undefined ? force : !selectedIds.has(id);
-  if (willSelect) selectedIds.add(id); else selectedIds.delete(id);
-  updateSelectionUI();
-}
-
-function updateSelectionUI() {
-  controls.updateSelection(selectedIds);
-  updateSelectionCount();
-}
-
-function updateSelectionCount() {
-  const count = selectedIds.size;
-  const countEl = document.querySelector("#bulkCount");
-  if (countEl) countEl.textContent = tr("selectCount", { count });
-  const allBtn = document.querySelector("#bulkSelectAll");
-  if (allBtn) allBtn.textContent = count > 0 && count >= grid.children.length ? tr("deselectAll") : tr("selectAll");
-}
-
-async function bulkUpdate(patch) {
-  if (!selectedIds.size) return;
-  if (await commitItemMutation("update", new Set(selectedIds), patch)) finishBulk();
-}
-
-async function bulkMove(projectId) {
-  if (!selectedIds.size) return;
-  const result = await commitItemMutation("update", new Set(selectedIds), { projectId });
-  if (result) finishBulk();
-  return result;
-}
-
-function openBulkProjectPicker() {
-  if (!selectedIds.size || typeof window.openFolderPicker !== "function") return;
-  const anchor = document.querySelector("#bulkProject");
-  if (!anchor) return;
-  const count = selectedIds.size;
-  const selectedProjects = new Set(
-    items.filter((item) => selectedIds.has(item.id)).map((item) => item.projectId || "")
-  );
-  window.openFolderPicker({
-    anchor,
-    theme: settings.theme || "system",
-    language: document.documentElement.lang,
-    folders: projectPickerFolders(),
-    selected: selectedProjects.size === 1 ? [...selectedProjects][0] : "",
-    titleText: tr("bulkMoveTitle", { n: count }),
-    onCreateProject: createProjectFromPicker,
-    onPick: async (projectId, name) => {
-      const result = await bulkMove(projectId || null);
-      if (!result) return;
-      showToast(tr("bulkMoved", { n: result.affected, name: name || tr("inbox") }));
-    }
-  });
-}
-
-async function bulkDelete() {
-  if (!selectedIds.size) return;
-  // 固定确认框所对应的网页，确认期间的选择变化不能改写删除目标。
-  const ids = new Set(selectedIds);
-  const count = ids.size;
-  const confirmed = await LaterOnDialog.confirm({
-    tone: "danger",
-    title: tr("bulkDeleteTitle", { n: count }),
-    message: tr("cannotUndo"),
-    confirmText: tr("bulkDeleteButton", { n: count })
-  });
-  if (!confirmed) return;
-  const result = await commitItemMutation("delete", ids);
-  if (!result) return;
-  finishBulk();
-  showToast(tr("bulkDeleted", { n: result.affected }));
-}
-
-function selectedItemsInViewOrder() {
-  const byId = new Map(items.map((item) => [item.id, item]));
-  const orderedIds = [...grid.querySelectorAll(".card[data-id]")].map((card) => card.dataset.id);
-  return orderedIds.filter((id) => selectedIds.has(id)).map((id) => byId.get(id)).filter(Boolean);
-}
-
-async function bulkOpenInNewWindow() {
-  if (!selectedIds.size) return;
-  const selected = selectedItemsInViewOrder();
-  const targets = selected.map((item) => safeTarget(item.url)).filter(Boolean);
-  if (!targets.length) { showToast(tr("noValidPages")); return; }
-
-  showToast(tr("openingNewWindow", { n: targets.length }));
-  try {
-    const created = await chrome.windows.create({ url: targets, focused: true, type: "normal" });
-    if (created?.id == null) throw new Error("No window was created");
-    finishBulk();
-    showToast(tr("openedNewWindow", { n: targets.length }));
-  } catch {
-    showToast(tr("newWindowOpenFailed"));
-  }
-}
-
-function finishBulk() {
-  setSelectMode(false);
-}
-
-controls.bind({ filter: setFilter, search: render, sort: () => { render(); saveSortSetting(); }, home: goHome, select: () => setSelectMode(!selectMode),
+controls.bind({ filter: setFilter, search: render, sort: () => { render(); saveSortSetting(); }, home: goHome,
   project: selectProject, createProject: () => { promptCreateProject().catch(() => showToast(tr("createProjectFailed"))); },
   editProject: editBoard, menuAction: runMenuAction, rename: startRename, cancelRename: stopRename,
   commitRename: (id, value) => { commitRename(id, value).catch(() => showToast(tr("operationFailed"))); }, settings: openSettings, cardsRendered });
-document.querySelector("#bulkSelectAll")?.addEventListener("click", () => {
-  const allSelected = selectedIds.size >= grid.children.length && grid.children.length > 0;
-  [...grid.children].forEach((card) => {
-    const id = card.dataset.id;
-    if (!id) return;
-    if (allSelected) selectedIds.delete(id); else selectedIds.add(id);
-  });
-  updateSelectionUI();
-});
-document.querySelector("#bulkRead")?.addEventListener("click", () => bulkUpdate({ status: "done" }));
-document.querySelector("#bulkUnread")?.addEventListener("click", () => bulkUpdate({ status: "unread" }));
-document.querySelector("#bulkOpenWindow")?.addEventListener("click", bulkOpenInNewWindow);
-document.querySelector("#bulkProject")?.addEventListener("click", openBulkProjectPicker);
-document.querySelector("#bulkDelete")?.addEventListener("click", bulkDelete);
-document.querySelector("#bulkDone")?.addEventListener("click", () => setSelectMode(false));
-
 let toastTimer = null;
 let toastGeneration = 0;
 function showToast(message, duration = 1800, variant = "") {
