@@ -1,6 +1,7 @@
 import { normalizeFilter } from "./src/collection/filter";
 import { normalizePanelProject } from "./src/sidepanel/shared";
 import { nextCoverFallback } from "./src/shared/card-media";
+import { sortCollectionItems } from "./src/shared/collection-sort";
 
 // E2 过渡控制器：保留交互命令、缓存和浏览器适配；卡片、分批与阅读定位由 Vue 拥有。
 export function startSidepanelPage(controls) {
@@ -964,7 +965,9 @@ function saveSlimCache() {
     cacheSaveTimer = null;
     if (localStorageSlow) return;
     try {
-      const json = JSON.stringify(items.filter((item) => !archivedProjectIds.has(item.projectId)).slice(0, CACHE_PREVIEW_LIMIT));
+      // 快照按最近添加选取首屏；导入数据的数组可能乱序，不能直接截取前 12 条。
+      const preview = sortCollectionItems(items.filter((item) => !archivedProjectIds.has(item.projectId)), "newest").slice(0, CACHE_PREVIEW_LIMIT);
+      const json = JSON.stringify(preview);
       if (json.length < 2000000) localStorage.setItem(CACHE_KEY, json);
       else localStorage.removeItem(CACHE_KEY);
     } catch { /* localStorage 用不了就算了，不影响正常功能 */ }

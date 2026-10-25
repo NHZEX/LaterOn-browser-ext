@@ -1,6 +1,7 @@
 import { matchesReadFilter, matchesSearch } from "../collection/filter";
 import type { ReadFilter, SortMode } from "../collection/filter";
 import { resolveImage } from "../collection/item-edit";
+import { sortCollectionItems } from "../shared/collection-sort";
 import type { ProjectChanges, StoredItem, StoredProject } from "../storage/contracts";
 import type { Translate } from "../shared/i18n";
 import type { PromptOptions, PromptValues } from "./useLibraryCommands";
@@ -45,20 +46,7 @@ export function collectionCards(collection: LibraryCollection, scope: CardScope,
     return !!scope.query || scope.activeProject === "all"
       || (scope.activeProject === "unfiled" ? !item.projectId : item.projectId === scope.activeProject);
   });
-  const saved = orders[scope.activeProject];
-  const rank = new Map((Array.isArray(saved) ? saved : []).map((id: string, index: number) => [id, index]));
-  const newest = (a: StoredItem, b: StoredItem): number => (b.savedAt ?? 0) - (a.savedAt ?? 0);
-  const compare = (a: StoredItem, b: StoredItem): number => {
-    if (scope.sort === "oldest") return -newest(a, b);
-    if (scope.sort === "source") return (a.source ?? "").localeCompare(b.source ?? "");
-    if (scope.sort === "custom") {
-      // 已排过的收藏在前；未进入保存顺序的新收藏接在后面，彼此按最新优先排列。
-      const difference = (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER);
-      if (difference) return difference;
-    }
-    return newest(a, b);
-  };
-  const visible = scoped.filter(item => matchesReadFilter(item, scope.filter) && matchesSearch(item, scope.query)).sort(compare);
+  const visible = sortCollectionItems(scoped.filter(item => matchesReadFilter(item, scope.filter) && matchesSearch(item, scope.query)), scope.sort, orders[scope.activeProject]);
   return { scoped, visible };
 }
 

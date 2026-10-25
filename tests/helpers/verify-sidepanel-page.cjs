@@ -66,4 +66,13 @@ module.exports = async function verifySidepanelPage(t, { language = "zh-CN", dir
   env.click(button);
   await env.until(() => env.count() === 0, "产物卡片操作不依赖自身广播");
   assert.equal(env.store.laterOnItems[0].status, "done");
+  // 对生产和自定义模式的真实页面验证顺序，存储数组刻意不按时间排列。
+  env.broadcast({ laterOnItems: [makeItem({ id: "old", savedAt: 1, source: "m.test" }),
+    makeItem({ id: "new", savedAt: 3, source: "z.test" }), makeItem({ id: "middle", savedAt: 2, source: "a.test" })],
+    laterOnOrder: { unfiled: ["old", "middle"] } });
+  const orderedIds = () => [...document.querySelectorAll("#items .item")].map(element => element.dataset.id);
+  for (const [sort, order] of Object.entries({ newest: ["new", "middle", "old"], oldest: ["old", "middle", "new"], source: ["middle", "old", "new"], custom: ["old", "middle", "new"] })) {
+    env.broadcast({ laterOnSettings: { language, defaultSort: sort } }); await env.flush();
+    assert.deepEqual(orderedIds(), order, `构建产物恢复 ${sort} 排序`);
+  }
 };

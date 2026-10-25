@@ -16,6 +16,49 @@ const seed = async (worker, theme) => worker.evaluate(async ({ theme, cover }) =
   });
 }, { theme, cover });
 
+test("待整理四档排序在全屏与侧栏一致，最近添加不受存储数组及移入位置影响", async ({ context, page, extension }) => {
+  await extension.worker.evaluate(async () => {
+    await chrome.storage.local.clear();
+    const now = Date.now();
+    const item = (id, age, source, projectId = null) => ({ id, savedAt: now - age, source, projectId,
+      title: id, url: `https://example.test/${id}`, description: "Summary", status: "unread" });
+    await chrome.storage.local.set({ laterOnOnboardingSeen: true,
+      laterOnItems: [item("old", 3000, "m.test"), item("new", 1000, "z.test"), item("middle", 2000, "a.test"), item("moved", 4000, "p.test", "p")],
+      laterOnProjects: [{ id: "p", name: "Project" }], laterOnActiveProject: "unfiled", laterOnFilter: "all", laterOnFilterChosen: true,
+      laterOnOrder: { unfiled: ["old", "middle", "new"] }, laterOnSettings: { defaultSort: "custom", autoMarkRead: false, language: "zh-CN", theme: "light" }
+    });
+  });
+  const library = await context.newPage();
+  await library.setViewportSize({ width: 1200, height: 800 });
+  await library.goto(extension.url.replace("sidepanel.html", "library.html?from=sidepanel&project=unfiled&filter=all"));
+  await page.goto(extension.url);
+  const panelCards = page.locator("#items .item"), libraryCards = library.locator("#cardGrid .card");
+  const order = cards => cards.evaluateAll(nodes => nodes.map(node => node.dataset.id));
+  const verify = async expected => {
+    await expect.poll(() => order(panelCards)).toEqual(expected);
+    await expect.poll(() => order(libraryCards)).toEqual(expected);
+  };
+  await verify(["old", "middle", "new"]);
+  for (const [mode, expected] of Object.entries({ newest: ["new", "middle", "old"], oldest: ["old", "middle", "new"], source: ["middle", "old", "new"], custom: ["old", "middle", "new"] })) {
+    await library.locator("#sortSelect").selectOption(mode);
+    await verify(expected);
+    await expect.poll(() => extension.worker.evaluate(async () => (await chrome.storage.local.get("laterOnSettings")).laterOnSettings.defaultSort)).toBe(mode);
+  }
+  await library.locator("#sortSelect").selectOption("newest");
+  await verify(["new", "middle", "old"]);
+  await extension.worker.evaluate(async () => {
+    const { laterOnItems: items } = await chrome.storage.local.get("laterOnItems");
+    const moved = { ...items.find(item => item.id === "moved"), projectId: null };
+    const added = { id: "added", title: "Added", url: "https://example.test/added", status: "unread", savedAt: Date.now(), source: "added.test" };
+    await chrome.storage.local.set({ laterOnItems: [moved, ...items.filter(item => item.id !== "moved"), added] });
+  });
+  await verify(["added", "new", "middle", "old", "moved"]);
+  await page.reload();
+  await verify(["added", "new", "middle", "old", "moved"]);
+  await library.locator("#sortSelect").selectOption("custom");
+  await verify(["old", "middle", "new", "added", "moved"]);
+});
+
 for (const [language, theme] of [["zh-CN", "light"], ["en", "dark"]]) {
   test(`E2：后批定位、卡片键盘操作与封面降级 ${language}/${theme}`, async ({ context, page, extension }, testInfo) => {
     const requests = [];

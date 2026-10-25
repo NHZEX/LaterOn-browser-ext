@@ -1,4 +1,5 @@
-import { matchesReadFilter, matchesSearch, type ReadFilter } from "../collection/filter";
+import { matchesReadFilter, matchesSearch, normalizeSort, type ReadFilter } from "../collection/filter";
+import { sortCollectionItems } from "../shared/collection-sort";
 import type { StoredItem, StoredProject } from "../storage/contracts";
 import type { Translate } from "../shared/i18n";
 
@@ -28,11 +29,7 @@ export function visiblePanelItems(collection: PanelCollection, scope: PanelScope
   const visible = collection.items.filter(item => !collection.archivedProjectIds.has(item.projectId ?? "")
     && (!!scope.query || (scope.project === "unfiled" ? !item.projectId : item.projectId === scope.project))
     && matchesReadFilter(item, scope.filter) && matchesSearch(item, scope.query));
-  if (collection.sortMode !== "custom") return visible;
-  // 全屏拖出来的自定义顺序与侧栏共享；没有排过的条目按保存时间补在后面。
-  const ranks = new Map((collection.orders[scope.project] ?? []).map((id, index) => [id, index]));
-  return visible.toSorted((a, b) => (ranks.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (ranks.get(b.id) ?? Number.MAX_SAFE_INTEGER)
-    || (b.savedAt ?? 0) - (a.savedAt ?? 0));
+  return sortCollectionItems(visible, normalizeSort(collection.sortMode), collection.orders[scope.project]);
 }
 
 export function panelProjects(collection: PanelCollection): readonly { id: string; name: string; count: number }[] {
