@@ -16,6 +16,64 @@ const seed = async (worker, theme) => worker.evaluate(async ({ theme, cover }) =
   });
 }, { theme, cover });
 
+for (const [language, theme] of [["zh-CN", "light"], ["en", "dark"]]) {
+  test(`E2：后批定位、卡片键盘操作与封面降级 ${language}/${theme}`, async ({ context, page, extension }, testInfo) => {
+    const requests = [];
+    await context.route("https://i.ytimg.com/vi/e2/**", async route => {
+      requests.push({ url: route.request().url(), referer: route.request().headers().referer });
+      if (route.request().url().endsWith("mqdefault.jpg")) {
+        await route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="100"><rect width="160" height="100" fill="teal"/></svg>' });
+      } else await route.fulfill({ status: 404, body: "missing" });
+    });
+    await extension.worker.evaluate(async ({ language, theme }) => {
+      await chrome.storage.local.clear();
+      await chrome.storage.local.set({
+        laterOnOnboardingSeen: true, laterOnSettings: { language, theme, autoMarkRead: false },
+        laterOnItems: Array.from({ length: 96 }, (_, index) => ({ id: `e2-${index}`, title: `Article ${index}`, description: "A saved article with a short summary.",
+          source: "example.test", url: `https://example.test/e2/${index}`, savedAt: Date.now() - index * 1000, status: "unread",
+          image: index === 70 ? "https://i.ytimg.com/vi/e2/maxresdefault.jpg" : "" })),
+        laterOnProjects: [], laterOnCovers: {}, laterOnActiveProject: "unfiled", laterOnFilterChosen: true,
+        laterOnFilter: "all", laterOnCurrentItem: "e2-70"
+      });
+    }, { language, theme });
+    await page.goto(extension.url);
+    const cards = page.locator("#items .item");
+    await expect(cards).toHaveCount(96);
+    await expect(page.locator('[data-id="e2-70"]')).toHaveClass(/is-current/);
+    await expect.poll(() => extension.worker.evaluate(async () => (await chrome.storage.local.get("laterOnLocateDiag")).laterOnLocateDiag?.inView)).toBe(true);
+    const image = page.locator('[data-id="e2-70"] .thumb-img');
+    await expect(image).toHaveAttribute("src", "https://i.ytimg.com/vi/e2/mqdefault.jpg");
+    await expect.poll(() => image.evaluate(node => node.complete && node.naturalWidth > 0)).toBe(true);
+    expect(requests.map(request => new URL(request.url).pathname.split("/").pop())).toEqual(["maxresdefault.jpg", "hq720.jpg", "hqdefault.jpg", "mqdefault.jpg"]);
+    expect(requests.every(request => !request.referer)).toBe(true);
+    const currentInView = () => page.evaluate(() => {
+      const card = document.querySelector("#items .is-current").getBoundingClientRect();
+      return card.top >= document.querySelector("header").getBoundingClientRect().bottom + 9 && card.bottom <= innerHeight + 1;
+    });
+    await expect.poll(currentInView).toBe(true);
+    await page.setViewportSize({ width: 640, height: 800 });
+    await extension.worker.evaluate(() => chrome.storage.local.set({ laterOnCurrentItem: "e2-30" }));
+    const card = page.locator('[data-id="e2-30"]');
+    await expect(card).toHaveClass(/is-current/);
+    await expect.poll(currentInView).toBe(true);
+    const read = card.locator(".read-toggle");
+    await read.focus(); await page.keyboard.press("Space");
+    await expect(card).toHaveClass(/is-read/);
+    await expect.poll(() => extension.worker.evaluate(async () => (await chrome.storage.local.get("laterOnItems")).laterOnItems.find(item => item.id === "e2-30").status)).toBe("done");
+    await expect(read).toBeFocused();
+    await extension.worker.evaluate(async cover => {
+      const { laterOnItems: items } = await chrome.storage.local.get("laterOnItems");
+      await chrome.storage.local.set({ laterOnItems: items.map(item => item.id === "e2-30" ? { ...item, title: "Updated article", source: "updated.test", image: "local://e2-30" } : item), laterOnCovers: { "e2-30": cover } });
+    }, cover);
+    await expect(card.locator("h2")).toHaveText("Updated article");
+    await expect(card.locator(".source")).toHaveText("updated.test");
+    await expect(read).toBeFocused();
+    await expect.poll(() => card.locator(".thumb-img").evaluate(node => node.complete && node.naturalWidth > 0)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath(`e2-${language}-${theme}.png`) });
+  });
+}
+
 for (const colorScheme of ["light", "dark"]) {
   test.describe(colorScheme, () => {
     test.use({ colorScheme });
@@ -110,7 +168,7 @@ test("真实删除入口经后台协调器持久化，重开后收藏和封面�
   const card = page.locator('[data-id="cover"]');
   await expect(card).toBeVisible();
   await card.hover();
-  await card.getByRole("button", { name: "删除", exact: true }).click();
+  await card.getByRole("button", { name: "删除网页", exact: true }).click();
   await page.locator(".lod-root").getByRole("button", { name: "删除", exact: true }).click();
   await expect(card).toHaveCount(0);
   await expect.poll(() => extension.worker.evaluate(async () => {

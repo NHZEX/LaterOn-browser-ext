@@ -179,7 +179,7 @@ function boot({ store, dropSmooth = false, activeTab: initialTab = null, stickyB
   };
 }
 
-// 60 篇：多于第一批的 30 张，正在读那篇排在第 45 位（落在分批渲染的后面几批里）
+// 60 篇：多于第一批的 8 张，正在读那篇排在第 45 位（落在分批渲染的后面几批里）
 function bigStore(currentIndex, overrides = {}) {
   const items = Array.from({ length: 60 }, (_, i) =>
     makeItem({ id: `a-${i}`, title: `第 ${i} 篇`, savedAt: now - i * 1000 })

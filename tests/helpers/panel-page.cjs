@@ -173,8 +173,10 @@ function createPanelPage(t, {
       listeners.forEach(listener => listener(changes, "local"));
     },
     frame, idleTurn, until, flush, releaseGet: () => releaseGet?.(),
+    pendingIdle: () => [...idle.values()],
+    pendingFrames: () => [...frames.values()],
     failNextWrite: (message = "storage unavailable") => { writeError = message; },
-    item: (id) => window.document.querySelector(`.item[data-id="${id}"]`),
+    item: (id) => [...window.document.querySelectorAll("#items .item")].find(element => element.dataset.id === id) ?? null,
     cached: () => JSON.parse(memory.get("laterOnPanelCache") || "null"),
     count: () => window.document.querySelectorAll("#items .item").length,
     click: (element) => {

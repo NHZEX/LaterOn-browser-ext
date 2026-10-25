@@ -1,5 +1,13 @@
 import { matchesReadFilter, matchesSearch, type ReadFilter } from "../collection/filter";
 import type { StoredItem, StoredProject } from "../storage/contracts";
+import type { Translate } from "../shared/i18n";
+
+export function panelSavedTime(timestamp: number | undefined, language: string, t: Translate, now = Date.now()): string {
+  const days = Math.floor((now - (timestamp ?? now)) / 86400000);
+  if (days < 1) return t("today");
+  if (days < 30) return t("daysAgo", { n: days });
+  return new Intl.DateTimeFormat(language === "en" ? "en" : "zh-CN", { month: "short", day: "numeric" }).format(timestamp);
+}
 
 export interface PanelCollection {
   readonly items: readonly StoredItem[];

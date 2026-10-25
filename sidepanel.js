@@ -1,12 +1,12 @@
 import { normalizeFilter } from "./src/collection/filter";
 import { normalizePanelProject } from "./src/sidepanel/shared";
+import { nextCoverFallback } from "./src/shared/card-media";
 
-// E1 过渡控制器：仅保留卡片、缓存和浏览器适配；搜索、筛选、项目与计数由 Vue 拥有。
+// E2 过渡控制器：保留交互命令、缓存和浏览器适配；卡片、分批与阅读定位由 Vue 拥有。
 export function startSidepanelPage(controls) {
 let alive = true;
 const cleanups = [];
 const timers = new Set();
-const idle = new Set();
 const setTimeout = (fn, ms) => {
   const id = window.setTimeout(() => { timers.delete(id); if (alive) fn(); }, ms);
   timers.add(id);
@@ -21,7 +21,7 @@ function listenChrome(event, handler) {
   event.addListener(handler);
   cleanups.push(() => event.removeListener?.(handler));
 }
-controls.connect(render);
+controls.connect(render, hideBootPlaceholder);
 const STORAGE_KEY = "laterOnItems";
 const PROJECTS_KEY = "laterOnProjects";
 const ACTIVE_PROJECT_KEY = "laterOnActiveProject";
@@ -74,27 +74,10 @@ let sortMode = "newest";   // 全屏那边的排序方式（只有 custom 会影
 let orders = {};           // 用户拖出来的自定义顺序（与全屏共享：{ 范围: [收藏 id] }）
 let covers = {};           // 用户上传的封面：{ 收藏 id: dataURL }（与 COVERS_KEY 对应）
 let loadGeneration = 0;
-const itemMap = new Map();
 let currentItemId = null;     // 当前正在读的文章 id（与全屏界面共享，用于高亮 + 滚动定位）
-// 收藏一多（几百上千条），一次性把卡片全画出来会把主线程占住好几秒——
-// 界面在这期间是一点不动的白屏。所以分批画：先快速画出第一屏，
-// 剩下的排在浏览器空闲时继续。（放在文件靠前的位置：init() 会立刻用到它们）
-// 侧栏一屏通常只看得到 4–6 张。首批画 8 张已经覆盖一屏，继续同步创建 30 张
-// 只会把“第一眼能点”推迟；剩余卡片交给空闲时段补齐。
-const FIRST_BATCH = 8;
 // 秒开缓存只为第一屏服务，不是第二份完整数据库。存得越大，localStorage 冷读和
 // JSON.parse 越慢；真实完整列表随后仍会由 chrome.storage.local 校准。
 const CACHE_PREVIEW_LIMIT = 12;
-let renderToken = 0;
-// 「正在读」那一篇的定位任务：列表是分批画的，卡片可能还没画出来，
-// 就算画出来了，列表没铺完时量到的坐标也是不准的。所以要等列表铺完再定位，并事后复查一次。
-let pendingLocate = false;    // 有一个定位任务在等（可能被列表没画完卡着）
-let renderComplete = false;   // 当前这一轮渲染是不是已经把整张列表画完了
-let locateTimer = null;       // 滚动动画结束后复查用的定时器
-// 顶部吸顶标题栏的窄栏兜底高度。实际定位会实时量 header：
-// 侧栏拖宽后它会变成 64px，再写死 58px 就会让卡片上沿藏在吸顶栏下面。
-const TOPBAR_FALLBACK_H = 58;
-const LOCATE_EDGE_GAP = 10;
 const frames = new Set();
 const nextFrame = (fn) => {
   if (typeof window.requestAnimationFrame !== "function") { setTimeout(fn, 16); return; }
@@ -114,14 +97,7 @@ let suppressCardClickUntil = 0;
 function nextStatus(status) {
   return LaterOnItemState.nextStatus(status);
 }
-// 标记按钮上的文字：已完成时提示「标为未读」，其余提示「标为已读」。
-function readToggleLabel(status) {
-  return status === "done" ? tr("unreadButton") : tr("readButton");
-}
-
 const list = document.querySelector("#items");
-const empty = document.querySelector("#emptyState");
-const template = document.querySelector("#itemTemplate");
 const saveButton = document.querySelector("#saveCurrent");
 const status = document.querySelector("#status");
 
@@ -311,6 +287,9 @@ async function init() {
     items = normalizeItems(cached);
     const paintStart = nowMs();
     render();
+    // 响应式赋值只排入 Vue 队列；首批真正提交后再计时，不能漏算首屏绘制。
+    await controls.afterPaint();
+    if (!alive) return;
     seg.paint = Math.round(nowMs() - paintStart);
   }
   if (typeof window.LaterOnBoot?.stage === "function") window.LaterOnBoot.stage(tr("readingSaves"));
@@ -325,6 +304,8 @@ async function init() {
     seg.error = stored.__laterOnLoadError;
     if (!cacheHit) {
       render();
+      await controls.afterPaint();
+      if (!alive) return;
     }
     reportOpenSpeed(seg, bootStart, cacheHit);
     sidePanelReady = true;
@@ -355,6 +336,8 @@ async function init() {
   scope.filter = stored[FILTER_CHOSEN_KEY] ? normalizeFilter(stored[FILTER_KEY]) : DEFAULT_FILTER;
   const paintStart2 = nowMs();
   render();
+  await controls.afterPaint();
+  if (!alive) return;
   // 没用上缓存时，这一次才是「第一屏」，它才是用户真正等的那一刻。
   if (!cacheHit) seg.paint = Math.round(nowMs() - paintStart2);
   // 把这次打开的分段耗时记下来并（慢的时候）直接显示在界面上。
@@ -582,9 +565,7 @@ function syncCurrentTabItem(url, { followProject = true } = {}) {
   }
 
   // 当前页面从未收藏过：取消旧的“正在阅读”高亮并回到侧栏顶部，方便直接收藏。
-  pendingLocate = false;
-  clearTimeout(locateTimer);
-  for (const article of itemMap.values()) article.classList.remove("is-current");
+  controls.locate(null);
   window.scrollTo({ top: 0, behavior: "auto" });
 }
 
@@ -677,6 +658,7 @@ listen(list, "dragstart", (event) => {
   cardDrag = {
     id,
     slot: null,
+    elements,
     ids: elements.map((element) => element.dataset.id),
     rects: elements.map((element) => {
       const rect = element.getBoundingClientRect();
@@ -765,7 +747,7 @@ function previewSidepanelOrder(dropIndex) {
   const fromIndex = cardDrag.ids.indexOf(cardDrag.id);
   if (fromIndex === -1) return;
   for (let index = 0; index < cardDrag.ids.length; index += 1) {
-    const element = itemMap.get(cardDrag.ids[index]);
+    const element = cardDrag.elements[index];
     if (!element) continue;
     let targetIndex;
     if (index === fromIndex) targetIndex = dropIndex;
@@ -781,8 +763,7 @@ function previewSidepanelOrder(dropIndex) {
 
 function clearSidepanelOrderPreview() {
   if (cardDrag?.ids) {
-    for (const id of cardDrag.ids) {
-      const element = itemMap.get(id);
+    for (const element of cardDrag.elements) {
       if (element) element.style.transform = "";
     }
   }
@@ -923,15 +904,6 @@ listen(document, "keydown", (event) => {
 listen(document, "scroll", closeItemContextMenu, true);
 listen(window, "blur", closeItemContextMenu);
 listen(window, "resize", closeItemContextMenu);
-// 剩下的排在浏览器空闲时继续，鼠标点什么都不会被卡住。
-function nextIdle(fn) {
-  if (typeof window.requestIdleCallback === "function") {
-    const id = window.requestIdleCallback(() => { idle.delete(id); if (alive) fn(); }, { timeout: 300 });
-    idle.add(id);
-  }
-  else setTimeout(fn, 16);
-}
-
 // 骨架屏 / 「正在打开…」提示条：真内容一画出来就撤掉，让真界面露面。
 // body 上的 .booting 一去掉，#appBody 就从「不占位」变回正常显示，两者不会同时出现。
 function hideBootPlaceholder() {
@@ -943,167 +915,13 @@ function hideBootPlaceholder() {
 
 function render() {
   if (!alive) return;
-  // 只要画得出东西（秒开缓存也好、真数据也好），骨架屏就完成使命了。
-  hideBootPlaceholder();
-  controls.update({ items, projects, archivedProjectIds, orders, sortMode });
-  const visible = controls.visible.value;
-  const token = ++renderToken;
-  renderComplete = false;   // 这一轮还没画完，先别拿半张列表的坐标去做定位
-
-  // 已经不在列表里的卡片先撤掉（删掉的收藏要立刻从界面消失）。
-  const visibleIds = new Set(visible.map((item) => item.id));
-  for (const [id, article] of itemMap) {
-    if (!visibleIds.has(id)) { article.remove(); itemMap.delete(id); }
-  }
-  empty.hidden = visible.length > 0;
-  // 第一批同步画出来（保证「立刻有东西看」），其余交给空闲时段续画。
-  renderSlice(visible, 0, token);
-  // 每次画完存一份快照进 localStorage，下次打开侧栏先拿它秒开第一屏。
+  controls.update({ items, projects, archivedProjectIds, orders, sortMode }, covers);
+  // Vue 首批提交后撤骨架；快照写入仍在后续事件循环，不挡住眼前绘制。
   saveSlimCache();
 }
 
-// 画 [start, start + FIRST_BATCH) 这段；没画完就约下一次空闲再继续。
-// token 用来作废上一次没画完的重渲染，避免两次渲染交错。
-function renderSlice(visible, start, token) {
-  if (token !== renderToken) return;
-  const end = Math.min(start + FIRST_BATCH, visible.length);
-  for (let index = start; index < end; index += 1) {
-    const item = visible[index];
-    let article = itemMap.get(item.id);
-    if (!article) { article = createItem(item); itemMap.set(item.id, article); }
-    else updateItemCard(article, item);
-    article.dataset.currentLabel = tr("currentReading");
-    article.classList.toggle("is-current", item.id === currentItemId);
-    if (list.children[index] !== article) list.insertBefore(article, list.children[index] || null);
-  }
-  if (end < visible.length) {
-    const next = () => renderSlice(visible, end, token);
-    // 有定位任务在等 → 不等空闲了，下一帧接着画，让列表尽快铺完（没铺完量不准位置）。
-    if (pendingLocate) nextFrame(next);
-    else nextIdle(next);
-    return;
-  }
-  finishRender(token);
-}
-
-// 整张列表画完了：这时量出来的坐标才可信，可以去做「滚到正在读那篇」了。
-function finishRender(token) {
-  if (token !== renderToken) return;
-  renderComplete = true;
-  // 注意：这里必须包一层。直接写 nextFrame(locateCurrent) 会把 rAF 的时间戳
-  // 当成「第几次尝试」传进去（几万毫秒），结果第一次就走成瞬间滚动、而且不再复查。
-  if (pendingLocate) nextFrame(() => locateCurrent());
-}
-
-// 高亮「正在读」的那篇，并保证它落在可视区域里（只在该视图还活着时调用）。
-// 分两步：卡片已经画出来就立刻定位（快路径）；还没画到 / 列表没铺完，
-// 就挂一个定位任务，等整张列表画完（finishRender）再定位。
 function applyCurrentAndLocate() {
-  // 当前文章变了，上一篇的延迟复查也必须作废，否则会把新定位抢回去。
-  clearTimeout(locateTimer);
-  for (const [id, article] of itemMap) {
-    article.dataset.currentLabel = tr("currentReading");
-    article.classList.toggle("is-current", id === currentItemId);
-  }
-  pendingLocate = Boolean(currentItemId);
-  if (!pendingLocate) return;
-  locateCurrent();
-}
-
-function locateCurrent(attempt = 0) {
-  if (!pendingLocate || !currentItemId) return;
-  const article = itemMap.get(currentItemId);
-  if (!article) {
-    // 列表都画完了还没有它 → 被筛选条件挡在外面（比如筛「已读」但它还没读完），这次不定位。
-    if (renderComplete) { pendingLocate = false; saveLocateDiag({ found: false, attempts: attempt }); }
-    return;
-  }
-  // 已经在视野里先别乱跳，但不立刻宣布完成：侧栏刚展开、
-  // 宽度媒体查询或封面完成布局时，卡片还可能被再挤到吸顶栏下面。
-  // 延迟复查一次，如果位置变了就用瞬时滚动补正。
-  if (isCardInView(article)) {
-    if (attempt === 0) {
-      locateTimer = setTimeout(() => {
-        if (!pendingLocate) return;
-        const target = itemMap.get(currentItemId);
-        if (target && !isCardInView(target)) { locateCurrent(1); return; }
-        pendingLocate = false;
-        saveLocateDiag({ found: Boolean(target), inView: Boolean(target), scrolled: false, attempts: 0 });
-      }, 320);
-      return;
-    }
-    pendingLocate = false;
-    saveLocateDiag({ found: true, inView: true, scrolled: attempt > 0, attempts: attempt });
-    return;
-  }
-  // 第一次用平滑滚动（好看），补的几次用瞬间滚动（可靠）。
-  scrollCardToCenter(article, attempt === 0);
-  // 侧栏刚滑出来的那一瞬间页面可能还不可滚动，这次滚动会被浏览器直接丢掉 ——
-  // 表现就是「明明定位了，那篇却不在视野里」。所以隔一会儿复查：没进视野就再滚一次，
-  // 最多试 3 次。
-  clearTimeout(locateTimer);
-  locateTimer = setTimeout(() => {
-    if (!pendingLocate) return;
-    const target = itemMap.get(currentItemId) || article;
-    if (!isCardInView(target) && attempt < 2) { locateCurrent(attempt + 1); return; }
-    pendingLocate = false;
-    saveLocateDiag({
-      found: true,
-      inView: isCardInView(target),
-      scrolled: true,
-      attempts: attempt + 1,
-      scrollY: Math.round(window.scrollY || 0)
-    });
-  }, 420);
-}
-
-// 自己算位置、自己滚。不用 scrollIntoView：侧栏里它时有失灵（滚动被丢掉、或滚偏），
-// 而 window.scrollTo 是我们能自己算、也能自己验证的。
-function scrollCardToCenter(article, smooth) {
-  const rect = article.getBoundingClientRect();
-  const viewport = window.innerHeight || 0;
-  if (!viewport || !rect.height) return;
-  const current = window.scrollY || window.pageYOffset || 0;
-  const visibleTop = visibleTopInset();
-  const visibleHeight = Math.max(0, viewport - visibleTop);
-  // 目标：把卡片放到「吸顶栏以下」那块真正可见区域的中间。
-  let target = current + rect.top - visibleTop - (visibleHeight - rect.height) / 2;
-  // 别滚出文档范围（滚到底就停在那儿）
-  const docHeight = document.documentElement?.scrollHeight || document.body?.scrollHeight || 0;
-  const max = docHeight - viewport;
-  if (max > 0) target = Math.min(Math.max(0, target), max);
-  else target = Math.max(0, target);
-  if (Math.abs(target - current) < 2) return;   // 已经在那儿了，不用滚
-  try {
-    window.scrollTo({ top: target, behavior: smooth ? "smooth" : "auto" });
-  } catch {
-    window.scrollTo(0, target);   // 老式写法兜底
-  }
-}
-
-// 实时量出顶部不可见区域，多留 10px 呼吸空间，避免高亮边框贴着栏底。
-function visibleTopInset() {
-  const headerRect = document.querySelector("header")?.getBoundingClientRect?.();
-  const measured = Number(headerRect?.bottom);
-  return (Number.isFinite(measured) && measured > 0 ? measured : TOPBAR_FALLBACK_H) + LOCATE_EDGE_GAP;
-}
-
-// 卡片是不是整个都落在真正可见区域里（被吸顶栏压住不算）。
-function isCardInView(article) {
-  const rect = article.getBoundingClientRect();
-  const viewport = window.innerHeight || 0;
-  // 量不出来（还没排版）就别乱动，等下一次机会。
-  if (!viewport || !rect.height) return true;
-  return rect.top >= visibleTopInset() - 1 && rect.bottom <= viewport + 1;
-}
-
-// 定位到底成没成，记一笔：设置页「自检信息 → 侧栏『滚到正在读』」能看到，不用猜。
-function saveLocateDiag(record) {
-  try {
-    chrome.storage.local.set({
-      laterOnLocateDiag: { at: Date.now(), itemId: currentItemId, viewport: window.innerHeight || 0, ...record }
-    });
-  } catch {}
+  controls.locate(currentItemId);
 }
 
 function normalizeProject(projectId) {
@@ -1163,87 +981,6 @@ function readSlimCache() {
 }
 
 
-
-// 缩略图：卡片 DOM 是复用的，用户自己换/移除封面后要能同步刷新。
-function applyThumb(article, item) {
-  const thumb = article.querySelector(".thumb");
-  if (!thumb) return;
-  // 占位（LaterOn Logo）是模板自带的，封面图插在它上面盖住；没有封面就只留占位。
-  const current = thumb.querySelector("img.thumb-img");
-  const src = resolveImage(item);
-  if (src) {
-    if (current && current.getAttribute("src") === src) return;
-    const image = document.createElement("img");
-    image.className = "thumb-img";
-    // 小红书等站点的图片 CDN 会拒绝带 chrome-extension:// Referer 的请求（403），
-    // 明确声明「不发 Referer」它们才会正常返回图片。
-    image.referrerPolicy = "no-referrer";
-    image.src = src;
-    image.alt = "";
-    image.loading = "lazy";
-    image.addEventListener("error", () => {
-      const fallback = nextCoverFallback(image.src);
-      if (fallback) image.src = fallback;
-      // 降级链走完仍拿不到图：移掉坏图，露出底下的 Logo 占位。
-      else image.remove();
-    });
-    if (current) current.replaceWith(image);
-    else thumb.prepend(image);
-  } else if (current) {
-    current.remove();
-  }
-}
-
-function createItem(item) {
-  const fragment = template.content.cloneNode(true);
-  const article = fragment.querySelector(".item");
-  article.dataset.id = item.id;
-  article.draggable = true;
-  const openLink = fragment.querySelector(".open-item");
-  openLink.href = safeTarget(item.url) || "#";
-  fragment.querySelector("h2").textContent = item.title;
-  setText(fragment.querySelector(".description"), item.description);
-  fragment.querySelector(".source").textContent = item.source;
-  fragment.querySelector("time").textContent = formatTime(item.savedAt);
-  const favicon = fragment.querySelector(".meta img");
-  favicon.src = item.favicon;
-  favicon.addEventListener("error", () => { favicon.style.visibility = "hidden"; });
-  applyThumb(article, item);
-  article.classList.toggle("is-read", item.status === "done");
-  article.classList.toggle("is-reading", item.status === "reading");
-  const readToggle = article.querySelector(".read-toggle");
-  if (readToggle) {
-    readToggle.classList.toggle("is-on", item.status === "done");
-    setText(readToggle, readToggleLabel(item.status));
-    readToggle.setAttribute("aria-label", readToggleLabel(item.status));
-    readToggle.title = readToggleLabel(item.status);
-  }
-  return article;
-}
-
-function updateItemCard(article, item) {
-  article.classList.toggle("is-read", item.status === "done");
-  article.classList.toggle("is-reading", item.status === "reading");
-  const readToggle = article.querySelector(".read-toggle");
-  if (readToggle) {
-    readToggle.classList.toggle("is-on", item.status === "done");
-    setText(readToggle, readToggleLabel(item.status));
-    readToggle.setAttribute("aria-label", readToggleLabel(item.status));
-    readToggle.title = readToggleLabel(item.status);
-  }
-  // 卡片 DOM 是复用的，不同步的话改完标题/摘要会一直显示旧文字。
-  setText(article.querySelector("h2"), item.title);
-  setText(article.querySelector(".description"), item.description);
-  article.querySelector(".open-item").href = safeTarget(item.url) || "#";
-  applyThumb(article, item);
-}
-
-// 只在文字真的变了时才写 DOM —— 避免每次重渲染都惊动浏览器重新排版。
-function setText(element, value) {
-  if (!element) return;
-  const next = value == null ? "" : String(value);
-  if (element.textContent !== next) element.textContent = next;
-}
 
 // ── 编辑收藏的标题 / 摘要 ──────────────────────────────────
 // 自动抓取难免有偏差（标题带站名、摘要抓成导航文字），所以允许用户自己改。
@@ -1359,34 +1096,6 @@ async function deleteItem(id) {
   await commitItemMutation("delete", [id]);
 }
 
-function formatTime(timestamp) {
-  const days = Math.floor((Date.now() - timestamp) / 86400000);
-  if (days < 1) return tr("today");
-  if (days < 30) return tr("daysAgo", { n: days });
-  return new Intl.DateTimeFormat(document.documentElement.lang === "en" ? "en" : "zh-CN", { month: "short", day: "numeric" }).format(timestamp);
-}
-
-// YouTube 的最大分辨率封面（maxresdefault）对部分视频并不存在，
-// 加载失败时逐级降级，而不是让卡片/预览留下空白。
-const COVER_CHAIN = ["maxresdefault.jpg", "hq720.jpg", "hqdefault.jpg", "mqdefault.jpg"];
-function nextCoverFallback(currentSrc) {
-  let url;
-  try {
-    url = new URL(currentSrc);
-  } catch {
-    return "";
-  }
-  const matched = /^\/vi\/([^/]+)\/([^/]+\.jpg)$/.exec(url.pathname);
-  if (!matched || url.hostname !== "i.ytimg.com") return "";
-  const index = COVER_CHAIN.indexOf(matched[2]);
-  if (index === -1) return "";
-  const next = COVER_CHAIN[index + 1];
-  if (!next) return "";
-  url.pathname = `/vi/${matched[1]}/${next}`;
-  url.search = "";
-  return url.href;
-}
-
 // 没抓到封面（或封面加载不出来）时，缩略图区域继续显示 LaterOn 的 Logo。
 function resetCurrentThumb() {
   const thumb = document.querySelector("#currentThumb");
@@ -1414,13 +1123,10 @@ return () => {
   alive = false;
   sidePanelReady = false;
   loadGeneration++;
-  renderToken++;
-  pendingLocate = false;
   closeItemContextMenu();
   finishSidepanelDrag();
   cleanups.forEach(stop => stop());
   timers.forEach(id => window.clearTimeout(id));
   frames.forEach(id => window.cancelAnimationFrame(id));
-  idle.forEach(id => window.cancelIdleCallback?.(id));
 };
 }

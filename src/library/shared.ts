@@ -62,11 +62,7 @@ export function collectionCards(collection: LibraryCollection, scope: CardScope,
   return { scoped, visible };
 }
 
-// Modified clicks can follow href directly, so links must be safe before any event handler runs.
-export function cardTarget(value: string | undefined): string {
-  try { return ["http:", "https:"].includes(new URL(value ?? "").protocol) ? (value ?? "").trim() : ""; }
-  catch { return ""; }
-}
+export { cardTarget, nextCoverFallback } from "../shared/card-media";
 
 export interface NavigationProject {
   readonly id: string;
@@ -192,21 +188,6 @@ export function formatSavedTime(timestamp: number, now: number, translate: Trans
   if (diff < day) return translate("hoursAgo", { n: Math.floor(diff / 3600000) });
   if (diff < day * 30) return translate("daysAgo", { n: Math.floor(diff / day) });
   return new Intl.DateTimeFormat(english ? "en" : "zh-CN", { month: "short", day: "numeric" }).format(timestamp);
-}
-
-export function nextCoverFallback(currentSrc: string): string {
-  // 部分 YouTube 视频没有最高分辨率封面，逐级尝试较低规格，耗尽后由组件显示占位图。
-  let url: URL;
-  try { url = new URL(currentSrc); } catch { return ""; }
-  const matched = /^\/vi\/([^/]+)\/([^/]+\.jpg)$/.exec(url.pathname);
-  if (!matched || url.hostname !== "i.ytimg.com") return "";
-  const chain = ["maxresdefault.jpg", "hq720.jpg", "hqdefault.jpg", "mqdefault.jpg"];
-  const index = chain.indexOf(matched[2] ?? "");
-  const next = index >= 0 ? chain[index + 1] : undefined;
-  if (!next) return "";
-  url.pathname = `/vi/${matched[1]}/${next}`;
-  url.search = "";
-  return url.href;
 }
 
 export interface DragRect {

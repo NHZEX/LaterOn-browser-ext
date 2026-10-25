@@ -220,35 +220,10 @@
 
       <div id="panelControls"></div>
 
-      <section id="emptyState" class="empty" hidden>
-        <img class="empty-icon" src="/icon128.png" vite-ignore alt="" />
-        <h2 data-i18n="sideEmptyTitle">还没有添加的网页</h2>
-        <p data-i18n="sideEmptyHint">添加当前网页后，它会出现在这里。</p>
-      </section>
+      <div id="panelEmpty"></div>
       <section id="items" class="items" aria-live="polite"></section>
       </div>
     </main>
-
-    <template id="itemTemplate">
-      <article class="item">
-        <a class="open-item" target="_blank" rel="noreferrer" data-i18n-title="openInNewTab" title="在新标签页打开">
-          <div class="thumb"><div class="thumb-placeholder"><img class="thumb-logo" src="/article-cover-placeholder.png" vite-ignore alt="" /></div></div>
-          <div class="copy">
-            <div class="meta"><img alt="" referrerpolicy="no-referrer" /><span class="source"></span><span class="dot">·</span><time></time></div>
-            <h2></h2>
-            <p class="description"></p>
-          </div>
-        </a>
-        <!-- 和全屏界面同一颗按钮：文字直接写清「标为已读 / 标为未读」（文字由 JS 填） -->
-        <button class="read-toggle" aria-label="标为已读" title="标为已读"></button>
-        <button class="edit" data-i18n-title="editItemAria" data-i18n-aria-label="editItemAria" title="编辑标题和摘要" aria-label="编辑标题和摘要">
-          <svg viewBox="0 0 24 24"><path d="M4 20h4L20 8l-4-4L4 16zM14 6l4 4"/></svg>
-        </button>
-        <button class="delete" data-i18n-title="deleteSave" data-i18n-aria-label="deleteSave" title="删除" aria-label="删除">
-          <svg viewBox="0 0 24 24"><path d="M4 7h16m-10 4v6m4-6v6M9 7l1-3h4l1 3m3 0-1 13H7L6 7"/></svg>
-        </button>
-      </article>
-    </template>
 
     <div id="app"></div>
     <script type="module" src="./main.ts"></script>

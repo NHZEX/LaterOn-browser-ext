@@ -4,6 +4,7 @@ import type { SidepanelControls } from "../../../src/sidepanel/useSidepanelContr
 import type { Translate } from "../../../src/shared/i18n";
 import { startSidepanelPage } from "../../../sidepanel.js";
 import PanelControls from "./PanelControls.vue";
+import PanelCards from "./PanelCards.vue";
 
 const props = defineProps<{ controls: SidepanelControls }>();
 const languageVersion = ref(0);
@@ -17,4 +18,7 @@ onMounted(() => { window.addEventListener("lateron-language-change", refreshLang
 onBeforeUnmount(() => { window.removeEventListener("lateron-language-change", refreshLanguage); props.controls.dispose(); stopPage?.(); });
 </script>
 
-<template><Teleport to="#panelControls"><PanelControls :controls="controls" :translate="translate" /></Teleport></template>
+<template>
+  <Teleport to="#panelControls"><PanelControls :controls="controls" :translate="translate" /></Teleport>
+  <PanelCards :controls="controls" :translate="translate" />
+</template>
