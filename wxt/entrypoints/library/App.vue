@@ -22,7 +22,7 @@ const translate: Translate = (key, values) => {
 };
 function refreshLanguage(): void { languageVersion.value++; }
 
-onMounted(() => { window.addEventListener("lateron-language-change", refreshLanguage); props.controls.drag.mount(); });
+onMounted(() => { window.addEventListener("lateron-language-change", refreshLanguage); props.controls.mount(); });
 onBeforeUnmount(() => {
   window.removeEventListener("lateron-language-change", refreshLanguage);
   props.controls.dispose();
@@ -30,6 +30,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <Teleport to="#libraryNotice"><div id="toast" class="toast" role="status"
+    :class="{ show: controls.notice.state.visible, 'pill-toast': controls.notice.state.pill }">{{ controls.notice.state.message }}</div></Teleport>
   <Teleport to="body"><LibraryMenu :controls="controls" :translate="translate" /></Teleport>
   <Teleport to="#libraryBulkToolbar"><BulkToolbar :controls="controls" :translate="translate" /></Teleport>
   <Teleport to="#libraryHeader">
@@ -48,7 +50,7 @@ onBeforeUnmount(() => {
   </Teleport>
   <Teleport to="#libraryCards">
     <CollectionCards :items="controls.cards.value" :collection="controls.collection.value" :selected-ids="controls.selectedIds.value" :selection="controls.selection"
-      :board="controls.state.board" :actions="controls.items" @select="controls.selection.toggle"
+      :board="controls.state.board" :actions="controls.items" :open="controls.openItem" :menu="controls.itemMenu" @select="controls.selection.toggle"
       :current-item-id="controls.state.currentItemId" :translate="translate" :english="english" @rendered="controls.cardsRendered" />
   </Teleport>
   <Teleport to="#libraryEmptyState">

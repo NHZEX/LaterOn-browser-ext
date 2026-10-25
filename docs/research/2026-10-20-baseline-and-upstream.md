@@ -25,7 +25,7 @@
 | 模块 | 文件 | 职责 |
 | --- | --- | --- |
 | 后台协调 | [background.js](../../background.js) | 浏览器事件、消息路由、保存与去重、条目修改与删除、定时清理 |
-| 全屏资料库 | [library.js](../../library.js)、library.html、library.css | 项目图板、网页卡片、搜索、筛选、拖拽和批量处理 |
+| 全屏资料库 | `library.js`（调研时入口，后于 ITER-022 D5 删除）、library.html、library.css | 项目图板、网页卡片、搜索、筛选、拖拽和批量处理 |
 | 浏览器侧栏 | [sidepanel.js](../../sidepanel.js)、sidepanel.html、sidepanel.css | 当前页收集、阅读定位、轻量管理、缓存首屏与耗时诊断 |
 | 设置 | [设置脚本（现位置）](../../wxt/entrypoints/settings/App.vue)、[设置页面](../../wxt/entrypoints/settings/index.html) | 外观、语言、快捷键诊断、导入导出、清空数据；初始根级设置文件已随 ITER-020 A 迁入 WXT 页面目录 |
 | 网页内容脚本 | content-metadata.js、content-translation.js、content-folder-picker.js、content-reading-position.js | 元信息提取、本机翻译、项目选择、滚动位置记录与恢复提示 |

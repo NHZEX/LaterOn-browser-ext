@@ -6,7 +6,6 @@ const vm = require("vm");
 const ROOT = path.resolve(__dirname, "..");
 const urlSource = require("./helpers/read-runtime.cjs")("url-utils.js");
 const navigationSource = require("./helpers/read-runtime.cjs")("tab-navigation.js");
-const librarySource = fs.readFileSync(path.join(ROOT, "library.js"), "utf8");
 const sidepanelSource = fs.readFileSync(path.join(ROOT, "sidepanel.js"), "utf8");
 
 const tabs = [
@@ -108,7 +107,6 @@ vm.runInContext(navigationSource, context, { filename: "tab-navigation.js" });
   delete context.chrome.windows;
   assert.strictEqual(await context.LaterOnTabs.activate({ id: 10, windowId: 40 }), true, "窗口 API 不可用时仍兼容");
 
-  assert.match(librarySource, /LaterOnTabs\.findOpen\(target, \{ excludeTabId: libraryTabId \}\)/);
   assert.match(sidepanelSource, /LaterOnTabs\.findOpen\(target\)/);
   console.log("PASS 已打开页面会被复用并聚焦其窗口");
 })().catch((error) => {

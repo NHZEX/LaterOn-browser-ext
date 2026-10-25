@@ -21,6 +21,46 @@ const settleCards = page => page.locator("#cardGrid .card").evaluateAll(cards =>
   Promise.all(cards.flatMap(card => card.getAnimations().map(animation => animation.finished.catch(() => {})))));
 
 for (const [theme, language] of [["light", "zh-CN"], ["dark", "en"]]) {
+  test(`D5 页面生命周期、通知、快捷键与原文标签复用（${theme}/${language}）`, async ({ page, context, extension }) => {
+    const errors = []; page.on("pageerror", error => errors.push(error.message));
+    await context.route("https://assets.example.test/**", route => route.abort());
+    await context.route("https://example.test/**", route => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Saved article</title><p>Article content</p>" }));
+    await seed(extension.worker, { theme, language, count: 2 });
+    await extension.worker.evaluate(() => chrome.storage.local.set({ laterOnCurrentItem: "n-0" }));
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`${libraryUrl(extension)}&focus=n-0`);
+    await expect(page.locator("#cardGrid .card")).toHaveCount(2);
+    await expect(page.locator('#cardGrid [data-id="n-0"]')).toHaveClass(/is-current/);
+    await page.keyboard.press("Control+k"); await expect(page.locator("#searchInput")).toBeFocused();
+    const response = await extension.worker.evaluate(async () => {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      return chrome.tabs.sendMessage(tab.id, { type: "SHOW_LIBRARY_NOTICE", tabId: tab.id, message: "Open a web page first · Alt+1" });
+    });
+    expect(response.shown).toBe(true);
+    const toast = page.locator("#toast");
+    await expect(toast).toHaveText("Open a web page first · Alt+1");
+    await expect(toast).toHaveCSS("opacity", "1");
+    await expect(toast).toHaveCSS("top", "18px"); await expect(toast).toHaveCSS("right", "18px");
+    await expect(toast).toHaveCSS("border-radius", "999px");
+    expect(await toast.evaluate(element => {
+      const style = getComputedStyle(element, "::before"); return { content: style.content, color: style.color };
+    })).toEqual({ content: '"✓"', color: "rgb(79, 226, 181)" });
+    await page.setViewportSize({ width: 375, height: 640 }); await settleCards(page);
+    await page.screenshot({ path: test.info().outputPath(`library-lifecycle-${theme}.png`) });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const original = await context.newPage(); await original.goto("https://example.test/0");
+    await page.bringToFront(); const count = context.pages().length;
+    await page.locator('#cardGrid [data-id="n-0"] .description').click();
+    await expect.poll(() => extension.worker.evaluate(async () => {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true }); return tab.url;
+    })).toBe("https://example.test/0");
+    expect(context.pages().length).toBe(count); expect(page.url()).toContain("library.html");
+    expect(await extension.worker.evaluate(async () => (await chrome.storage.local.get("laterOnCurrentItem")).laterOnCurrentItem)).toBe("n-0");
+    expect(errors).toEqual([]);
+  });
+}
+
+for (const [theme, language] of [["light", "zh-CN"], ["dark", "en"]]) {
   test(`D4 项目排序、拖卡归类及侧栏宽度持久化（${theme}/${language}）`, async ({ page, context, extension }) => {
     const errors = []; page.on("pageerror", error => errors.push(error.message));
     await context.route("https://assets.example.test/**", route => route.abort());

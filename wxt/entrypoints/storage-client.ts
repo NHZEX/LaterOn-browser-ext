@@ -4,10 +4,11 @@ import { createStorageClient } from "../../src/storage/client";
 import { EPOCH } from "../../src/storage/contracts";
 import type { StorageClient } from "../../src/storage/client";
 import type { CollectionCommandResult } from "../../src/storage/contracts";
+import type { LibraryDialog } from "../../src/library/page-adapters";
 
 declare global {
   var LaterOnStorage: Pick<StorageClient, "initialize" | "run">;
-  var LaterOnDialog: { alert: (config: { tone: "danger"; title: string; message: string }) => Promise<unknown> } | undefined;
+  var LaterOnDialog: LibraryDialog | undefined;
   var showToast: ((message: string) => void) | undefined;
 }
 

@@ -34,7 +34,7 @@ module.exports = async function verifyLibraryPage(directory) {
       };
       for (const element of document.querySelectorAll("script[src], link[href], img[src]")) resource(element.src || element.href);
       const listeners = [];
-      const commands = [];
+      const commands = [], opened = [];
       let failProjectWrite = false;
       const item = (id, status, savedAt) => ({ id, status, read: status === "done", savedAt,
         doneAt: status === "done" ? Date.now() : null, title: `Title ${id}`, description: "Description", source: "Source",
@@ -51,7 +51,7 @@ module.exports = async function verifyLibraryPage(directory) {
         }, onChanged: { addListener(listener) { listeners.push(listener); } } },
         runtime: { getURL: name => `chrome-extension://fixture/${name}`, onMessage: { addListener() {} },
           async sendMessage(message) {
-            if (message.type !== "COLLECTION_COMMAND") return {};
+            if (message.type !== "COLLECTION_COMMAND") return { ready: true };
             commands.push(structuredClone(message));
             if (failProjectWrite && message.action === "updateProject") {
               failProjectWrite = false;
@@ -59,7 +59,9 @@ module.exports = async function verifyLibraryPage(directory) {
             }
             return backend.LaterOnCollection.execute(message);
           } },
-        tabs: { async getCurrent() { return { id: 1, windowId: 1 }; }, async query() { return []; } }
+        tabs: { async getCurrent() { return { id: 1, windowId: 1 }; }, async query() { return []; },
+          async update(id, patch) { opened.push({ id, ...patch }); }, async create(patch) { opened.push(patch); } },
+        windows: { async update() {} }, sidePanel: { async open() {} }
       };
       const backend = vm.createContext({ chrome: window.chrome, crypto: webcrypto, Date, URL });
       vm.runInContext(resource("/storage-coordinator.js"), backend);
@@ -281,7 +283,18 @@ module.exports = async function verifyLibraryPage(directory) {
       await until(() => [...document.querySelectorAll('#projectList .project-row')].map(row => row.dataset.id).join(',') === "empty,fresh,p", "Sidebar drop uses visible rows even when archived pins are hidden");
       assert.equal(moves(), beforeMoves + 1);
       assert.equal([...document.querySelectorAll('.board-card')].map(card => card.dataset.project).join(','), "empty,fresh,p", "Sidebar order synchronizes to Vue boards");
+      click('#projectList .project-nav[data-project="p"]');
+      await until(() => document.querySelector('#cardGrid .card[data-id="a"]'), "Cards before compiled reader smoke");
+      window.chrome.tabs.query = async () => [
+        { id: 1, windowId: 1, active: true, url: "https://example.com/a" },
+        { id: 7, windowId: 8, url: "chrome-extension://fixture/suspended.html#ttl=Saved&uri=https://example.com/a?utm_source=mail" }
+      ];
+      click('#cardGrid [data-id="a"] .description');
+      await until(() => opened.length, "Compiled Vue reader reuses original tab");
+      assert.equal(opened.length, 1); assert.equal(opened[0].id, 7); assert.equal(opened[0].active, true);
+      assert.equal(opened[0].url, undefined, "Reuse preserves the existing suspended tab URL");
+      assert.equal(store.laterOnCurrentItem, "a");
       assert.deepEqual(errors, []);
-    } finally { window.close(); }
+    } finally { document.querySelector("#app").__vue_app__?.unmount(); window.close(); }
   }
 };

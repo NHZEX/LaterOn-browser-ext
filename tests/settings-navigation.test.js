@@ -55,7 +55,7 @@ function makeChrome(window, store, extra = {}) {
     sidePanel: { open: () => Promise.resolve() },
     commands: { getAll: () => Promise.resolve([]) },
     runtime: {
-      getURL: (path) => `chrome-extension://lateron/${path}`,
+      getURL: (path) => new URL(path, "chrome-extension://lateron/").href,
       sendMessage: () => Promise.resolve({ ok: false, ready: true }),
       onMessage: { addListener() {} }
     }

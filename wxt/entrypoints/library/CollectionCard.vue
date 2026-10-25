@@ -15,6 +15,8 @@ const props = defineProps<{
   selected: boolean;
   selection: LibrarySelection;
   actions: LibraryItems;
+  open: (id: string, event: MouseEvent) => void;
+  menu: (id: string, x: number, y: number, trigger: HTMLElement | null) => void;
   current: boolean;
   translate: Translate;
   english: boolean;
@@ -48,6 +50,23 @@ function preventProjectChange(event: KeyboardEvent): void {
   if (!typing && !["Enter", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"].includes(event.key)) return;
   event.preventDefault(); event.stopPropagation();
 }
+// 标题、封面、摘要、来源和留白都可打开文章；真实控件保留各自操作。
+function open(event: MouseEvent): void {
+  if (!(event.target instanceof Element)) return;
+  if (event.target.closest(".title-link, .cover-link") || !event.target.closest("button, select, input, label, a")) props.open(props.item.id, event);
+}
+// 多选时也保留右键菜单，阻止浏览器原生菜单覆盖页面菜单。
+function menu(event: MouseEvent): void {
+  event.preventDefault(); props.menu(props.item.id, event.clientX, event.clientY, event.currentTarget instanceof HTMLElement ? event.currentTarget : null);
+}
+function menuKey(event: KeyboardEvent): void {
+  if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+  event.preventDefault();
+  const card = event.currentTarget;
+  if (!(card instanceof HTMLElement)) return;
+  const rect = card.getBoundingClientRect();
+  props.menu(props.item.id, rect.right, rect.top, event.target instanceof HTMLElement ? event.target : card);
+}
 function edit(): void { void props.actions.edit(props.item.id); }
 function read(): void { void props.actions.read(props.item.id); }
 function remove(): void { void props.actions.remove(props.item.id); }
@@ -69,7 +88,7 @@ watch(() => props.item.favicon, () => { faviconFailed.value = false; });
 
 <template>
   <article class="card" :data-id="item.id" draggable="true" tabindex="-1" :data-current-label="translate('currentReading')"
-    :class="{ 'is-read': item.status === 'done', 'is-reading': item.status === 'reading', 'is-current': current, selected }" @click.capture="select" @keydown.capture="preventProjectChange">
+    :class="{ 'is-read': item.status === 'done', 'is-reading': item.status === 'reading', 'is-current': current, selected }" @click.capture="select" @keydown.capture="preventProjectChange" @click="open" @contextmenu="menu" @keydown="menuKey">
     <label class="select-badge" :aria-label="translate('selectItem')"><input type="checkbox" class="select-check" :checked="selected" @change="changeSelection" /></label>
     <a class="cover-link" :href="target" target="_blank" rel="noreferrer"><CardCover :source="cover" /></a>
     <button class="edit" :title="translate('editItemAria')" :aria-label="translate('editItemAria')" @click="edit">

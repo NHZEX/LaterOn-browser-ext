@@ -13,6 +13,19 @@ export interface LibraryCollection {
 
 export type CardOrders = Readonly<Record<string, readonly string[]>>;
 
+// 置顶项目稳定地排在数组最前：存储顺序就是可见顺序，拖动无需再换算下标。
+export function pinnedProjects(projects: readonly StoredProject[]): readonly StoredProject[] {
+  return [...projects.filter(project => project.pinned), ...projects.filter(project => !project.pinned)];
+}
+
+export function libraryProject(id: unknown, projects: readonly StoredProject[]): string {
+  return typeof id === "string" && (["all", "archive", "unfiled"].includes(id) || projects.some(project => project.id === id)) ? id : "all";
+}
+
+export function typingTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.isContentEditable);
+}
+
 export interface CardScope {
   readonly activeProject: string;
   readonly query: string;

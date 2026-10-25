@@ -14,6 +14,8 @@ const props = defineProps<{
   selectedIds: ReadonlySet<string>;
   selection: LibrarySelection;
   actions: LibraryItems;
+  open: (id: string, event: MouseEvent) => void;
+  menu: (id: string, x: number, y: number, trigger: HTMLElement | null) => void;
   board: boolean;
   currentItemId: string | null;
   translate: Translate;
@@ -29,7 +31,7 @@ onUpdated(notifyRendered);
 
 <template>
   <section id="cardGrid" class="grid" :class="{ selecting: selection.active.value }" :hidden="board" aria-live="polite">
-    <CollectionCard v-for="item in rendered" :key="item.id" :item="item" :collection="collection" :selection="selection" :actions="actions" @select="select"
+    <CollectionCard v-for="item in rendered" :key="item.id" :item="item" :collection="collection" :selection="selection" :actions="actions" :open="open" :menu="menu" @select="select"
       :selected="selectedIds.has(item.id)" :current="item.id === currentItemId" :translate="translate" :english="english" />
   </section>
 </template>

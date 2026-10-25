@@ -1,5 +1,5 @@
 // 删除单篇收藏必须先弹确认（危险操作，一点就没太容易误删）。
-// 用 jsdom 加载真实的 library.html + dialog.js + library.js，覆盖：
+// 用 jsdom 加载真实的 实际构建的 library.html、Vue 模块及 dialog.js，覆盖：
 //  1) 点卡片上的垃圾桶 → 弹出自定义确认弹窗（不是浏览器自带 alert）
 //  2) 弹窗标题写明是哪一篇；标题太长会截断
 //  3) 点「取消」/ 按 Esc 都不删；点「删除」才真的删掉，并弹 toast

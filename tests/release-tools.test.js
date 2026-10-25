@@ -152,7 +152,7 @@ async function verifyBuiltWorker(directory = builtDirectory) {
 }
 
 function verifyBuiltCollectionRules(directory) {
-  for (const name of ["library", "sidepanel"]) {
+  for (const name of ["sidepanel"]) {
     const dom = new JSDOM(fs.readFileSync(path.join(directory, `${name}.html`), "utf8"));
     try {
       const scripts = [...dom.window.document.scripts];
@@ -216,7 +216,13 @@ async function verifyBuiltSettings(directory) {
 
 async function verifyBuiltNavigation(directory) {
   for (const page of ["library.html", "sidepanel.html"]) {
-    assert.match(fs.readFileSync(path.join(directory, page), "utf8"), /<script\b[^>]*\bsrc="\/?tab-navigation\.js"/);
+    const dom = new JSDOM(fs.readFileSync(path.join(directory, page), "utf8"));
+    try {
+      // 侧栏仍使用经典入口；Vue 收藏库直接导入类型化导航模块。
+      const script = dom.window.document.querySelector('script[src="tab-navigation.js"], script[src="/tab-navigation.js"]');
+      if (page === "sidepanel.html") assert.ok(script);
+      else assert.equal(script, null);
+    } finally { dom.window.close(); }
     assert.match(fs.readFileSync(path.join(directory, page), "utf8"), /<script\b[^>]*\bsrc="\/?storage-client\.js"/);
   }
   const original = "https://example.com/a%2Fb?q=C++&b=2#/article/1";

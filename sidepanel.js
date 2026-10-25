@@ -3,7 +3,7 @@ const PROJECTS_KEY = "laterOnProjects";
 const ACTIVE_PROJECT_KEY = "laterOnActiveProject";
 const SETTINGS_KEY = "laterOnSettings";
 const tr = (key, vars) => window.LaterOnI18n?.t(key, vars) || key;
-// 与全屏界面共享的「当前正在读哪篇」标记（详见 library.js 的注释）。
+// 与全屏界面共享的「当前正在读哪篇」标记（全屏实现见 src/library/useLibraryReader.ts）。
 const CURRENT_ITEM_KEY = "laterOnCurrentItem";
 // 与全屏界面共享的「当前筛到哪一档」（全部 / 未读 / 已读）：一边切，另一边跟着切。
 const FILTER_KEY = "laterOnFilter";

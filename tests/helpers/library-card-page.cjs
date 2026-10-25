@@ -11,7 +11,7 @@ const epoch = 1_760_000_000_000;
 const makeItem = (id, overrides = {}) => ({ id, title: `Title ${id}`, description: "Description", source: "example.test",
   url: `https://example.test/${id}`, image: "", favicon: "", savedAt: epoch, status: "unread", projectId: null, ...overrides });
 
-function createLibraryPage(t, { items = [makeItem("a")], projects = [], covers = {}, current = null, params = "", language = "zh-CN" } = {}) {
+function createLibraryPage(t, { items = [makeItem("a")], projects = [], covers = {}, current = null, params = "", language = "zh-CN", stored = {}, configure = () => {} } = {}) {
   const built = libraryPage();
   const errors = [];
   const console = new VirtualConsole();
@@ -24,8 +24,8 @@ function createLibraryPage(t, { items = [makeItem("a")], projects = [], covers =
     toFake: ["Date", "performance", "setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
   const store = structuredClone({ laterOnItems: items, laterOnProjects: projects, laterOnCovers: covers,
     laterOnCurrentItem: current, laterOnFilter: "all", laterOnFilterChosen: true, laterOnOnboardingSeen: true,
-    laterOnSettings: { language, theme: "light", defaultSort: "newest", autoMarkRead: false } });
-  const listeners = new Set();
+    laterOnSettings: { language, theme: "light", defaultSort: "newest", autoMarkRead: false }, ...stored });
+  const listeners = new Set(), messages = new Set();
   const idle = new Map(), frames = new Map();
   const commands = [], writes = [], scrolled = [], opened = [], createdWindows = [];
   let sequence = 0, writeError = null, writeGate = null;
@@ -51,7 +51,7 @@ function createLibraryPage(t, { items = [makeItem("a")], projects = [], covers =
         Object.assign(store, structuredClone(patch)); // Deliberately no onChanged echo.
       }
     }, onChanged: { addListener: listener => listeners.add(listener), removeListener: listener => listeners.delete(listener) } },
-    runtime: { getURL: name => `chrome-extension://fixture/${name}`, onMessage: { addListener() {} },
+    runtime: { getURL: name => new URL(name, "chrome-extension://fixture/").href, onMessage: { addListener: listener => messages.add(listener), removeListener: listener => messages.delete(listener) },
       async sendMessage(message) {
         if (message.type !== "COLLECTION_COMMAND") return { ready: true };
         commands.push(structuredClone(message));
@@ -65,9 +65,10 @@ function createLibraryPage(t, { items = [makeItem("a")], projects = [], covers =
   };
   const backend = vm.createContext({ chrome: window.chrome, crypto: window.crypto, Date, URL });
   vm.runInContext(read("storage-coordinator.js"), backend);
+  configure({ window, store });
   t.after(() => {
     window.document.querySelector("#app").__vue_app__?.unmount();
-    window.close(); clock.uninstall(); idle.clear(); frames.clear(); listeners.clear();
+    window.close(); clock.uninstall(); idle.clear(); frames.clear(); listeners.clear(); messages.clear();
     assert.deepEqual(errors, [], "页面没有未处理异常");
   });
   const buildDir = path.resolve(__dirname, "../../.output/chrome-mv3");
@@ -110,6 +111,9 @@ function createLibraryPage(t, { items = [makeItem("a")], projects = [], covers =
     return { started: begun, release };
   }
   return { window, document: window.document, store, commands, writes, scrolled, opened, createdWindows, clock, flush, frame, idleTurn, until, broadcast,
+    unmount: () => window.document.querySelector("#app").__vue_app__?.unmount(),
+    notice: request => { const responses = []; messages.forEach(listener => listener(request, {}, response => responses.push(response))); return responses; },
+    listenerCounts: () => ({ storage: listeners.size, messages: messages.size }),
     pendingIdle: () => [...idle.values()], pendingFrames: () => [...frames.values()], failNextWrite: (key = "laterOnItems") => { writeError = key; }, holdNextWrite,
     card: id => window.document.querySelector(`#cardGrid .card[data-id="${id}"]`),
     ids: () => [...window.document.querySelectorAll("#cardGrid .card")].map(card => card.dataset.id),

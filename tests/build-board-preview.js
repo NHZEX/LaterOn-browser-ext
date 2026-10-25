@@ -50,7 +50,7 @@ const mock = () => {
       onChanged: { addListener(fn) { listeners.push(fn); } }
     },
     tabs: { query: () => Promise.resolve([{ id: 1, windowId: 1 }]) },
-    // library.js 一开头就挂了 runtime.onMessage（全屏页收到通知时弹 toast），
+    // 收藏库挂载时注册 runtime.onMessage（全屏页收到通知时弹 toast），
     // 这里必须给出空实现，否则预览页在初始化第一步就抛 addListener of undefined、整页空白。
     runtime: { getURL: (p) => `chrome-extension://lateron/${p}`, onMessage: { addListener() {} } }
   };
