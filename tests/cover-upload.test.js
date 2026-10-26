@@ -11,7 +11,6 @@ const { JSDOM } = require("jsdom");
 
 const ROOT = path.join(__dirname, "..");
 const read = (name) => fs.readFileSync(sourcePath(name), "utf8");
-const BACKGROUND = read("background.js");
 const I18N_SOURCE = read("i18n.js");
 const DIALOG_SOURCE = read("dialog.js");
 const DIALOG_CSS = read("dialog.css");
@@ -245,17 +244,8 @@ async function partDialog() {
 // ═══════════════════════════════════════════════════════════
 function partMerge() {
   console.log("\n── ② 重复收藏时保护用户自定义的封面 ──");
-  const grab = (name) => {
-    const matched = new RegExp(`^function ${name}\\([^)]*\\)[\\s\\S]*?^}`, "m").exec(BACKGROUND);
-    if (!matched) throw new Error(`没找到函数 ${name}`);
-    return matched[0];
-  };
-  const context = vm.createContext({ URL, console });
-  vm.runInContext(
-    ["isPlaceholderText", "titleHasSiteNoise", "isIconLikeImage", "mergeDuplicateMetadata"].map(grab).join("\n\n"),
-    context
-  );
-  const merge = vm.runInContext("mergeDuplicateMetadata", context);
+  const { mergeDuplicateMetadata: merge } = require("./helpers/load-module.cjs")("src/background/duplicate-metadata.js");
+
   check("取到了后台真实的合并函数", typeof merge === "function");
 
   const mine = "data:image/jpeg;base64,MINE";

@@ -6,7 +6,7 @@ const sourcePath = require("./helpers/source-path.cjs");
 // 通用内容："YouTube" + youtube.com/img/desktop/yt_1200.png + 首页宣传语）。
 // 只有手动刷新页面才会变对。
 //
-// 这个测试把「直接加载过 background.js 的真实提取函数」放进假 DOM 里跑，
+// 这个测试把实际网页注入脚本放进 DOM 里跑，
 // 确保各个场景都能抓到正确的内容，而不是把首页的信息当成视频的信息。
 //
 // 运行：node tests/metadata-extract.test.js
@@ -16,7 +16,6 @@ const vm = require("vm");
 const { JSDOM } = require("jsdom");
 
 const ROOT = path.join(__dirname, "..");
-const BACKGROUND = fs.readFileSync(sourcePath("background.js"), "utf8");
 const PAGE_SCRIPT = fs.readFileSync(sourcePath("content-metadata.js"), "utf8");
 
 let passed = 0;
@@ -30,15 +29,6 @@ function check(label, ok, detail = "") {
     console.log(`  ❌ ${label}${detail ? `\n       → ${detail}` : ""}`);
   }
 }
-
-// ── 把真实的函数从 background.js 里整段取出来 ──────────────────
-function extractFunctionSource(source, name) {
-  const matched = new RegExp(`^function ${name}\\([^)]*\\)[\\s\\S]*?^}`, "m").exec(source);
-  if (!matched) throw new Error(`没找到函数 ${name}`);
-  return matched[0];
-}
-
-const EXTRACTOR_SOURCE = extractFunctionSource(PAGE_SCRIPT, "extractPageMetadataForShortcut");
 
 // jsdom 不做真实布局，元素的尺寸恒为 0。而「挑最大的背景图 / 最大的懒加载图」
 // 这类逻辑恰恰靠尺寸判断，所以这里给元素写 data-size="宽x高" 造一套假尺寸；
@@ -73,8 +63,7 @@ function runExtractor(html, url) {
   const dom = new JSDOM(html, { url, runScripts: "outside-only" });
   installFakeSizes(dom);
   const context = dom.getInternalVMContext ? dom.getInternalVMContext() : vm.createContext(dom.window);
-  vm.runInContext(EXTRACTOR_SOURCE, context);
-  const result = vm.runInContext("extractPageMetadataForShortcut()", context);
+  const result = vm.runInContext(PAGE_SCRIPT, context);
   return { result, dom };
 }
 
@@ -208,12 +197,8 @@ console.log("\n=== 七、封面降级链（maxresdefault 不存在时逐级降�
 
 console.log("\n=== 九、重复收藏时会不会修好坏掉的旧记录 ===");
 {
-  const constFree = ["isPlaceholderText", "titleHasSiteNoise", "isIconLikeImage", "mergeDuplicateMetadata"]
-    .map((name) => extractFunctionSource(BACKGROUND, name))
-    .join("\n");
-  const { mergeDuplicateMetadata, isPlaceholderText, titleHasSiteNoise } = new Function(
-    `${constFree}\nreturn { mergeDuplicateMetadata, isPlaceholderText, titleHasSiteNoise };`
-  )();
+  const { mergeDuplicateMetadata, isPlaceholderText, titleHasSiteNoise } =
+    require("./helpers/load-module.cjs")("src/background/duplicate-metadata.js");
 
   const staleYouTube = {
     title: "YouTube",
@@ -583,12 +568,7 @@ console.log("\n=== 十七、标题抓取（og 缺失 / 陈旧 / 写成平台名�
 
 console.log("\n=== 十八、判断「标题其实没抓到 / 抓得不干净」的规则 ===");
 {
-  const helpers = ["isPlaceholderText", "titleHasSiteNoise"]
-    .map((name) => extractFunctionSource(BACKGROUND, name))
-    .join("\n");
-  const { isPlaceholderText, titleHasSiteNoise } = new Function(
-    `${helpers}\nreturn { isPlaceholderText, titleHasSiteNoise };`
-  )();
+  const { isPlaceholderText, titleHasSiteNoise } = require("./helpers/load-module.cjs")("src/background/duplicate-metadata.js");
 
   const cases = [
     ["https://example.com/page", "example.com", true, "标题被存成了网址"],
@@ -631,10 +611,7 @@ console.log("\n=== 十八、判断「标题其实没抓到 / 抓得不干净」�
 
 console.log("\n=== 十九、重复收藏时自动把「带尾巴的旧标题」修干净 ===");
 {
-  const helpers = ["isPlaceholderText", "titleHasSiteNoise", "isIconLikeImage", "mergeDuplicateMetadata"]
-    .map((name) => extractFunctionSource(BACKGROUND, name))
-    .join("\n");
-  const { mergeDuplicateMetadata } = new Function(`${helpers}\nreturn { mergeDuplicateMetadata };`)();
+  const { mergeDuplicateMetadata } = require("./helpers/load-module.cjs")("src/background/duplicate-metadata.js");
 
   const refresh = (oldTitle, newTitle, url = "https://www.xiaohongshu.com/explore/abc", source = "xiaohongshu.com") => {
     const existing = { url, title: oldTitle, source, image: "cover.png", description: "已有摘要" };

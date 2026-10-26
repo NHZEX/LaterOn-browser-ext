@@ -2,11 +2,11 @@
 
 运行时代码按职责归档：
 
-- `src/backup/core.ts`：备份格式、字段白名单、关联校验、本机数据正规化、合并与 ID 映射；无浏览器 API。`wxt/entrypoints/backup-core.ts` 编译为根级 `backup-core.js`，为旧后台保留 `LaterOnBackup` 接口。
-- `src/backup/background.js`：导出、预览、确认提交、清空收藏；构建后仍使用包内 `modules/backup/background.js` 地址。
+- `src/backup/core.ts`：备份格式、字段白名单、关联校验、本机数据正规化、合并与 ID 映射；无浏览器 API。后台通过 WXT 原生模块依赖直接导入；原 `backup-core.js` / `LaterOnBackup` 全局桥接已在 F2 退役。
+- `src/backup/background.js`：导出、预览、确认提交、清空收藏；通过原生模块导入合入 `background.js`，启动时同步注册消息监听。
 - `src/backup/client.ts`：设置页与后台之间的带类型消息接口，继续使用原备份协议；文件内容的运行时校验由后台执行。
 - `wxt/entrypoints/settings/BackupPanel.vue`：设置页的文件选择、下载、模式选择与确认交互；弹窗由同目录 `SettingsDialog.vue` 和 `useDialog.ts` 管理，随 WXT 页面编译。
-- `src/storage/coordinator.ts`：后台共享写入队列和具体业务操作；基于最新存储计算修改，通过 WXT 输出 `storage-coordinator.js`。
+- `src/storage/coordinator.ts`：后台共享写入队列和具体业务操作；基于最新存储计算修改，由后台原生导入，所有写入方共用同一模块实例。
 - `src/storage/client.ts`：复用页面读取初始化数据代次，向后台发送具体操作，不保存可写快照；`wxt/entrypoints/storage-client.ts` 保留缓存清理、页面刷新和提示交互，输出 `storage-client.js`。
 - `src/storage/contracts.ts`：共享存储键、命令与结果类型及消息结构校验；本机旧记录类型与严格备份格式分开建模。
 

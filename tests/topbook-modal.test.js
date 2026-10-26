@@ -25,7 +25,7 @@ const vm = require("vm");
 const { JSDOM } = require("jsdom");
 
 const ROOT = path.resolve(__dirname, "..");
-const BACKGROUND = fs.readFileSync(sourcePath("background.js"), "utf8");
+
 const PAGE_SCRIPT = fs.readFileSync(sourcePath("content-metadata.js"), "utf8");
 const FIXTURE = fs.readFileSync(path.join(__dirname, "fixtures", "topbook-modal.html"), "utf8");
 
@@ -41,39 +41,7 @@ function check(label, condition, detail = "") {
   }
 }
 
-// 从 background.js 里整段抽出真实函数（依赖「顶层函数闭合括号顶格」的代码风格）。
-function grabFunction(source, name) {
-  const matched = new RegExp(`^(?:async )?function ${name}\\([^)]*\\)[\\s\\S]*?^\\}`, "m").exec(source);
-  if (!matched) throw new Error(`没找到函数 ${name}`);
-  return matched[0];
-}
-function grabConst(source, name) {
-  const matched = new RegExp(`^const ${name} = [^;]+;`, "m").exec(source);
-  if (!matched) throw new Error(`没找到常量 ${name}`);
-  return matched[0];
-}
-
-const PAGE_SOURCE = grabFunction(PAGE_SCRIPT, "extractPageMetadataForShortcut");
-const BACKGROUND_SOURCE = [
-  grabConst(BACKGROUND, "EXTRACT_TIMEOUT_MS"),
-  grabConst(BACKGROUND, "DOUYIN_SETTLE_MS"),
-  grabConst(BACKGROUND, "DOUYIN_POLL_MS"),
-  grabConst(BACKGROUND, "SERVER_META_TIMEOUT_MS"),
-  grabFunction(BACKGROUND, "withTimeout"),
-  grabFunction(BACKGROUND, "safeHostname"),
-  grabFunction(BACKGROUND, "isDouyinUrl"),
-  grabFunction(BACKGROUND, "douyinVideoIdFromUrl"),
-  grabFunction(BACKGROUND, "probeDouyinFreshness"),
-  grabFunction(BACKGROUND, "settleDouyinDom"),
-  grabFunction(BACKGROUND, "isIconLikeImage"),
-  grabFunction(BACKGROUND, "refetchMetaFromServer"),
-  grabFunction(BACKGROUND, "applyServerMetaRescue"),
-  grabFunction(BACKGROUND, "isPlaceholderText"),
-  grabFunction(BACKGROUND, "titleHasSiteNoise"),
-  grabFunction(BACKGROUND, "mergeDuplicateMetadata"),
-  grabFunction(BACKGROUND, "readTabMetadata"),
-  grabFunction(BACKGROUND, "extractTabMetadata")
-].join("\n\n");
+const BACKGROUND_SOURCE = require("./helpers/module-script.cjs")("src/background/metadata.js") + "\nObject.assign(globalThis, backgroundModule);";
 
 const ARTICLE_TITLE = "AI 沟通技巧系列 ② 构建启发式 AI #人工智能 #双向费曼 # AI沟通";
 const ARTICLE_COVER = "https://cdn.labs.topbook.cc/topbook/img/pic-2014-3.jpg?imageView2/1/w/500/h/400/q/85";
@@ -97,8 +65,7 @@ console.log("\n页面内提取（弹窗已渲染完成）");
 function runPageExtractor(html, url) {
   const dom = new JSDOM(html, { url, runScripts: "outside-only" });
   const context = dom.getInternalVMContext ? dom.getInternalVMContext() : vm.createContext(dom.window);
-  vm.runInContext(PAGE_SOURCE, context);
-  return vm.runInContext("extractPageMetadataForShortcut()", context);
+  return vm.runInContext(PAGE_SCRIPT, context);
 }
 
 const pageMeta = runPageExtractor(FIXTURE, ARTICLE_URL);
@@ -121,6 +88,7 @@ function makeBareSandbox(extra = {}) {
   vm.runInContext(require("./helpers/read-runtime.cjs")("url-utils.js"), sandbox);
   sandbox.unwrapSuspendedTab = sandbox.LaterOnUrl.unwrapSuspendedTab;
   vm.runInContext(BACKGROUND_SOURCE, sandbox);
+  vm.runInContext(require("./helpers/module-script.cjs")("src/background/duplicate-metadata.js") + "\nObject.assign(globalThis, backgroundModule);", sandbox);
   return sandbox;
 }
 

@@ -7,7 +7,7 @@ const vm = require("vm");
 const path = require("path");
 
 const ROOT = path.join(__dirname, "..");
-const code = fs.readFileSync(sourcePath("background.js"), "utf8");
+const code = require("./helpers/read-runtime.cjs")("background-test-api.js");
 const DAY = 24 * 60 * 60 * 1000;
 
 let failures = 0;
@@ -45,6 +45,7 @@ const mockChrome = {
     getURL: (p) => `chrome-extension://lateron/${p}`
   },
   tabs: {
+    onActivated: { addListener() {} },
     onUpdated: { addListener() {} },
     onRemoved: { addListener() {} },
     onCreated: { addListener() {} },
@@ -189,13 +190,13 @@ async function run() {
     const before = JSON.stringify(store);
     await purge();
     listeners.onAlarm({ name: "laterOnAutoClean" });
-    await sandbox.purgeExpiredItems();
+    await sandbox.backgroundTest.purgeExpiredItems();
     check("关闭时设置变更和定时触发均不修改收藏及关联数据", JSON.stringify(store) === before);
 
     // 新 worker 的启动清理也必须遵守持久化的关闭设置。
     const restarted = vm.createContext({ ...sandbox });
     vm.runInContext(code, restarted, { filename: "background.js" });
-    await restarted.purgeExpiredItems();
+    await restarted.backgroundTest.purgeExpiredItems();
     check("worker 重启后仍保留所有已读网页", JSON.stringify(store) === before);
 
     store.laterOnSettings = { ...store.laterOnSettings, autoCleanEnabled: true };

@@ -6,7 +6,7 @@ const vm = require("vm");
 
 const ROOT = path.join(__dirname, "..");
 const urlSource = require("./helpers/read-runtime.cjs")("url-utils.js");
-const source = fs.readFileSync(sourcePath("reading-position-background.js"), "utf8");
+const source = require("./helpers/read-runtime.cjs")("reading-position-background.js");
 const store = {
   laterOnItems: [{ id: "a", url: "https://example.com/article?utm_source=x", title: "A" }],
   laterOnReadingPositions: { a: 720, orphan: 400 },

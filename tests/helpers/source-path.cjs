@@ -6,7 +6,7 @@ const runtime = require("../../scripts/runtime-files.json");
 const root = resolve(__dirname, "../..");
 const sources = {
   ...runtime,
-  "background.js": runtime["background-runtime.js"],
+  "background.js": "src/background/index.js",
   "library.css": "wxt/entrypoints/library/style.css"
 };
 

@@ -13,7 +13,7 @@ const local = {
 const chrome = { storage: { local, onChanged: { addListener(fn) { changed.push(fn); } } },
   runtime: { onMessage: { addListener(fn) { listeners.push(fn); } }, getURL: name => `chrome-extension://fixture/${name}` } };
 const backend = vm.createContext({ chrome, crypto: webcrypto });
-vm.runInContext(read('storage-coordinator.js'), backend);
+vm.runInContext(read('collection-backend.js'), backend);
 chrome.runtime.sendMessage = message => new Promise((resolve, reject) => {
   if (!listeners.some(fn => fn(message, {}, resolve) === true)) reject(Error('No handler'));
 });
@@ -99,7 +99,7 @@ function page() {
   failWrite = false;
   await fresh.api.run('updateProject', { id: one.id, changes: { name: 'Retry' } });
   assert.equal(store.laterOnProjects.find(p => p.id === one.id).name, 'Retry');
-  await assert.rejects(backend.LaterOnCollection.execute({ action: 'commit', patch: { laterOnItems: [] } }), /INVALID_OPERATION/);
+  await assert.rejects(backend.collectionBackend.execute({ action: 'commit', patch: { laterOnItems: [] } }), /INVALID_OPERATION/);
   const invalid = await chrome.runtime.sendMessage({ type: 'COLLECTION_COMMAND', action: 'deleteProject', id: one.id });
   assert.equal(invalid.ok, false, 'page commands must carry an epoch');
   const sendFrom = (message, sender) => new Promise(resolve => listeners[0](message, sender, resolve));

@@ -5,7 +5,7 @@ const path = require("path");
 const vm = require("vm");
 
 const ROOT = path.join(__dirname, "..");
-const code = fs.readFileSync(sourcePath("background.js"), "utf8");
+const code = require("./helpers/read-runtime.cjs")("background.js");
 const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "manifest.json"), "utf8"));
 
 let failures = 0;
@@ -126,7 +126,11 @@ const tick = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms));
   check("直接回车打开带搜索词的收藏库", searchUrl.pathname.endsWith("/library.html") && searchUrl.searchParams.get("q") === "design system", searchUrl.href);
   check("新前台标签遵循地址栏打开方式", created.at(-1)?.active === true, JSON.stringify(created.at(-1)));
 
-  check("切换标签页不再注册收藏状态监听", typeof tabListeners.activated === "undefined");
+  const beforeSwitch = badges.length;
+  activeTab = { ...activeTab, url: "https://design.test/system" };
+  tabListeners.activated({ tabId: activeTab.id });
+  await tick();
+  check("切换标签页不会新增收藏状态角标", badges.length === beforeSwitch);
 
   console.log(failures ? `\n❌ 有 ${failures} 项失败` : "\n🎉 全部通过");
   if (failures) process.exitCode = 1;

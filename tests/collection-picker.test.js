@@ -1,7 +1,5 @@
 const assert = require("node:assert/strict");
-const vm = require("node:vm");
 const { buildPayload } = require("../src/collection/picker.ts");
-const read = require("./helpers/read-runtime.cjs");
 
 assert.equal(globalThis.LaterOnPicker, undefined, "Importing the pure module does not install a global");
 assert.deepEqual(buildPayload({}, {}), {
@@ -62,10 +60,4 @@ for (const projectId of ["archived", "deleted"]) {
 }
 assert.equal(buildPayload({ laterOnSettings: { language: "unknown" } }, {}).language, "zh-CN");
 
-const context = vm.createContext({});
-vm.runInContext(read("collection-picker.js"), context, { filename: "collection-picker.js" });
-const fromClassicScript = context.LaterOnPicker.buildPayload(stored, request);
-assert.deepEqual(JSON.parse(JSON.stringify(fromClassicScript)), expected, "Classic consumers use the same TS implementation");
-assert.deepEqual({ stored, request }, before);
-
-console.log("PASS picker data: defaults, archived projects, cover fallback, raw URLs, batch metadata and classic compatibility");
+console.log("PASS native picker data: defaults, archived projects, covers, raw URLs and batch metadata");

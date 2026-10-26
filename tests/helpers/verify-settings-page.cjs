@@ -90,9 +90,17 @@ module.exports = async function verifySettingsPage(directory) {
           async create(patch) { if (faults.shortcuts) throw Error("fixture shortcuts failure"); created.push(patch); }
         }
       };
-      const backend = vm.createContext({ chrome: window.chrome, URL, TextEncoder, crypto: webcrypto });
-      for (const name of ["url-utils.js", "storage-coordinator.js", "backup-core.js", "modules/backup/background.js"])
-        vm.runInContext(fs.readFileSync(path.join(directory, name), "utf8"), backend, { filename: name });
+      const event = () => ({ addListener() {} });
+      const workerChrome = {
+        ...window.chrome,
+        tabs: { ...window.chrome.tabs, onUpdated: event(), onRemoved: event(), onActivated: event(), async query() { return []; } },
+        runtime: { ...window.chrome.runtime, onInstalled: event(), onStartup: event() },
+        commands: { ...window.chrome.commands, onCommand: event() },
+        contextMenus: { removeAll(done) { done(); }, create() {}, onClicked: event() },
+        action: {}
+      };
+      const backend = vm.createContext({ chrome: workerChrome, URL, TextEncoder, crypto: webcrypto, setTimeout, clearTimeout });
+      vm.runInContext(fs.readFileSync(path.join(directory, "background.js"), "utf8"), backend, { filename: "background.js" });
       window.Blob = Blob;
       window.URL.createObjectURL = blob => { downloads.push(blob); return "blob:fixture"; };
       window.URL.revokeObjectURL = url => released.push(url);

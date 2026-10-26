@@ -4,14 +4,17 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const ts = require("typescript");
+const { buildSync } = require("esbuild");
 
 const ROOT = path.resolve(__dirname, "..");
-const background = fs.readFileSync(sourcePath("background.js"), "utf8");
-const tree = ts.createSourceFile("background.js", background, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+const { metafile } = buildSync({ entryPoints: [path.join(ROOT, "wxt/entrypoints/background.js")],
+  bundle: true, write: false, metafile: true, platform: "browser" });
+const sources = Object.keys(metafile.inputs).filter(file => file.startsWith("src/") || file.startsWith("wxt/"));
+assert.ok(!sources.some(file => file.startsWith("src/content/")), "网页注入实现不进入后台模块图");
 const injected = [];
 const startup = [];
 const definitions = new Set();
-function visit(node) {
+function visit(node, tree) {
   if (ts.isFunctionDeclaration(node) && node.name) definitions.add(node.name.text);
   if (ts.isCallExpression(node)) {
     if (ts.isIdentifier(node.expression) && node.expression.text === "importScripts") {
@@ -27,9 +30,13 @@ function visit(node) {
       }
     }
   }
-  ts.forEachChild(node, visit);
+  ts.forEachChild(node, child => visit(child, tree));
 }
-visit(tree);
+for (const file of sources) {
+  const tree = ts.createSourceFile(file, fs.readFileSync(path.join(ROOT, file), "utf8"), ts.ScriptTarget.Latest, true);
+  visit(tree, tree);
+}
+assert.deepEqual(startup, [], "后台模块图不再通过 importScripts 加载依赖");
 for (const [file, name] of [["content-metadata.js", "extractPageMetadataForShortcut"],
   ["content-translation.js", "togglePageTranslation"], ["content-folder-picker.js", "showFolderPickerOverlay"]]) {
   assert.ok(injected.some(files => files.includes(file)), `${file} 通过脚本注入入口加载`);
@@ -41,4 +48,4 @@ assert.ok(injected.some(files => files[0] === "picker-ui.js" && files[1] === "co
   "项目选择器应先加载共享 UI 再加载入口");
 
 // 源码字节数只作记录；依赖边界由 AST 检查，功能正确性由真实后台和页面回归验证。
-console.log("PASS background 按需注入边界，冷启动脚本", Buffer.byteLength(background), "bytes");
+console.log("PASS background 原生模块依赖图和按需注入边界", sources.length, "modules");

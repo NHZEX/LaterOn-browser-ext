@@ -26,16 +26,13 @@ const chrome = {
   contextMenus: { removeAll(cb) { cb?.(); }, create() {}, onClicked: event() },
   commands: { onCommand: event() },
   runtime: { onInstalled: event(), onStartup: event(), onMessage: event(), getURL: p => `chrome-extension://fixture/${p}` },
-  tabs: { onUpdated: event(), onRemoved: event(), onCreated: event() },
+  tabs: { onActivated: event(), onUpdated: event(), onRemoved: event(), onCreated: event() },
   action: {}, sidePanel: { setPanelBehavior() {} }
 };
 const ctx = vm.createContext({ chrome, console, URL, crypto: webcrypto, setTimeout, clearTimeout, setInterval, clearInterval, importScripts() {} });
 vm.runInContext(require("./helpers/read-runtime.cjs")("url-utils.js"), ctx);
-vm.runInContext(require('./helpers/read-runtime.cjs')('storage-coordinator.js'), ctx);
-vm.runInContext(fs.readFileSync(sourcePath("background.js"), 'utf8'), ctx);
-ctx.showActionFeedback = async () => {};
-ctx.notifyTab = async () => {};
-const mutateItems = fields => ctx.LaterOnCollection.execute({ ...fields, action: 'mutateItems', epoch: store.laterOnCollectionEpoch || '' });
+vm.runInContext(require("./helpers/read-runtime.cjs")("background-test-api.js"), ctx);
+const mutateItems = fields => ctx.backgroundTest.execute({ ...fields, action: 'mutateItems', epoch: store.laterOnCollectionEpoch || '' });
 const page = name => ({ url: `https://fixture.test/${name}`, title: name, image: "", id: name, projectId: "p" });
 (async () => {
   store.laterOnItems = [page('delete'), page('keep'), page('recent')];
@@ -53,7 +50,7 @@ const page = name => ({ url: `https://fixture.test/${name}`, title: name, image:
 
   store.laterOnItems = [page('keep'), page('delete')];
   await Promise.all([
-    ctx.saveItem(page('concurrent'), { silent: true }),
+    ctx.backgroundTest.saveItem(page('concurrent'), { silent: true }),
     mutateItems({ operation: 'delete', ids: ['delete'] }),
     mutateItems({ operation: 'update', ids: ['delete'], patch: { status: 'reading' } })
   ]);

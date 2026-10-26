@@ -22,10 +22,12 @@ const chrome = {
   runtime: { onInstalled: event(), onStartup: event(), onMessage: { addListener(fn) { listeners.push(fn); } }, getManifest: () => ({ version: '1.66.1' }), getURL: name => `chrome-extension://fixture/${name}` },
   tabs: { onUpdated: event(), onRemoved: event(), onCreated: event(), onActivated: event() }, action: {}, sidePanel: { setPanelBehavior() {} }
 };
+chrome.scripting = { async insertCSS() {}, async executeScript() { return []; } };
 const ctx = vm.createContext({ chrome, URL, TextEncoder, crypto: webcrypto, console, setTimeout, clearTimeout, setInterval, clearInterval });
 ctx.importScripts = (...names) => names.forEach(name => vm.runInContext(require("./helpers/read-runtime.cjs")(name), ctx, { filename: name }));
-ctx.importScripts('background.js');
-const core = ctx.LaterOnBackup;
+ctx.importScripts('background-test-api.js');
+const core = require("./helpers/load-module.cjs")("src/backup/core.ts");
+const { normalize } = require("./helpers/load-module.cjs")("src/shared/url-utils.ts");
 const send = message => new Promise((resolve, reject) => {
   const handler = listeners.find(fn => fn(message, {}, resolve) === true);
   if (!handler) reject(Error(`No handler: ${message.type}`));
@@ -48,7 +50,7 @@ const preview = async (value, mode = 'merge') => {
 const apply = token => send({ type: 'BACKUP_APPLY', token, ...previews.get(token) });
 
 (async () => {
-  await ctx.purgeExpiredItems();
+  await ctx.backgroundTest.purgeExpiredItems();
   // Full round-trip includes inline legacy covers, project order and edit locks.
   Object.assign(store, core.toStorage(data()));
   store.laterOnItems[0].image = image;
@@ -168,7 +170,7 @@ const apply = token => send({ type: 'BACKUP_APPLY', token, ...previews.get(token
   const duplicateData = data();
   duplicateData.items.push(item('same', 'p', { url: duplicateData.items[0].url, image: 'local://same' }));
   duplicateData.covers.same = 'data:image/png;base64,BBBB'; duplicateData.readingPositions.same = 99;
-  const merged = core.merge(core.fromStorage({}), core.parse(payload(duplicateData)), ctx.LaterOnUrl.normalize, () => webcrypto.randomUUID());
+  const merged = core.merge(core.fromStorage({}), core.parse(payload(duplicateData)), normalize, () => webcrypto.randomUUID());
   assert.equal(merged.data.covers.a, image);
   assert.equal(merged.data.readingPositions.a, 321);
 
@@ -180,20 +182,20 @@ const apply = token => send({ type: 'BACKUP_APPLY', token, ...previews.get(token
     item('route-duplicate', null, { url: 'https://routes.test/app#/article/1?a=1&b=2' }),
     item('route-new', null, { url: routeB })
   ], projects: [], covers: {}, order: { all: ['route-duplicate', 'route-new'] }, readingPositions: { 'route-duplicate': 999, 'route-new': 456 } }));
-  const routeMerged = core.merge(localRoute, routeImport, ctx.LaterOnUrl.normalize, () => webcrypto.randomUUID());
+  const routeMerged = core.merge(localRoute, routeImport, normalize, () => webcrypto.randomUUID());
   assert.equal(routeMerged.added, 1);
   assert.equal(routeMerged.duplicates, 1);
   assert.deepEqual(clone(routeMerged.data.items.map(entry => entry.url)), [routeA, routeB], '合并保留不同 hash 页面及其原网址');
   assert.deepEqual(clone(routeMerged.data.readingPositions), { 'route-local': 123, 'route-new': 456 });
-  assert.equal(core.merge(routeMerged.data, routeImport, ctx.LaterOnUrl.normalize, () => webcrypto.randomUUID()).added, 0, '重复导入路由备份仍幂等');
+  assert.equal(core.merge(routeMerged.data, routeImport, normalize, () => webcrypto.randomUUID()).added, 0, '重复导入路由备份仍幂等');
 
   // Merge re-reads the latest collection after preview; replace requires a fresh preview.
   response = await preview(data());
-  await ctx.saveItem(item('during-preview'), { silent: true });
+  await ctx.backgroundTest.saveItem(item('during-preview'), { silent: true });
   assert.equal((await apply(response.token)).ok, true);
   assert(store.laterOnItems.some(entry => entry.url.endsWith('/during-preview')));
   response = await preview(data(), 'replace');
-  await ctx.saveItem(item('before-replace'), { silent: true });
+  await ctx.backgroundTest.saveItem(item('before-replace'), { silent: true });
   const beforeChanged = clone(store);
   assert.equal((await apply(response.token)).error, 'IMPORT_DATA_CHANGED');
   assert.deepEqual(store, beforeChanged);
@@ -212,13 +214,13 @@ const apply = token => send({ type: 'BACKUP_APPLY', token, ...previews.get(token
   await assert.rejects(send({ type: 'MUTATE_ITEMS', operation: 'delete', ids: ['a'] }), /No handler/);
   assert.equal((await send({ type: 'COLLECTION_COMMAND', action: 'mutateItems', operation: 'update', ids: ['a'], patch: { title: 'old' }, epoch: 'old-page' })).error, 'STALE_COLLECTION');
   assert.equal(writes, count);
-  await ctx.saveItem(item('concurrent-save'), { silent: true });
+  await ctx.backgroundTest.saveItem(item('concurrent-save'), { silent: true });
   assert.equal((await send({ type: 'COLLECTION_COMMAND', action: 'mutateItems', operation: 'update', ids: ['a'], patch: { title: 'Updated' }, epoch: store.laterOnCollectionEpoch })).ok, true);
   assert(store.laterOnItems.some(entry => entry.url.endsWith('/concurrent-save')));
 
   // Simultaneous saves, imports and reading positions share the production queue.
   response = await preview(data());
-  const saved = ctx.saveItem(item('simultaneous'), { silent: true });
+  const saved = ctx.backgroundTest.saveItem(item('simultaneous'), { silent: true });
   const applied = apply(response.token);
   const progress = send({ type: 'SAVE_READING_POSITION', itemId: 'a', y: 456 });
   await Promise.all([saved, applied, progress]);
@@ -230,10 +232,11 @@ const apply = token => send({ type: 'BACKUP_APPLY', token, ...previews.get(token
   let enterExtraction, releaseExtraction;
   const extractionEntered = new Promise(resolve => { enterExtraction = resolve; });
   const extractionGate = new Promise(resolve => { releaseExtraction = resolve; });
-  ctx.extractTabMetadata = async tab => { enterExtraction(); await extractionGate; return tab; };
-  ctx.notifyTab = async () => {};
-  ctx.showActionFeedback = async () => {};
-  const batch = ctx.runBatchSave({ tabs: [item('after-restore')], projectId: 'p', projectName: 'Project' });
+  chrome.scripting.executeScript = async options => {
+    if (!options.files?.includes("content-metadata.js")) return [];
+    enterExtraction(); await extractionGate; return [{ result: item("after-restore") }];
+  };
+  const batch = ctx.backgroundTest.runBatchSave({ tabs: [item('after-restore')], projectId: 'p', projectName: 'Project' });
   await extractionEntered;
   response = await preview({ items: [], projects: [], covers: {}, order: {}, readingPositions: {} }, 'replace');
   assert.equal((await apply(response.token)).ok, true);
@@ -244,7 +247,7 @@ const apply = token => send({ type: 'BACKUP_APPLY', token, ...previews.get(token
   // Worker restarts discard all JS state; a reviewed file can still be applied.
   response = await preview(data(), 'replace');
   listeners.length = 0;
-  ctx.importScripts('storage-coordinator.js', 'modules/backup/background.js');
+  ctx.importScripts('background-test-api.js');
   assert.equal((await apply(response.token)).ok, true);
   assert.equal((await send({ type: 'COLLECTION_WIPE' })).ok, true);
   assert.deepEqual(store.laterOnItems, []);

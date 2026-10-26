@@ -97,34 +97,29 @@ async function verifyBuiltWorker(directory = builtDirectory) {
       async set(patch) { Object.assign(store, clone(patch)); },
       async remove(keys) { (Array.isArray(keys) ? keys : [keys]).forEach((key) => delete store[key]); }
     }, onChanged: event() },
-    runtime: { onInstalled: event(), onStartup: event(), onMessage: { addListener(listener) { listeners.push(listener); } }, getURL: (name) => `chrome-extension://fixture/${name}` },
+    runtime: { onInstalled: event(), onStartup: event(), onMessage: { addListener(listener) { listeners.push(listener); } }, getURL: (name) => `chrome-extension://fixture/${name}`, getManifest: () => manifest },
     alarms: { create() {}, onAlarm: event() }, commands: { onCommand: event() },
     contextMenus: { removeAll(callback) { callback?.(); }, create() {}, onClicked: event() },
     tabs: { onUpdated: event(), onRemoved: event(), onCreated: event(), onActivated: event() },
     action: {}, sidePanel: { setPanelBehavior() {} }
   };
   const context = vm.createContext({ chrome, URL, TextEncoder, crypto: webcrypto, console, setTimeout, clearTimeout, setInterval, clearInterval });
-  context.importScripts = (...names) => names.forEach((name) => vm.runInContext(fs.readFileSync(path.join(directory, name), "utf8"), context, { filename: name }));
-  context.importScripts("background.js");
-  assert.equal(typeof context.LaterOnUrl.normalize, "function");
-  const pickerPayload = context.LaterOnPicker.buildPayload({ laterOnItems: [saved] }, { batchId: "compiled-batch", tabs: [saved], savedCount: 1 });
-  assert.equal(pickerPayload.folders[0].count, 1, "Built worker loads the compiled picker synchronously");
-  assert.equal(pickerPayload.batchId, "compiled-batch");
-  assert.equal(pickerPayload.savedCount, 1);
-  assert.equal(pickerPayload.pages[0].url, saved.url);
-  const original = "https://example.com/a%2Fb?q=C++&b=2#/article/1";
-  const suspended = `chrome-extension://fixture/suspended.html#ttl=Example&pos=0&uri=${original}`;
-  assert.equal(context.LaterOnUrl.suspendedPage(suspended).url, original, "Compiled helper preserves the raw suspended URL");
-  assert.equal(context.LaterOnUrl.normalize(suspended), context.LaterOnUrl.normalize(original));
-  assert.notEqual(context.LaterOnUrl.normalize(original), context.LaterOnUrl.normalize(original.replace("/1", "/2")), "Compiled helper keeps hash routes distinct");
-  assert.equal(typeof context.LaterOnBackup.parse, "function");
-  const backup = context.LaterOnBackup.create(store, "1.69.3", "2026-10-23T00:00:00Z");
-  assert.equal(backup.format, "lateron.collection");
-  assert.equal(context.LaterOnBackup.parse(backup).items[0].url, saved.url, "Built worker exports and validates the same collection");
-  assert.throws(() => context.LaterOnBackup.parse({ ...backup, version: 99 }), /UNSUPPORTED_BACKUP/);
-  const result = await context.LaterOnCollection.execute({ action: "mutateItems", operation: "update", ids: [saved.id], patch: { status: "reading" } });
+  for (const name of ["background-runtime.js", "reading-position-background.js", "modules/backup/background.js",
+    "storage-coordinator.js", "backup-core.js", "collection-picker.js"]) {
+    assert.equal(fs.existsSync(path.join(directory, name)), false, `${name} has retired from the package`);
+  }
+  context.importScripts = () => { throw Error("Native background must not load classic dependencies"); };
+  vm.runInContext(fs.readFileSync(path.join(directory, "background.js"), "utf8"), context);
+  for (const name of ["LaterOnUrl", "LaterOnCollection", "LaterOnBackup", "LaterOnPicker"]) assert.equal(context[name], undefined);
+  const send = message => new Promise((resolve, reject) => {
+    if (!listeners.some(listener => listener(message, {}, resolve) === true)) reject(Error("Missing handler: " + message.type));
+  });
+  const backup = await send({ type: "BACKUP_EXPORT" });
+  assert.equal(backup.ok, true, "Backup listener is registered during synchronous startup");
+  assert.equal(backup.payload.data.items[0].url, saved.url);
+  const result = await send({ type: "COLLECTION_COMMAND", action: "mutateItems", epoch: "", operation: "update", ids: [saved.id], patch: { status: "reading" } });
   assert.equal(result.ok, true);
-  assert.equal(store.laterOnItems[0].status, "reading", "Built classic worker retains existing storage and collection operations");
+  assert.equal(store.laterOnItems[0].status, "reading", "Built native worker retains existing storage and collection operations");
   chrome.runtime.sendMessage = message => new Promise((resolve, reject) => {
     if (!listeners.some(listener => listener(message, {}, resolve) === true)) reject(Error("No handler"));
   });

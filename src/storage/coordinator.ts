@@ -12,6 +12,8 @@ import type {
 export { KEYS, EPOCH };
 
 // One worker queue is shared by commands, saves, imports and reading positions.
+// 后台保存只串行化读改写这一小段；网页抓取和提示不占用队列。
+// 每次提交都读取最新列表，避免批量抓取期间的单篇保存被旧快照覆盖。
 let pending: Promise<unknown> = Promise.resolve();
 export function enqueue<T>(task: () => T | Promise<T>): Promise<T> {
   const next = pending.then(task);

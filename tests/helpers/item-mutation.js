@@ -11,12 +11,12 @@ module.exports = function install(window, read = defaultRead) {
   window.eval(read('collection-filter.js'));
   const storageContext = vm.createContext({ Date, crypto: window.crypto,
     chrome: { storage: window.chrome.storage, runtime: { onMessage: { addListener() {} } } } });
-  vm.runInContext(read('storage-coordinator.js'), storageContext);
+  vm.runInContext(require('./read-runtime.cjs')('collection-backend.js'), storageContext);
   window.eval(read('storage-client.js'));
   const original = window.chrome.runtime.sendMessage;
   window.chrome.runtime.sendMessage = async function(message, ...args) {
     if (message?.type === 'COLLECTION_COMMAND') {
-      try { return await storageContext.LaterOnCollection.execute(message); }
+      try { return await storageContext.collectionBackend.execute(message); }
       catch (error) { return { ok: false, error: error.message }; }
     }
     return original?.call(this, message, ...args);

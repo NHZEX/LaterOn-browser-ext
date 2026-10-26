@@ -14,9 +14,9 @@ const vm = require("vm");
 const { webcrypto } = require("crypto");
 const { URL } = require("url");
 
-const SOURCE = sourcePath("background.js");
-const src = fs.readFileSync(SOURCE, "utf8");
-const PICKER_TIMEOUT_MS = Number(/const PICKER_INJECT_TIMEOUT_MS = (\d+)/.exec(src)[1]);
+const SOURCE = sourcePath("background-test-api.js");
+const src = require("./helpers/read-runtime.cjs")("background-test-api.js");
+const PICKER_TIMEOUT_MS = require("./helpers/load-module.cjs")("src/background/project-picker.js").PICKER_INJECT_TIMEOUT_MS;
 
 const PENDING_KEY = "laterOnPendingBatch";
 const LAST_PROJECT_KEY = "laterOnLastProjectId";
@@ -76,6 +76,7 @@ const chrome = {
     query: () => Promise.resolve([tab]),
     get: (id) => (id === tab.id ? Promise.resolve(tab) : Promise.reject(new Error("no tab"))),
     update: async () => {},
+    onActivated: { addListener() {} },
     onUpdated: { addListener() {} },
     onRemoved: { addListener() {} },
     onCreated: { addListener() {} }
@@ -159,13 +160,10 @@ function sendFromPage(message) {
 const sandbox = {
   chrome, crypto: webcrypto, URL, setTimeout, clearTimeout, console, Date, Promise, JSON, Set, Map,
   importScripts() {},
-  LaterOnUrl: { normalize(value) { try { const url = new URL(value); url.hash = ""; return url.href.replace(/\/$/, ""); } catch { return String(value || ""); } } }
 };
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
-for (const file of ["url-utils.js", "collection-picker.js"]) {
-  vm.runInContext(require("./helpers/read-runtime.cjs")(file), sandbox);
-}
+
 vm.runInContext(src, sandbox, { filename: "background.js" });
 
 let failures = 0;
@@ -177,7 +175,7 @@ const check = (label, ok, extra = "") => {
 (async () => {
   // ── 第 0 步：没有存过该字段 → 默认关闭并直接收藏 ────────────
   console.log("── 第 0 步：首次使用默认关闭 ──");
-  const defaultResult = await sandbox.quickSave(tab, "shortcut");
+  const defaultResult = await sandbox.backgroundTest.quickSave(tab, "shortcut");
   check("没有设置记录时不弹项目选择", !defaultResult?.pending && overlays.length === 0, JSON.stringify(defaultResult));
   check("默认直接收藏进等待整理", store.laterOnItems.some((i) => i.url === PAGE_URL && !i.projectId));
   store.laterOnItems = store.laterOnItems.filter((i) => i.url !== PAGE_URL);
@@ -187,7 +185,7 @@ const check = (label, ok, extra = "") => {
   // ── 第 1 步：用户明确关闭 → 直接收藏，不弹浮层 ────────────────
   console.log("── 第 1 步：用户明确关闭开关 ──");
   store.laterOnSettings = { askFolderOnSingle: false };
-  await sandbox.quickSave(tab, "shortcut");
+  await sandbox.backgroundTest.quickSave(tab, "shortcut");
   check("没有弹任何浮层、也没开窗口", overlays.length === 0 && windowsCreated.length === 0, `浮层 ${overlays.length} / 窗口 ${windowsCreated.length}`);
   const saved = store.laterOnItems.find((i) => i.url === PAGE_URL);
   check("这一篇被直接收藏了", !!saved, saved ? saved.title : "没找到");
@@ -199,7 +197,7 @@ const check = (label, ok, extra = "") => {
   store.laterOnSettings = { askFolderOnSingle: true, askFolderOnSingleOptIn: true };
   store.laterOnItems = [{ id: "old-1", title: "早就收藏过的一篇", description: "暂无摘要", image: "", favicon: "", source: "dup.com", projectId: null, url: DUP_URL, savedAt: 1, read: false }];
   pills.length = 0;
-  const triggered = await sandbox.quickSave(tab, "shortcut");
+  const triggered = await sandbox.backgroundTest.quickSave(tab, "shortcut");
   check("进入了「等待选择项目」", triggered?.pending === true && triggered?.tabCount === 1, JSON.stringify(triggered));
   check("在当前网页里弹出浮层（没新开窗口）", overlays.length === 1 && windowsCreated.length === 0, `浮层 ${overlays.length} / 窗口 ${windowsCreated.length}`);
   check("此刻还没有真正收藏", !store.laterOnItems.some((i) => i.url === PAGE_URL), `${store.laterOnItems.length} 条`);
@@ -226,7 +224,7 @@ const check = (label, ok, extra = "") => {
   console.log("\n── 第 4 步：收藏已存在的一篇 ──");
   pills.length = 0;
   const dupTab = makeTab(2, DUP_URL, "早就收藏过的一篇");
-  await sandbox.quickSave(dupTab, "shortcut");
+  await sandbox.backgroundTest.quickSave(dupTab, "shortcut");
   check("浮层提前说明这篇已经收藏过", overlays.at(-1)?.payload?.savedCount === 1, `savedCount=${overlays.at(-1)?.payload?.savedCount}`);
   await sendFromPage({ type: "CONFIRM_BATCH_SAVE", projectId: FOLDER_ID });
   await waitForDone();
@@ -239,7 +237,7 @@ const check = (label, ok, extra = "") => {
   console.log("\n── 第 5 步：取消 ──");
   store.laterOnItems = [];
   pills.length = 0;
-  await sandbox.quickSave(tab, "shortcut");
+  await sandbox.backgroundTest.quickSave(tab, "shortcut");
   const cancelled = await sendFromPage({ type: "CANCEL_BATCH_SAVE" });
   check("取消后清掉了待处理批次", cancelled?.cancelled === true && session[PENDING_KEY] === undefined, JSON.stringify(cancelled));
   check("取消不会收藏任何东西", store.laterOnItems.length === 0, `${store.laterOnItems.length} 条`);
@@ -248,7 +246,7 @@ const check = (label, ok, extra = "") => {
   console.log("\n── 第 6 步：关掉开关 ──");
   store.laterOnSettings = { askFolderOnSingle: false };
   const overlayBefore = overlays.length;
-  await sandbox.quickSave(tab, "shortcut");
+  await sandbox.backgroundTest.quickSave(tab, "shortcut");
   check("不再弹浮层", overlays.length === overlayBefore, `浮层 +${overlays.length - overlayBefore}`);
   const again = store.laterOnItems.find((i) => i.url === PAGE_URL);
   check("直接收进「等待整理」", !!again && (again.projectId || null) === null, `projectId=${JSON.stringify(again?.projectId)}`);
@@ -284,7 +282,7 @@ const check = (label, ok, extra = "") => {
   hangPickerPayloadInjection = true;
   const windowsBeforeFallback = windowsCreated.length;
   const fallbackStartedAt = Date.now();
-  const fallbackResult = await sandbox.quickSave(tab, "shortcut");
+  const fallbackResult = await sandbox.backgroundTest.quickSave(tab, "shortcut");
   const fallbackElapsed = Date.now() - fallbackStartedAt;
   hangPickerPayloadInjection = false;
   check("两次网页内注入都失败后返回明确结果", fallbackResult?.ok === false && fallbackResult?.pending === false && !!fallbackResult?.error, JSON.stringify(fallbackResult));
@@ -297,7 +295,7 @@ const check = (label, ok, extra = "") => {
   // ── 第 9 步：在全屏收藏库按 Alt+1，要有页内文字反馈 ─────────
   console.log("\n── 第 9 步：全屏收藏库里的快捷键反馈 ──");
   const noticesBefore = runtimeNotices.length;
-  await sandbox.handleCommand("quick-save", {
+  await sandbox.backgroundTest.handleCommand("quick-save", {
     id: 88,
     windowId: 1,
     url: "chrome-extension://lateron/library.html",

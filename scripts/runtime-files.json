@@ -1,8 +1,5 @@
 {
   "LICENSE": "LICENSE",
-  "background-runtime.js": "src/background/index.js",
-  "reading-position-background.js": "src/background/reading-position.js",
-  "modules/backup/background.js": "src/backup/background.js",
   "content-folder-picker.js": "src/content/folder-picker.js",
   "content-metadata.js": "src/content/metadata.js",
   "content-reading-position.js": "src/content/reading-position.js",

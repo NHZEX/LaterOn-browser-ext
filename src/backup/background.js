@@ -1,6 +1,8 @@
-(function () {
-  const core = globalThis.LaterOnBackup;
-  const store = globalThis.LaterOnCollection;
+import * as core from "./core";
+import * as store from "../storage/coordinator";
+import { normalize } from "../shared/url-utils";
+
+export function registerBackup() {
   const snapshot = () => chrome.storage.local.get(store.KEYS);
   const fingerprint = async (value) => {
     const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)));
@@ -13,7 +15,7 @@
   };
   const plan = (current, incoming, mode) => mode === "replace"
     ? { data: incoming, added: incoming.items.length, duplicates: 0, addedProjects: incoming.projects.length }
-    : core.merge(current, incoming, globalThis.LaterOnUrl.normalize, () => crypto.randomUUID());
+    : core.merge(current, incoming, normalize, () => crypto.randomUUID());
 
   async function exportBackup({ includeImages }) {
     return store.enqueue(async () => ({ ok: true, payload: core.create(await snapshot(), chrome.runtime.getManifest().version,
@@ -72,4 +74,4 @@
     handler(message).then(respond).catch((error) => respond({ ok: false, error: error.message }));
     return true;
   });
-})();
+}

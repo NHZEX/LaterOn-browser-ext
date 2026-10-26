@@ -26,42 +26,46 @@ const chrome = {
   contextMenus: { removeAll(cb) { cb?.(); }, create() {}, onClicked: event() },
   commands: { onCommand: event() },
   runtime: { onInstalled: event(), onStartup: event(), onMessage: event(), getURL: p => `chrome-extension://fixture/${p}` },
-  tabs: { onUpdated: event(), onRemoved: event(), onCreated: event() },
+  tabs: { onActivated: event(), onUpdated: event(), onRemoved: event(), onCreated: event() },
+  scripting: { async insertCSS() {}, async executeScript(options) { return extraction(options); } },
   action: {}, sidePanel: { setPanelBehavior() {} }
 };
 const ctx = vm.createContext({ chrome, console, URL, crypto: webcrypto, setTimeout, clearTimeout, setInterval, clearInterval, importScripts() {} });
 vm.runInContext(require("./helpers/read-runtime.cjs")("url-utils.js"), ctx);
-vm.runInContext(fs.readFileSync(sourcePath("background.js"), 'utf8'), ctx);
-ctx.showActionFeedback = async () => {};
-ctx.notifyTab = async () => {};
-const page = name => ({ url: `https://fixture.test/${name}`, title: name, description: 'fixture', image: 'fixture-cover' });
+vm.runInContext(require("./helpers/read-runtime.cjs")("background-test-api.js"), ctx);
+let extraction = async () => [];
+const pages = new Map();
+const page = name => { const result = { id: pages.size + 1, url: `https://fixture.test/${name}`, title: name, description: 'fixture', image: 'https://fixture.test/cover' }; pages.set(result.id, result); return result; };
 const titles = () => store.laterOnItems.map(it => it.title).sort();
 function gateExtraction() {
   let release, entered;
   const waiting = new Promise(r => { release = r; });
   const ready = new Promise(r => { entered = r; });
-  ctx.extractTabMetadata = async tab => { entered(); await waiting; return tab; };
+  extraction = async options => {
+    if (!options.files?.includes("content-metadata.js")) return [];
+    entered(); await waiting; return [{ result: pages.get(options.target.tabId) }];
+  };
   return { ready, release };
 }
 (async () => {
-  await ctx.purgeExpiredItems();
+  await ctx.backgroundTest.purgeExpiredItems();
   let gate = gateExtraction();
-  let batch = ctx.runBatchSave({ tabs: [page('batch')] });
+  let batch = ctx.backgroundTest.runBatchSave({ tabs: [page('batch')] });
   await gate.ready;
-  await ctx.saveItem(page('single'), { silent: true });
+  await ctx.backgroundTest.saveItem(page('single'), { silent: true });
   assert.deepStrictEqual(titles(), ['single']);
   gate.release();
   await batch;
   assert.deepStrictEqual(titles(), ['batch', 'single'], '批量完成不能覆盖期间单篇收藏');
 
   store.laterOnItems = [];
-  await Promise.all([ctx.saveItem(page('one'), { silent: true }), ctx.saveItem(page('two'), { silent: true })]);
+  await Promise.all([ctx.backgroundTest.saveItem(page('one'), { silent: true }), ctx.backgroundTest.saveItem(page('two'), { silent: true })]);
   assert.deepStrictEqual(titles(), ['one', 'two'], '同时保存两篇均保留');
-  await Promise.all([ctx.saveItem(page('same'), { silent: true }), ctx.saveItem(page('same'), { silent: true })]);
+  await Promise.all([ctx.backgroundTest.saveItem(page('same'), { silent: true }), ctx.backgroundTest.saveItem(page('same'), { silent: true })]);
   assert.strictEqual(store.laterOnItems.filter(it => it.title === 'same').length, 1, '并发同网址去重');
 
   gate = gateExtraction();
-  batch = ctx.runBatchSave({ tabs: [page('next')] });
+  batch = ctx.backgroundTest.runBatchSave({ tabs: [page('next')] });
   await gate.ready;
   // 模拟用户在抓取等待时整理、标记、删除，均通过复制式存储提交。
   const current = (await local.get('laterOnItems')).laterOnItems;
@@ -76,7 +80,7 @@ function gateExtraction() {
 
   store.laterOnItems = [];
   gate = gateExtraction();
-  const batches = [ctx.runBatchSave({ tabs: [page('b1'), page('b2')] }), ctx.runBatchSave({ tabs: [page('c1'), page('c2')] })];
+  const batches = [ctx.backgroundTest.runBatchSave({ tabs: [page('b1'), page('b2')] }), ctx.backgroundTest.runBatchSave({ tabs: [page('c1'), page('c2')] })];
   await gate.ready;
   gate.release();
   await Promise.all(batches);
@@ -96,9 +100,9 @@ function gateExtraction() {
     }
     return result;
   };
-  const purge = ctx.purgeExpiredItems();
+  const purge = ctx.backgroundTest.purgeExpiredItems();
   await purgeReady;
-  const duringPurge = ctx.saveItem(page('during-purge'), { silent: true });
+  const duringPurge = ctx.backgroundTest.saveItem(page('during-purge'), { silent: true });
   releasePurge();
   await Promise.all([purge, duringPurge]);
   local.get = originalGet;
@@ -118,7 +122,7 @@ function gateExtraction() {
       }
       return result;
     };
-    const pendingPurge = ctx.purgeExpiredItems();
+    const pendingPurge = ctx.backgroundTest.purgeExpiredItems();
     await snapshotReady;
     await local.set({ laterOnSettings: { ...store.laterOnSettings, ...policy } });
     releaseSnapshot();
@@ -128,8 +132,8 @@ function gateExtraction() {
   }
 
   failWrite = true;
-  await assert.rejects(ctx.saveItem(page('failed'), { silent: true }), /fixture write failure/);
-  await ctx.saveItem(page('after-failure'), { silent: true });
+  await assert.rejects(ctx.backgroundTest.saveItem(page('failed'), { silent: true }), /fixture write failure/);
+  await ctx.backgroundTest.saveItem(page('after-failure'), { silent: true });
   assert(titles().includes('after-failure'), '失败不堵塞后续保存');
   console.log('PASS 批量期间单篇保存、并发保存/去重、整理删除、两批并发、自动清理并发和失败恢复');
 })().catch(error => { console.error(error); process.exitCode = 1; });

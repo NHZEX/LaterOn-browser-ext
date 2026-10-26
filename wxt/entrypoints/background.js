@@ -1,6 +1,4 @@
 import { defineBackground } from "wxt/utils/define-background";
+import { registerBackground } from "../../src/background/index.js";
 
-export default defineBackground(() => {
-  // Preserve the classic worker's global scope and synchronous listener setup.
-  importScripts("background-runtime.js");
-});
+export default defineBackground(registerBackground);

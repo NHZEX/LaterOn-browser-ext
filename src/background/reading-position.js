@@ -1,16 +1,12 @@
+import { normalize as normalizeUrl } from "../shared/url-utils";
+import { enqueue } from "../storage/coordinator";
+
 // 已收藏网页的“上次滚动位置”：只保存 scrollY，不记录百分比、时间或阅读统计。
-// 单独放在按需模块里，避免继续膨胀主 service worker。
-(function () {
+// 后台负责同步注册监听；网页端脚本只在已收藏页面上按需注入。
+export function registerReadingPosition() {
   const ITEMS_KEY = "laterOnItems";
   const POSITIONS_KEY = "laterOnReadingPositions";
   const SETTINGS_KEY = "laterOnSettings";
-  const normalizeUrl = globalThis.LaterOnUrl.normalize;
-  let writeQueue = Promise.resolve();
-  function enqueue(task) {
-    if (globalThis.LaterOnCollection) return globalThis.LaterOnCollection.enqueue(task);
-    writeQueue = writeQueue.catch(() => {}).then(task);
-    return writeQueue;
-  }
 
   const isWebUrl = (url) => /^https?:\/\//i.test(String(url || ""));
 
@@ -93,4 +89,4 @@
       .catch(() => sendResponse({ ok: false }));
     return true;
   });
-})();
+}

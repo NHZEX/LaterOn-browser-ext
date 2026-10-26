@@ -15,9 +15,9 @@ const vm = require("vm");
 const { webcrypto } = require("crypto");
 const { URL } = require("url");
 
-const SOURCE = sourcePath("background.js");
-const src = fs.readFileSync(SOURCE, "utf8");
-const TIMEOUT_MS = Number(/const EXTRACT_TIMEOUT_MS = (\d+)/.exec(src)[1]);
+const SOURCE = sourcePath("background-test-api.js");
+const src = require("./helpers/read-runtime.cjs")("background-test-api.js");
+const { EXTRACT_TIMEOUT_MS: TIMEOUT_MS } = require("./helpers/load-module.cjs")("src/background/metadata.js");
 
 const PENDING_KEY = "laterOnPendingBatch";
 const LAST_PROJECT_KEY = "laterOnLastProjectId";
@@ -109,6 +109,7 @@ const chrome = {
       return tab ? Promise.resolve(tab) : Promise.reject(new Error("no tab"));
     },
     update: async () => {},
+    onActivated: { addListener() {} },
     onUpdated: { addListener() {} },
     onRemoved: { addListener() {} },
     onCreated: { addListener() {} }
@@ -204,16 +205,12 @@ async function waitForBatchDone(deadlineMs = 12000) {
 const sandbox = {
   chrome, crypto: webcrypto, URL, setTimeout, clearTimeout, console, Date, Promise, JSON, Set, Map,
   importScripts() {},
-  LaterOnUrl: { normalize(value) { try { const url = new URL(value); url.hash = ""; return url.href.replace(/\/$/, ""); } catch { return String(value || ""); } } }
 };
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
-for (const file of ["url-utils.js", "collection-picker.js"]) {
-  vm.runInContext(require("./helpers/read-runtime.cjs")(file), sandbox);
-}
+
 
 const start = Date.now();
-vm.runInContext(require('./helpers/read-runtime.cjs')('storage-coordinator.js'), sandbox);
 vm.runInContext(src, sandbox, { filename: "background.js" });
 
 let failures = 0;
@@ -225,7 +222,7 @@ const check = (label, ok, extra = "") => {
 (async () => {
   // ── 第 1 步：触发快捷键，应该只弹窗、不收藏 ──────────────────
   console.log("── 第 1 步：按下快捷键 ──");
-  const triggered = await sandbox.saveAllTabsInWindow("shortcut");
+  const triggered = await sandbox.backgroundTest.saveAllTabsInWindow("shortcut");
 
   check("触发了「等待选择项目」", triggered?.pending === true, JSON.stringify(triggered));
   check("告诉了这次涉及几个标签页", triggered?.tabCount === 12, `tabCount=${triggered?.tabCount}`);
@@ -301,7 +298,7 @@ const check = (label, ok, extra = "") => {
 
   // ── 第 3 步：取消 / 重复触发 / 新建项目 ────────────────────
   console.log("\n── 第 3 步：取消 / 重复触发 / 新建项目 ──");
-  await sandbox.saveAllTabsInWindow("menu");
+  await sandbox.backgroundTest.saveAllTabsInWindow("menu");
   const before = store.laterOnItems.length;
   check("重复触发会再弹一次浮层（覆盖旧的）", overlays.length === 2, `注入 ${overlays.length} 次`);
   const cancelled = await sendFromPage({ type: "CANCEL_BATCH_SAVE" });
@@ -324,14 +321,14 @@ const check = (label, ok, extra = "") => {
   tabs.push(makeTab(20, "chrome://settings", "设置", { active: true }));
   const overlayCount = overlays.length;
   const windowCount = windowsCreated.length;
-  const unsupported = await sandbox.saveAllTabsInWindow("shortcut");
+  const unsupported = await sandbox.backgroundTest.saveAllTabsInWindow("shortcut");
   check("内部页无法承载网页浮层时返回明确失败", unsupported?.ok === false && unsupported?.pending === false && /普通网页/.test(unsupported?.error || ""), JSON.stringify(unsupported));
   check("没有注入浮层，也没有创建独立窗口", overlays.length === overlayCount && windowsCreated.length === windowCount, `浮层 +${overlays.length - overlayCount} / 窗口 +${windowsCreated.length - windowCount}`);
   check("暂存的标签页数不受影响（内部页不计入）", session[PENDING_KEY]?.tabs?.length === 12, `${session[PENDING_KEY]?.tabs?.length} 个`);
   await sendFromPage({ type: "CANCEL_BATCH_SAVE" });
 
   // 再按一次也必须保持一致，不能偶发地创建另一套窗口。
-  const unsupportedAgain = await sandbox.saveAllTabsInWindow("shortcut");
+  const unsupportedAgain = await sandbox.backgroundTest.saveAllTabsInWindow("shortcut");
   check("重复触发仍不创建窗口", unsupportedAgain?.ok === false && windowsCreated.length === windowCount && windowsRemoved.length === 0, `创建 ${windowsCreated.length - windowCount} / 关闭 ${windowsRemoved.length}`);
   await sendFromPage({ type: "CANCEL_BATCH_SAVE" });
   tabs.pop();
@@ -343,7 +340,7 @@ const check = (label, ok, extra = "") => {
   store.laterOnSettings = { askFolderOnBatch: false };
   const createdBefore = windowsCreated.length;
   const overlayBefore = overlays.length;
-  const direct = await sandbox.saveAllTabsInWindow("shortcut");
+  const direct = await sandbox.backgroundTest.saveAllTabsInWindow("shortcut");
   check("直接收藏、不再弹浮层、也不再开窗口", windowsCreated.length === createdBefore && overlays.length === overlayBefore && direct.pending !== true, JSON.stringify(direct));
   check("仍然全部放进上次用过的项目", store.laterOnItems.length === 12 && store.laterOnItems.every((i) => i.projectId === FOLDER_ID), `${store.laterOnItems.filter((i) => i.projectId === FOLDER_ID).length}/12`);
 
@@ -352,7 +349,7 @@ const check = (label, ok, extra = "") => {
   const before6 = store.laterOnItems.length;
   const pillsBefore6 = pills.length;
   store[LAST_PROJECT_KEY] = ""; // 这次「上次用过的项目」是空的 → 目标为「等待整理」
-  await sandbox.saveAllTabsInWindow("shortcut");
+  await sandbox.backgroundTest.saveAllTabsInWindow("shortcut");
   const diag6 = store.laterOnDiag || {};
   check("一条也没新增（12 篇都已在库里）", diag6.lastAdded === 0 && store.laterOnItems.length === before6, `added=${diag6.lastAdded} / ${store.laterOnItems.length} 条`);
   check("12 篇全部从「工作」搬回「等待整理」", store.laterOnItems.every((i) => (i.projectId || null) === null), `仍在「工作」的 ${store.laterOnItems.filter((i) => i.projectId === FOLDER_ID).length} 篇`);
@@ -371,7 +368,7 @@ const check = (label, ok, extra = "") => {
   store.laterOnSettings = {}; // 重新打开「先选项目」
   store.laterOnProjects = [{ id: FOLDER_ID, name: "工作", createdAt: 1 }];
   store.laterOnDiag = {};
-  await sandbox.saveAllTabsInWindow("shortcut");
+  await sandbox.backgroundTest.saveAllTabsInWindow("shortcut");
   check("这一批都还没收藏过，浮层就不吓唬人", overlays.at(-1)?.payload?.savedCount === 0, `savedCount=${overlays.at(-1)?.payload?.savedCount}`);
   store.laterOnProjects = []; // 模拟：用户在这期间把「工作」删了
   await sendFromPage({ type: "CONFIRM_BATCH_SAVE", projectId: FOLDER_ID });

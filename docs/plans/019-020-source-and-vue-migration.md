@@ -28,9 +28,9 @@
 
 ITER-019 B 将 URL 实现转为 [TS 模块](../../src/shared/url-utils.ts)，直接导出四个函数和相关类型；[WXT unlisted script 入口](../../wxt/entrypoints/url-utils.ts) 仅将其接到 `globalThis.LaterOnUrl`，继续输出根级 `url-utils.js`。该文件退出复制清单，新代码可直接 import 同一实现。类型配置继承 WXT 生成配置，`pnpm typecheck` 独立执行，CI 同步检查；暂只纳入已迁移 TS 文件，旧 JS 测试不全量改写。CJS 测试通过统一 helper 在内存中使用 esbuild 编译实际兼容入口，保持 VM / DOM 隔离，并可独立运行；生产编译仍由 WXT / Vite 负责。入口及类型配置遵循 [WXT 脚本入口](https://wxt.dev/guide/essentials/entrypoints#unlisted-scripts) 与 [TypeScript 配置](https://wxt.dev/guide/essentials/config/typescript)。
 
-ITER-019 C 延续单模块迁移，纯实现放在 [src/collection/picker.ts](../../src/collection/picker.ts)，[WXT 兼容入口](../../wxt/entrypoints/collection-picker.ts) 保留 `LaterOnPicker.buildPayload` 接口。产物采用 WXT 默认根级路径 `collection-picker.js`，后台同步更新 `importScripts`，原路径退出复制清单；不增加依赖。
+ITER-019 C 延续单模块迁移，纯实现放在 [src/collection/picker.ts](../../src/collection/picker.ts)，当时的 WXT 兼容入口 `collection-picker.ts`（已在 F2 退役） 保留 `LaterOnPicker.buildPayload` 接口。产物采用 WXT 默认根级路径 `collection-picker.js`，后台同步更新 `importScripts`，原路径退出复制清单；不增加依赖。
 
-ITER-019 D 将 [备份核心](../../src/backup/core.ts) 转为纯 TS 模块，明确收藏、项目、备份文档、存储快照与合并结果类型。导入入口接收 `unknown`，保留运行时白名单与关联校验；类型检查不代替数据校验。[WXT 兼容入口](../../wxt/entrypoints/backup-core.ts) 保留 `LaterOnBackup`，输出根级 `backup-core.js`，测试 helper 接入第三个编译入口。备份格式、消息协议和存储协调器的业务实现保持不变；存储客户端后续先梳理消息通信与界面职责。
+ITER-019 D 将 [备份核心](../../src/backup/core.ts) 转为纯 TS 模块，明确收藏、项目、备份文档、存储快照与合并结果类型。导入入口接收 `unknown`，保留运行时白名单与关联校验；类型检查不代替数据校验。当时的 WXT 兼容入口 `backup-core.ts`（已在 F2 退役） 保留 `LaterOnBackup`，输出根级 `backup-core.js`，测试 helper 接入第三个编译入口。备份格式、消息协议和存储协调器的业务实现保持不变；存储客户端后续先梳理消息通信与界面职责。
 
 ITER-019 E 将 [标签导航](../../src/tabs/navigation.ts) 迁为 TS 模块，通过 `wxt/browser` 访问带类型的扩展 API，并显式导入 URL 实现，取消对 `LaterOnUrl` 全局加载顺序的依赖。[WXT 兼容入口](../../wxt/entrypoints/tab-navigation.ts) 继续输出根级 `tab-navigation.js` 并保留 `LaterOnTabs`；旧页面引用不变，该脚本退出复制清单。迁移范围仅含网址比较、已有标签查询及激活，不增加事件监听或 DOM 操作。
 

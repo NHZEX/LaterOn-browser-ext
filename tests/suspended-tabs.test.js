@@ -111,7 +111,7 @@ function worker() {
     },
     importScripts(...files) { for (const file of files) vm.runInContext(source(file), ctx, { filename: file }); }
   });
-  vm.runInContext(source("background.js"), ctx, { filename: "background.js" });
+  vm.runInContext(source("background-test-api.js"), ctx, { filename: "background.js" });
   const send = (message) => new Promise((resolve, reject) => {
     for (const listener of listeners) {
       try { if (listener(message, {}, resolve) === true) return; } catch (error) { reject(error); return; }
@@ -131,7 +131,7 @@ async function until(check, label) {
 
 (async () => {
   const app = worker();
-  await app.ctx.ensureLegacyCleanup();
+  await app.ctx.backgroundTest.ensureLegacyCleanup();
   for (const url of samples) {
     app.tabs[0].url = frozenUrl(url);
     const result = await app.send({ type: "QUICK_SAVE_TAB", tabId: 1 });
@@ -146,7 +146,7 @@ async function until(check, label) {
   app.tabs[0].url = frozenUrl(samples[0]);
   const before = app.local.laterOnItems.length;
   app.tabs.push({ ...ordinary, active: false, windowId: 1 }, { id: 11, url: "chrome://settings/", active: false });
-  const batch = await app.ctx.saveAllTabsInWindow();
+  const batch = await app.ctx.backgroundTest.saveAllTabsInWindow();
   assert.equal(batch.ok, true);
   assert.equal(app.local.laterOnItems.length, before, "整窗内原页与冻结页共用收藏身份");
   assert.equal(app.local.laterOnDiag.lastTabCount, 2, "冻结页计入整窗范围，内部页排除");
@@ -157,15 +157,15 @@ async function until(check, label) {
 
   const offline = worker();
   offline.offline();
-  await offline.ctx.handleCommand("quick-save", offline.tabs[0]);
+  await offline.ctx.backgroundTest.handleCommand("quick-save", offline.tabs[0]);
   assert.equal(offline.local.laterOnItems[0].url, samples[0]);
   assert.equal(offline.local.laterOnItems[0].title, "原标题");
   assert.equal(offline.local.laterOnItems[0].image, "");
   assert.equal(offline.local.laterOnItems[0].description, "暂无摘要");
-  await offline.ctx.handleCommand("toggle-translation", offline.tabs[0]);
+  await offline.ctx.backgroundTest.handleCommand("toggle-translation", offline.tabs[0]);
   assert.equal(offline.injections.length, 0, "冻结页翻译不注入其他扩展");
   offline.tabs[0].url = frozenUrl("https://example.com/menu");
-  await offline.ctx.quickSave(offline.tabs[0], "menu");
+  await offline.ctx.backgroundTest.quickSave(offline.tabs[0], "menu");
   assert.ok(offline.local.laterOnItems.some((item) => item.url === "https://example.com/menu"));
 
   const picker = worker();
@@ -188,35 +188,35 @@ async function until(check, label) {
   assert.equal(picker.injections.length, 0, "确认后的会话快照仍跳过冻结页注入");
 
   picker.local.laterOnSettings.askFolderOnBatch = true;
-  await picker.ctx.saveAllTabsInWindow();
+  await picker.ctx.backgroundTest.saveAllTabsInWindow();
   const oldId = picker.session.laterOnPendingBatch.batchId;
-  await picker.ctx.saveAllTabsInWindow();
+  await picker.ctx.backgroundTest.saveAllTabsInWindow();
   const newId = picker.session.laterOnPendingBatch.batchId;
   assert.notEqual(newId, oldId);
   assert.equal((await picker.send({ type: "GET_PENDING_PICKER", batchId: oldId })).ok, false);
   assert.equal((await picker.send({ type: "CONFIRM_BATCH_SAVE", batchId: oldId, projectId: "work" })).ok, false);
   assert.equal((await picker.send({ type: "CANCEL_BATCH_SAVE", batchId: oldId })).cancelled, false);
   assert.equal(picker.session.laterOnPendingBatch.batchId, newId, "旧选择页不能确认或取消新批次");
-  const claims = await Promise.all([picker.ctx.claimPendingBatch("work", newId), picker.ctx.claimPendingBatch("work", newId)]);
+  const claims = await Promise.all([picker.ctx.backgroundTest.claimPendingBatch("work", newId), picker.ctx.backgroundTest.claimPendingBatch("work", newId)]);
   assert.equal(claims.filter(Boolean).length, 1, "同时确认也只领取一次");
-  await picker.ctx.saveAllTabsInWindow();
+  await picker.ctx.backgroundTest.saveAllTabsInWindow();
   picker.session.laterOnPendingBatch.createdAt = Date.now() - 11 * 60 * 1000;
   const expiredId = picker.session.laterOnPendingBatch.batchId;
   assert.equal((await picker.send({ type: "GET_PENDING_PICKER", batchId: expiredId })).ok, false);
-  assert.equal(await picker.ctx.claimPendingBatch("work", expiredId), null);
-  await picker.ctx.saveAllTabsInWindow();
+  assert.equal(await picker.ctx.backgroundTest.claimPendingBatch("work", expiredId), null);
+  await picker.ctx.backgroundTest.saveAllTabsInWindow();
   assert.equal((await picker.send({ type: "CANCEL_BATCH_SAVE", batchId: picker.session.laterOnPendingBatch.batchId })).cancelled, true);
 
   const unavailable = worker();
   unavailable.local.laterOnSettings.askFolderOnBatch = true;
   unavailable.failCreate();
-  assert.equal((await unavailable.ctx.saveAllTabsInWindow()).ok, false);
+  assert.equal((await unavailable.ctx.backgroundTest.saveAllTabsInWindow()).ok, false);
   assert.equal(unavailable.session.laterOnPendingBatch, undefined);
   assert.equal(unavailable.local.laterOnItems.length, 0, "选择器打不开时不擅自保存到默认项目");
 
   const routes = worker();
   routes.offline();
-  await routes.ctx.ensureLegacyCleanup();
+  await routes.ctx.backgroundTest.ensureLegacyCleanup();
   const routeA = "https://routes.test/app#/article/1?q=C++&part=2";
   const routeAReordered = "https://routes.test/app#/article/1?part=2&q=C++";
   const routeB = "https://routes.test/app#/article/2?part=2&q=C++";
@@ -231,12 +231,12 @@ async function until(check, label) {
     { id: 3, windowId: 1, active: false, url: routeB, discarded: true },
     { id: 4, windowId: 1, active: false, url: frozenUrl(bangRoute) }
   );
-  const routeBatch = await routes.ctx.saveAllTabsInWindow();
+  const routeBatch = await routes.ctx.backgroundTest.saveAllTabsInWindow();
   assert.equal(routeBatch.added, 2, "批量新增独立 hash 路由，普通页和冻结页不重复");
   assert.equal(routeBatch.duplicated, 2);
   assert.deepEqual(routes.local.laterOnItems.map(item => item.url).sort(), [routeA, routeB, bangRoute].sort());
   routes.local.laterOnSettings.askFolderOnBatch = true;
-  const routePicker = await routes.ctx.saveAllTabsInWindow();
+  const routePicker = await routes.ctx.backgroundTest.saveAllTabsInWindow();
   assert.equal(routePicker.pending, true);
   const routePickerPayload = await routes.send({ type: "GET_PENDING_PICKER", batchId: routes.session.laterOnPendingBatch.batchId });
   assert.equal(routePickerPayload.payload.savedCount, 3, "选择项目前的已收藏计数按同一身份去重");
@@ -248,7 +248,7 @@ async function until(check, label) {
 
   for (const language of ["zh-CN", "en"]) {
     const feedback = worker();
-    await feedback.ctx.ensureLegacyCleanup();
+    await feedback.ctx.backgroundTest.ensureLegacyCleanup();
     feedback.local.laterOnSettings.language = language;
     const added = await feedback.send({ type: "QUICK_SAVE_TAB", tabId: 1 });
     assert.equal(added.ok, true);
@@ -282,7 +282,7 @@ async function until(check, label) {
 
   for (const entry of ["shortcut", "menu"]) {
     const feedback = worker();
-    await feedback.ctx.ensureLegacyCleanup();
+    await feedback.ctx.backgroundTest.ensureLegacyCleanup();
     const invoke = () => entry === "shortcut"
       ? feedback.commands[0]("quick-save", clone(feedback.tabs[0]))
       : feedback.menus[0]({ menuItemId: "lateron-save-page" }, clone(feedback.tabs[0]));
@@ -297,7 +297,7 @@ async function until(check, label) {
   }
 
   const disabled = worker();
-  await disabled.ctx.ensureLegacyCleanup();
+  await disabled.ctx.backgroundTest.ensureLegacyCleanup();
   disabled.disableNotifications();
   assert.equal((await disabled.send({ type: "QUICK_SAVE_TAB", tabId: 1 })).ok, true, "通知失败不把收藏成功误报为失败");
   assert.equal(disabled.local.laterOnItems.length, 1);
@@ -315,12 +315,12 @@ async function until(check, label) {
 
   const batchFeedback = worker();
   batchFeedback.tabs.push({ id: 2, active: false, windowId: 1, url: frozenUrl("https://example.com/second") });
-  assert.equal((await batchFeedback.ctx.saveAllTabsInWindow()).added, 2);
+  assert.equal((await batchFeedback.ctx.backgroundTest.saveAllTabsInWindow()).added, 2);
   assert.equal(batchFeedback.notifications.length, 1, "冻结页整窗收藏只发最终系统通知，避免逐条刷屏");
   assert.match(batchFeedback.notifications[0].message, /^全部完成：新增 2 篇/);
   batchFeedback.tabs[0].url = frozenUrl("https://example.com/batch-failure");
   batchFeedback.failWrites();
-  assert.equal((await batchFeedback.ctx.saveAllTabsInWindow()).ok, false);
+  assert.equal((await batchFeedback.ctx.backgroundTest.saveAllTabsInWindow()).ok, false);
   assert.equal(batchFeedback.notifications.length, 2);
   assert.match(batchFeedback.notifications.at(-1).message, /操作失败：.*SAVE_FAILED/);
 

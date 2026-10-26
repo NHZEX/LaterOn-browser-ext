@@ -67,14 +67,14 @@ const chrome = {
 };
 const worker = vm.createContext({ chrome, Date: FixtureDate, console, URL, crypto: webcrypto, setTimeout, clearTimeout, setInterval, clearInterval });
 worker.importScripts = (...names) => names.forEach(name => vm.runInContext(read(name), worker, { filename: name }));
-vm.runInContext(read("background.js"), worker);
-const execute = fields => worker.LaterOnCollection.execute(fields);
+vm.runInContext(read("background-test-api.js"), worker);
+const execute = fields => worker.backgroundTest.execute(fields);
 const migrate = () => execute({ action: "migrateLegacyData" });
 const update = (id, patch) => execute({ action: "mutateItems", operation: "update", ids: [id], patch });
 
 (async () => {
   // Drain startup cleanup before preparing test records.
-  await worker.purgeExpiredItems();
+  await worker.backgroundTest.purgeExpiredItems();
   const originalTime = now - 60 * DAY;
   store.laterOnItems = [null, { id: "legacy", read: true, savedAt: 1, image: "data:image/png;base64,AAAA" },
     { id: "existing", status: "done", doneAt: originalTime }, { id: "reading", status: "reading", read: true, doneAt: 123 }];
@@ -111,10 +111,10 @@ const update = (id, patch) => execute({ action: "mutateItems", operation: "updat
 
   store.laterOnItems.push({ id: "unmigrated", read: true, savedAt: 1 });
   store.laterOnSettings = { autoCleanDays: 30 };
-  await worker.purgeExpiredItems();
+  await worker.backgroundTest.purgeExpiredItems();
   assert.deepEqual(store.laterOnItems.map(item => item.id), ["legacy", "reading", "unmigrated"], "Expired known dates are removed; migrated grace periods and unknown dates survive");
   now = migratedTime + 31 * DAY;
-  await worker.purgeExpiredItems();
+  await worker.backgroundTest.purgeExpiredItems();
   assert.deepEqual(store.laterOnItems.map(item => item.id), ["reading", "unmigrated"]);
   assert.equal(store.laterOnCovers.legacy, undefined);
   assert.equal(store.laterOnCovers.other, before.laterOnCovers.other);

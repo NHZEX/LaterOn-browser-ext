@@ -57,14 +57,14 @@ module.exports = async function verifyLibraryPage(directory) {
               failProjectWrite = false;
               return { ok: false, error: "Project write fixture failure" };
             }
-            return backend.LaterOnCollection.execute(message);
+            return backend.collectionBackend.execute(message);
           } },
         tabs: { async getCurrent() { return { id: 1, windowId: 1 }; }, async query() { return []; },
           async update(id, patch) { opened.push({ id, ...patch }); }, async create(patch) { opened.push(patch); } },
         windows: { async update() {} }, sidePanel: { async open() {} }
       };
       const backend = vm.createContext({ chrome: window.chrome, crypto: webcrypto, Date, URL });
-      vm.runInContext(resource("/storage-coordinator.js"), backend);
+      vm.runInContext(require("./read-runtime.cjs")("collection-backend.js"), backend);
       const scripts = [...document.querySelectorAll("script[src]")];
       assert.equal(scripts.at(-1).type, "module");
       for (const script of scripts.filter(script => script.type !== "module")) window.eval(resource(script.src));

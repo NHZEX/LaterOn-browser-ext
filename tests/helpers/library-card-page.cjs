@@ -55,7 +55,7 @@ function createLibraryPage(t, { items = [makeItem("a")], projects = [], covers =
       async sendMessage(message) {
         if (message.type !== "COLLECTION_COMMAND") return { ready: true };
         commands.push(structuredClone(message));
-        try { return await backend.LaterOnCollection.execute(message); }
+        try { return await backend.collectionBackend.execute(message); }
         catch (error) { return { ok: false, error: error.message }; }
       } },
     tabs: { async getCurrent() { return { id: 1, windowId: 1 }; }, async query() { return [{ id: 1, windowId: 1 }]; },
@@ -64,7 +64,7 @@ function createLibraryPage(t, { items = [makeItem("a")], projects = [], covers =
     sidePanel: { async open() {} }
   };
   const backend = vm.createContext({ chrome: window.chrome, crypto: window.crypto, Date, URL });
-  vm.runInContext(read("storage-coordinator.js"), backend);
+  vm.runInContext(read("collection-backend.js"), backend);
   configure({ window, store });
   t.after(() => {
     window.document.querySelector("#app").__vue_app__?.unmount();

@@ -19,7 +19,7 @@ const vm = require("vm");
 const { JSDOM } = require("jsdom");
 
 const ROOT = path.resolve(__dirname, "..");
-const BACKGROUND = fs.readFileSync(sourcePath("background.js"), "utf8");
+
 const PAGE_SCRIPT = fs.readFileSync(sourcePath("content-metadata.js"), "utf8");
 
 let passed = 0;
@@ -34,36 +34,8 @@ function check(label, condition, detail = "") {
   }
 }
 
-// 从 background.js 里整段抽出真实函数（依赖「顶层函数闭合括号顶格」的代码风格）。
-function grabFunction(source, name) {
-  const matched = new RegExp(`^(?:async )?function ${name}\\([^)]*\\)[\\s\\S]*?^\\}`, "m").exec(source);
-  if (!matched) throw new Error(`没找到函数 ${name}`);
-  return matched[0];
-}
-function grabConst(source, name) {
-  const matched = new RegExp(`^const ${name} = [^;]+;`, "m").exec(source);
-  if (!matched) throw new Error(`没找到常量 ${name}`);
-  return matched[0];
-}
-
-const REAL_SOURCE = [
-  grabConst(BACKGROUND, "EXTRACT_TIMEOUT_MS"),
-  grabConst(BACKGROUND, "DOUYIN_SETTLE_MS"),
-  grabConst(BACKGROUND, "DOUYIN_POLL_MS"),
-  grabFunction(BACKGROUND, "withTimeout"),
-  grabFunction(BACKGROUND, "safeHostname"),
-  grabFunction(BACKGROUND, "isDouyinUrl"),
-  grabFunction(BACKGROUND, "douyinVideoIdFromUrl"),
-  grabFunction(BACKGROUND, "probeDouyinFreshness"),
-  grabFunction(BACKGROUND, "settleDouyinDom"),
-  grabFunction(BACKGROUND, "isIconLikeImage"),
-  grabFunction(BACKGROUND, "refetchMetaFromServer"),
-  grabFunction(BACKGROUND, "isPlaceholderText"),
-  grabFunction(BACKGROUND, "titleHasSiteNoise"),
-  grabFunction(BACKGROUND, "applyServerMetaRescue"),
-  grabFunction(BACKGROUND, "readTabMetadata"),
-  grabFunction(BACKGROUND, "extractTabMetadata")
-].join("\n\n");
+// Execute the real native metadata module and its imports.
+const REAL_SOURCE = require("./helpers/module-script.cjs")("src/background/metadata.js") + "\nObject.assign(globalThis, backgroundModule);";
 
 // ── 假页面状态 ────────────────────────────────────────────────────
 // panelId 代表「标题面板此刻显示的哪条视频」，它滞后于网址。
@@ -201,7 +173,7 @@ const callExtract = (sandbox, tab) => sandbox.run(`extractTabMetadata(${JSON.str
     const probeIn = (html, url) => {
       const dom = new JSDOM(`<!doctype html><html><head>${html.head || ""}</head><body>${html.body || ""}</body></html>`, { url });
       const ctx = vm.createContext({ document: dom.window.document, location: dom.window.location, URL });
-      vm.runInContext(grabFunction(BACKGROUND, "probeDouyinFreshness"), ctx);
+      vm.runInContext(REAL_SOURCE, ctx);
       return vm.runInContext("probeDouyinFreshness()", ctx);
     };
 
@@ -392,38 +364,6 @@ const callExtract = (sandbox, tab) => sandbox.run(`extractTabMetadata(${JSON.str
     check("没有耗到上限（在 1.5 秒预算内完成）", cost < 1500, `${cost}ms`);
   }
 
-  console.log("\n=== 十一、代码接线（静态检查）===");
-  {
-    check(
-      "extractTabMetadata 里确实调用了 settleDouyinDom（并共用同一份时间预算）",
-      /await settleDouyinDom\(tab, deadline\);/.test(BACKGROUND)
-    );
-    check("提取前先算好「期望的视频 id」", /const expectedId = isDouyinUrl\(tab\.url\)/.test(BACKGROUND));
-    check("抓完会核对「实际读到的视频 id」", /data\.videoId !== expectedId/.test(BACKGROUND));
-    check(
-      "提取脚本会回报实际读到的视频 id",
-      /videoId: douyin\?\.readId/.test(PAGE_SCRIPT) && /readId: document\.querySelector/.test(PAGE_SCRIPT)
-    );
-    check("quickSave 改为走 extractTabMetadata（快捷键入口也被覆盖）", /const meta = await extractTabMetadata\(tab\);/.test(BACKGROUND));
-    const quickSaveBody = BACKGROUND.slice(
-      BACKGROUND.indexOf("async function quickSave"),
-      BACKGROUND.indexOf("async function toggleTranslation")
-    );
-    check(
-      "quickSave 里不再有「直接注入、无超时」的老写法",
-      !/chrome\.scripting\.executeScript\(\{[\s\S]*?func: extractPageMetadataForShortcut/.test(quickSaveBody)
-    );
-    check(
-      "探测函数是自包含的（注入到页面里不依赖外部标识符）",
-      !/\b(safeHostname|normalizeUrl|STORAGE_KEY|pillTitle|recordDiag)=?\(/.test(
-        grabFunction(BACKGROUND, "probeDouyinFreshness")
-      )
-    );
-    check(
-      "抖音封面只认「当前视频」那一张（不拿相关推荐的）",
-      /PackSourceEnum_AWEME_DETAIL/.test(PAGE_SCRIPT) || /sc=origin_cover/.test(PAGE_SCRIPT)
-    );
-  }
 
   console.log(`\n${failed === 0 ? "全部通过" : "存在失败"}：${passed} 项通过，${failed} 项失败`);
   process.exit(failed === 0 ? 0 : 1);

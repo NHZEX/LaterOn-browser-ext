@@ -4,9 +4,23 @@ const { buildSync } = require("esbuild");
 const sourcePath = require("./source-path.cjs");
 
 const root = resolve(__dirname, "../..");
-// Compile actual compatibility entries in memory; standalone tests need no prior build.
+// Compile real entries and native backend modules; standalone tests need no prior build.
 const entries = [
-  ...["url-utils", "collection-picker", "collection-filter", "item-edit", "item-state", "backup-core", "tab-navigation", "storage-coordinator", "storage-client", "theme"].map(entry =>
+  ["background-test-api.js", `
+    import entry from "./wxt/entrypoints/background";
+    import * as workflow from "./src/background/save-workflow";
+    import * as collection from "./src/background/collection";
+    import { purgeExpiredItems, ensureLegacyCleanup } from "./src/background/maintenance";
+    import { claimPendingBatch } from "./src/background/project-picker";
+    import { handleCommand } from "./src/background/index";
+    import { execute } from "./src/storage/coordinator";
+    entry.main();
+    globalThis.backgroundTest = { ...workflow, ...collection, purgeExpiredItems, ensureLegacyCleanup, claimPendingBatch, handleCommand, execute };
+  `],
+  ["background.js", 'import entry from "./wxt/entrypoints/background"; entry.main();'],
+  ["reading-position-background.js", 'import { registerReadingPosition } from "./src/background/reading-position"; registerReadingPosition();'],
+  ["collection-backend.js", 'import * as api from "./src/storage/coordinator"; api.registerMessages(); globalThis.collectionBackend = api;'],
+  ...["url-utils", "collection-filter", "item-edit", "item-state", "tab-navigation", "storage-client", "theme"].map(entry =>
     [`${entry}.js`, `import entry from "./wxt/entrypoints/${entry}"; entry.main();`])
 ];
 const scripts = Object.fromEntries(entries.map(([name, contents]) => {
