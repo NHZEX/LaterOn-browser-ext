@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 图板「封面组合」——自己从项目里已抓到的封面中挑几张、拖拽决定顺序：
 //  1) 没挑过时照旧自动拼（最新的优先、最多 3 张）
 //  2) 编辑项目弹窗里列出备选，点一下加入、点 × 取消，最多 3 张
@@ -13,10 +14,10 @@ const { JSDOM, VirtualConsole } = require("jsdom");
 const ROOT = path.resolve(__dirname, "..");
 const html = require("./helpers/read-runtime.cjs")("library.html");
 const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
-const dialogSource = fs.readFileSync(`${ROOT}/dialog.js`, "utf8");
-const i18nSource = fs.readFileSync(`${ROOT}/i18n.js`, "utf8");
-const dialogCss = fs.readFileSync(`${ROOT}/dialog.css`, "utf8");
-const libraryCss = fs.readFileSync(`${ROOT}/library.css`, "utf8");
+const dialogSource = fs.readFileSync(sourcePath("dialog.js"), "utf8");
+const i18nSource = fs.readFileSync(sourcePath("i18n.js"), "utf8");
+const dialogCss = fs.readFileSync(sourcePath("dialog.css"), "utf8");
+const libraryCss = fs.readFileSync(sourcePath("library.css"), "utf8");
 
 const errors = [];
 const virtualConsole = new VirtualConsole();

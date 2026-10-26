@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 三档阅读状态（未读 / 在读 / 已读）的核心行为测试。用 jsdom 加载真实的
 // 实际构建的 library.html 与 Vue 模块，覆盖：
 //  1) 旧收藏只有 read 布尔、没有 status：打开后自动归到「未读 / 已读」
@@ -98,7 +99,7 @@ const ids = () => visibleCards().map((c) => c.dataset.id);
 
 require('./helpers/item-mutation')(window);
 
-window.eval(fs.readFileSync(`${ROOT}/i18n.js`, "utf8"));
+window.eval(fs.readFileSync(sourcePath("i18n.js"), "utf8"));
 window.eval(librarySource);
 
 (async () => {

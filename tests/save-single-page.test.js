@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 模拟验证：收藏「单篇」时的两种行为（由设置里的「收藏当前网页前，先选项目」控制）。
 // 用假的 chrome API 把 background.js 跑起来，检查：
 //  1) 尚未存过设置时默认关闭：直接收藏到「等待整理」
@@ -13,7 +14,7 @@ const vm = require("vm");
 const { webcrypto } = require("crypto");
 const { URL } = require("url");
 
-const SOURCE = path.resolve(__dirname, "..", "background.js");
+const SOURCE = sourcePath("background.js");
 const src = fs.readFileSync(SOURCE, "utf8");
 const PICKER_TIMEOUT_MS = Number(/const PICKER_INJECT_TIMEOUT_MS = (\d+)/.exec(src)[1]);
 

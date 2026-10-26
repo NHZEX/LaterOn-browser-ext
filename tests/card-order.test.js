@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 拖拽排阅读顺序 —— 验证三件事：
 //   ① 「自定义顺序」下按存下来的顺序渲染
 //   ② 拖一张卡片到另一个位置 → 顺序写进存储（且不影响被筛掉的收藏的位置）
@@ -8,7 +9,7 @@ const path = require("path");
 const { JSDOM } = require("jsdom");
 
 const ROOT = path.join(__dirname, "..");
-const read = (name) => fs.readFileSync(path.join(ROOT, name), "utf8");
+const read = (name) => fs.readFileSync(sourcePath(name), "utf8");
 const DIALOG_SOURCE = read("dialog.js");
 const LIBRARY_SOURCE = require("./helpers/read-runtime.cjs")("library-page.js");
 const LIBRARY_HTML = require("./helpers/read-runtime.cjs")("library.html");

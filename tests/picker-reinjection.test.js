@@ -1,9 +1,10 @@
+const sourcePath = require("./helpers/source-path.cjs");
 const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 
-const source = fs.readFileSync(path.resolve(__dirname, "..", "content-folder-picker.js"), "utf8");
+const source = fs.readFileSync(sourcePath("content-folder-picker.js"), "utf8");
 const opened = [];
 let payload = null;
 

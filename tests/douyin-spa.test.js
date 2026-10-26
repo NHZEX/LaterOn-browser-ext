@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 回归测试：抖音「站内滑动切换视频」后，必须抓到新视频的标题与封面。
 //
 // 背景（实测时间线，无头 Chrome 逐 100ms 采样）：
@@ -18,8 +19,8 @@ const vm = require("vm");
 const { JSDOM } = require("jsdom");
 
 const ROOT = path.resolve(__dirname, "..");
-const BACKGROUND = fs.readFileSync(path.join(ROOT, "background.js"), "utf8");
-const PAGE_SCRIPT = fs.readFileSync(path.join(ROOT, "content-metadata.js"), "utf8");
+const BACKGROUND = fs.readFileSync(sourcePath("background.js"), "utf8");
+const PAGE_SCRIPT = fs.readFileSync(sourcePath("content-metadata.js"), "utf8");
 
 let passed = 0;
 let failed = 0;

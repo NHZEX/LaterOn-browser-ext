@@ -1,10 +1,11 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 地址栏直接回车后的收藏库落点：搜索词自动填入，并临时搜索全部阅读状态。
 const fs = require("fs");
 const path = require("path");
 const { JSDOM } = require("jsdom");
 
 const ROOT = path.join(__dirname, "..");
-const read = (name) => fs.readFileSync(path.join(ROOT, name), "utf8");
+const read = (name) => fs.readFileSync(sourcePath(name), "utf8");
 const dom = new JSDOM(require("./helpers/read-runtime.cjs")("library.html"), {
   runScripts: "outside-only",
   pretendToBeVisual: true,

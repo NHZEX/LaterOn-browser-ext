@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 真实后台代码 + 隔离、复制式 storage；不抓取网络、不读取真实收藏。
 const assert = require('assert');
 const fs = require('fs');
@@ -30,7 +31,7 @@ const chrome = {
 };
 const ctx = vm.createContext({ chrome, console, URL, crypto: webcrypto, setTimeout, clearTimeout, setInterval, clearInterval, importScripts() {} });
 vm.runInContext(require("./helpers/read-runtime.cjs")("url-utils.js"), ctx);
-vm.runInContext(fs.readFileSync(path.join(root, 'background.js'), 'utf8'), ctx);
+vm.runInContext(fs.readFileSync(sourcePath("background.js"), 'utf8'), ctx);
 ctx.showActionFeedback = async () => {};
 ctx.notifyTab = async () => {};
 const page = name => ({ url: `https://fixture.test/${name}`, title: name, description: 'fixture', image: 'fixture-cover' });

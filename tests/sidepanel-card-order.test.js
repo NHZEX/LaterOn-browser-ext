@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 侧栏卡片拖拽排序：验证整卡可拖、按钮不误触发拖动、排序与全屏共享，
 // 并且第一次拖动会自动切换到「自定义顺序」。
 const assert = require("assert");
@@ -8,7 +9,7 @@ const { JSDOM, VirtualConsole } = require("jsdom");
 const ROOT = path.resolve(__dirname, "..");
 const html = require("./helpers/read-runtime.cjs")("sidepanel.html");
 const source = require("./helpers/read-runtime.cjs")("sidepanel-page.js");
-const i18n = fs.readFileSync(path.join(ROOT, "i18n.js"), "utf8");
+const i18n = fs.readFileSync(sourcePath("i18n.js"), "utf8");
 const tabNavigation = require("./helpers/read-runtime.cjs")("tab-navigation.js");
 const errors = [];
 const virtualConsole = new VirtualConsole();

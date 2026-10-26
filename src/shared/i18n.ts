@@ -1,4 +1,4 @@
-import "../../i18n.js";
+import "./i18n-runtime.js";
 
 export type TranslationValues = Readonly<Record<string, string | number>>;
 export type Translate = (key: string, values?: TranslationValues) => string;

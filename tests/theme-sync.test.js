@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 主题（浅色 / 深色）在各界面之间的同步测试。覆盖：
 //  1) 有界面的页面都引入了 theme-vars.css + theme.js（全屏 / 设置 / 收藏浮层 / 侧栏）
 //  2) 侧栏的样式不再自己写死 :root 颜色变量——否则会盖掉 [data-theme="dark"] 的覆盖
@@ -9,7 +10,7 @@ const { JSDOM, VirtualConsole } = require("jsdom");
 
 const ROOT = path.resolve(__dirname, "..");
 const themeSource = require("./helpers/read-runtime.cjs")("theme.js");
-const sidepanelCss = fs.readFileSync(`${ROOT}/sidepanel.css`, "utf8");
+const sidepanelCss = fs.readFileSync(sourcePath("sidepanel.css"), "utf8");
 
 let failures = 0;
 const check = (label, ok, extra = "") => {
@@ -21,7 +22,7 @@ console.log("── 第 1 步：每个界面都接了同一套主题 ──");
 // 这几个都是当前产品里有完整界面的页面。
 const surfaces = ["library.html", "settings.html", "sidepanel.html"];
 for (const page of surfaces) {
-  const source = fs.readFileSync(`${ROOT}/${page === "settings.html" ? "wxt/entrypoints/settings/index.html" : page === "library.html" ? "wxt/entrypoints/library/index.html" : page === "sidepanel.html" ? "wxt/entrypoints/sidepanel/index.html" : page}`, "utf8");
+  const source = fs.readFileSync(sourcePath(page === "settings.html" ? "wxt/entrypoints/settings/index.html" : page === "library.html" ? "wxt/entrypoints/library/index.html" : page === "sidepanel.html" ? "wxt/entrypoints/sidepanel/index.html" : page), "utf8");
   check(`${page} 引入了 theme-vars.css`, source.includes("theme-vars.css"));
   check(`${page} 引入了 theme.js`, source.includes("theme.js"));
 }

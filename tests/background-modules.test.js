@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 静态依赖边界：大型网页脚本按需注入，不进入 service worker 的启动导入链。
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -5,7 +6,7 @@ const path = require("node:path");
 const ts = require("typescript");
 
 const ROOT = path.resolve(__dirname, "..");
-const background = fs.readFileSync(path.join(ROOT, "background.js"), "utf8");
+const background = fs.readFileSync(sourcePath("background.js"), "utf8");
 const tree = ts.createSourceFile("background.js", background, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
 const injected = [];
 const startup = [];
@@ -34,7 +35,7 @@ for (const [file, name] of [["content-metadata.js", "extractPageMetadataForShort
   assert.ok(injected.some(files => files.includes(file)), `${file} 通过脚本注入入口加载`);
   assert.ok(!startup.includes(file), `${file} 不应由后台冷启动导入`);
   assert.ok(!definitions.has(name), `${name} 的实现应留在网页脚本中`);
-  assert.ok(fs.statSync(path.join(ROOT, file)).size > 0, `${file} 注入资源存在`);
+  assert.ok(fs.statSync(sourcePath(file)).size > 0, `${file} 注入资源存在`);
 }
 assert.ok(injected.some(files => files[0] === "picker-ui.js" && files[1] === "content-folder-picker.js"),
   "项目选择器应先加载共享 UI 再加载入口");

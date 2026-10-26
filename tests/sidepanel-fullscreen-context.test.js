@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 从侧栏展开到全屏时应继承项目、筛选和当前文章；普通打开仍是「全部项目」首页。
 const assert = require("assert");
 const fs = require("fs");
@@ -5,7 +6,7 @@ const path = require("path");
 const { JSDOM, VirtualConsole } = require("jsdom");
 
 const ROOT = path.resolve(__dirname, "..");
-const read = (name) => fs.readFileSync(path.join(ROOT, name), "utf8");
+const read = (name) => fs.readFileSync(sourcePath(name), "utf8");
 const libraryHtml = require("./helpers/read-runtime.cjs")("library.html");
 const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
 

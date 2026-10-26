@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="icon128.png" width="72" height="72" alt="LaterOn 图标" />
+  <img src="wxt/public/icon128.png" width="72" height="72" alt="LaterOn 图标" />
 </p>
 
 <h1 align="center">LaterOn</h1>
@@ -25,10 +25,10 @@ LaterOn 会自动提取网页标题、摘要、封面和来源。已经打开的
 
 LaterOn 目前通过开发者模式安装，支持 Chrome / Edge 121 及以上版本。
 
-1. [下载项目 ZIP](https://github.com/gaoyiiiii/LaterOn/archive/refs/heads/main.zip) 并解压。
+1. 获取构建后的安装 ZIP 并解压；从源码安装时，先按下方「项目开发」执行依赖安装及 `pnpm build`。
 2. 打开 `chrome://extensions/`；Edge 使用 `edge://extensions/`。
 3. 开启右上角的“开发者模式”。
-4. 点击“加载已解压的扩展程序”，选择包含 `manifest.json` 的 `LaterOn-main` 文件夹。
+4. 点击“加载已解压的扩展程序”，选择安装包解压目录；从源码构建时选择 `.output/chrome-mv3`，不要选择仓库根目录。
 5. 建议在扩展菜单中固定 LaterOn，点击图标即可打开侧栏。
 
 ## 日常使用
@@ -103,6 +103,21 @@ pnpm install --frozen-lockfile
 ```
 
 运行 `pnpm build` 后，在浏览器中加载 `.output/chrome-mv3`；修改后重新构建并重新加载扩展。
+
+源码与扩展安装目录分离；根目录 `manifest.json` 是构建配置输入，不能直接加载仓库根目录作为扩展。
+
+| 目录 | 职责 |
+| --- | --- |
+| `wxt/entrypoints/` | WXT 入口、Vue 页面及页面专属样式 |
+| `wxt/public/` | 原样发布的图标、封面占位图与语言文件 |
+| `src/background/`、`src/content/` | 后台及按需注入网页的经典脚本；后续继续模块化 |
+| `src/picker/`、`src/ui/`、`src/styles/` | 项目选择页、公共界面脚本和共享样式 |
+| `src/library/`、`src/sidepanel/`、其他 `src/` 子目录 | 页面职责模块、共享规则及存储 / 备份等领域逻辑 |
+| `scripts/`、`tests/`、`docs/` | 构建发布、回归测试与项目文档 |
+| `.output/`、`.wxt/` | 忽略的构建 / 验证产物与 WXT 生成文件 |
+
+`scripts/runtime-files.json` 显式记录经典脚本及共享样式的「包内路径 → 源码位置」；静态资源由 WXT public 目录复制。源码归位不会改变 `background-runtime.js`、网页注入脚本或页面的包内地址。迁移范围与后续安排见 [目录整理方案](docs/plans/023-source-layout-and-wxt-native.md)。
+
 
 | 命令 | 用途 |
 | --- | --- |

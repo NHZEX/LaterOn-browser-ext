@@ -1,6 +1,7 @@
 const { readFileSync } = require("node:fs");
 const { resolve } = require("node:path");
 const { buildSync } = require("esbuild");
+const sourcePath = require("./source-path.cjs");
 
 const root = resolve(__dirname, "../..");
 // Compile actual compatibility entries in memory; standalone tests need no prior build.
@@ -29,5 +30,5 @@ module.exports = (name) => {
   if (name === "sidepanel-page.js") return require("./library-page.cjs")(undefined, "sidepanel").script;
   if (name === "library.html") return require("./library-page.cjs")().html;
   if (name === "library-page.js") return require("./library-page.cjs")().script;
-  return scripts[name] ?? readFileSync(resolve(root, name), "utf8");
+  return scripts[name] ?? readFileSync(sourcePath(name), "utf8");
 };

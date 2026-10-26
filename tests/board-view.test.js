@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 把实际编译的 Vue 收藏库页面 放进假 DOM 里跑，检查「图板」视图与全屏侧栏：
 //  1) 全部项目默认就是图板视图（一个类目一张图板，等待整理不占块）
 //  2) 封面是该类目里几篇收藏拼出来的：有封面的优先，最多 3 张
@@ -13,8 +14,8 @@ const { JSDOM, VirtualConsole } = require("jsdom");
 const ROOT = path.resolve(__dirname, "..");
 const html = require("./helpers/read-runtime.cjs")("library.html");
 const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
-const i18nSource = fs.readFileSync(`${ROOT}/i18n.js`, "utf8");
-const dialogSource = fs.readFileSync(`${ROOT}/dialog.js`, "utf8");
+const i18nSource = fs.readFileSync(sourcePath("i18n.js"), "utf8");
+const dialogSource = fs.readFileSync(sourcePath("dialog.js"), "utf8");
 const urlSource = require("./helpers/read-runtime.cjs")("url-utils.js");
 const tabNavigationSource = require("./helpers/read-runtime.cjs")("tab-navigation.js");
 

@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 把实际编译的 Vue 收藏库页面 放进一个假 DOM 里跑一遍，检查「项目置顶」：
 //  1) 「⋯」/ 右键菜单里第一项是「置顶项目」，置顶后同一项变成「取消置顶」
 //  2) 置顶的项目真的排到侧栏最前面，并且写进了 laterOnProjects
@@ -14,10 +15,10 @@ const { JSDOM, VirtualConsole } = require("jsdom");
 const ROOT = path.resolve(__dirname, "..");
 const html = require("./helpers/read-runtime.cjs")("library.html");
 const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
-const dialogSource = fs.readFileSync(`${ROOT}/dialog.js`, "utf8");
+const dialogSource = fs.readFileSync(sourcePath("dialog.js"), "utf8");
 // 侧栏那套样式的源码：下面有几条「静态断言」用它锁住纯视觉的规矩
 // （jsdom 不做排版，「图钉角标贴在缩略图的哪个角」这种事它永远测不出来）。
-const libraryCss = fs.readFileSync(`${ROOT}/library.css`, "utf8");
+const libraryCss = fs.readFileSync(sourcePath("library.css"), "utf8");
 
 const errors = [];
 const virtualConsole = new VirtualConsole();
@@ -148,7 +149,7 @@ const openMenu = async (id) => {
 const topOf = (index) => ROW_TOP + index * ROW_STEP;
 const midOf = (index) => topOf(index) + ROW_HEIGHT / 2;
 
-window.eval(fs.readFileSync(`${ROOT}/i18n.js`, "utf8"));
+window.eval(fs.readFileSync(sourcePath("i18n.js"), "utf8"));
 window.eval(dialogSource);
 require('./helpers/item-mutation')(window);
 window.eval(librarySource);

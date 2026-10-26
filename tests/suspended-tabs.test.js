@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // Actual URL helpers + worker with isolated storage; never touches user tabs or data.
 const assert = require("node:assert/strict");
 const vm = require("node:vm");
@@ -243,7 +244,7 @@ async function until(check, label) {
 
   const manifest = JSON.parse(readFileSync(path.resolve(__dirname, "../manifest.json"), "utf8"));
   assert.ok(manifest.permissions.includes("notifications"), "构建清单声明系统通知权限");
-  assert.ok(readFileSync(path.resolve(__dirname, "..", "icon128.png")).length, "系统通知图标存在");
+  assert.ok(readFileSync(sourcePath("icon128.png")).length, "系统通知图标存在");
 
   for (const language of ["zh-CN", "en"]) {
     const feedback = worker();

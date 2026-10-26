@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 全屏收藏库里点一篇收藏：应该切换成「原文 + 侧栏」的阅读状态，
 // 而不是单纯在新标签页里打开链接、把全屏收藏库留在原地。
 // 覆盖：
@@ -16,7 +17,7 @@ const ROOT = path.resolve(__dirname, "..");
 const html = require("./helpers/read-runtime.cjs")("library.html");
 const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
 const tabNavigationSource = require("./helpers/read-runtime.cjs")("tab-navigation.js");
-const i18nSource = fs.readFileSync(`${ROOT}/i18n.js`, "utf8");
+const i18nSource = fs.readFileSync(sourcePath("i18n.js"), "utf8");
 
 const errors = [];
 const virtualConsole = new VirtualConsole();

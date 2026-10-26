@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 自己上传封面 —— 三段验证：
 //   ① 弹窗里的封面区：预览、上传（自动压缩）、移除、返回的值
 //   ② 后台重复收藏时：用户自己定的封面不能被自动抓取的结果顶掉
@@ -9,7 +10,7 @@ const vm = require("vm");
 const { JSDOM } = require("jsdom");
 
 const ROOT = path.join(__dirname, "..");
-const read = (name) => fs.readFileSync(path.join(ROOT, name), "utf8");
+const read = (name) => fs.readFileSync(sourcePath(name), "utf8");
 const BACKGROUND = read("background.js");
 const I18N_SOURCE = read("i18n.js");
 const DIALOG_SOURCE = read("dialog.js");

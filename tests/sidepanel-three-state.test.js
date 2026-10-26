@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 侧边栏（sidepanel）的三档阅读状态行为测试。用 jsdom 加载真实的
 // 实际编译的 sidepanel 页面，覆盖：
 //  1) 旧 read 布尔自动归到「未读 / 已读」
@@ -13,7 +14,7 @@ const ROOT = path.resolve(__dirname, "..");
 const html = require("./helpers/read-runtime.cjs")("sidepanel.html");
 const sidepanelSource = require("./helpers/read-runtime.cjs")("sidepanel-page.js");
 const tabNavigationSource = require("./helpers/read-runtime.cjs")("tab-navigation.js");
-const i18nSource = fs.readFileSync(`${ROOT}/i18n.js`, "utf8");
+const i18nSource = fs.readFileSync(sourcePath("i18n.js"), "utf8");
 
 const errors = [];
 const virtualConsole = new VirtualConsole();

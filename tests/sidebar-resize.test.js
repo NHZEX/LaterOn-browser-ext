@@ -1,10 +1,11 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // Exercise the real library controller: drag, cancellation, bounds, persistence and alternatives.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { JSDOM, VirtualConsole } = require('jsdom');
 const root = path.resolve(__dirname, '..');
-const read = name => fs.readFileSync(path.join(root, name), 'utf8');
+const read = name => fs.readFileSync(sourcePath(name), 'utf8');
 const tick = () => new Promise(resolve => setTimeout(resolve, 10));
 
 async function fixture(savedWidth, failWrites = false) {

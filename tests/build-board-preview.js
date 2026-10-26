@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 生成「图板视图」的设计预览页：真实 WXT 收藏库产物，包含编译后的 Vue 组件，
 // 只把 chrome.storage 换成一份假数据（几个类目、带封面的收藏），打开就是图板视图。
 // 这样预览看到的就是当前那份实现，不会和代码脱节（改完重跑一次本脚本即可）。
@@ -92,7 +93,7 @@ const page = require("./helpers/library-page.cjs")();
 const built = path.join(ROOT, ".output/chrome-mv3");
 const dom = new JSDOM(page.html);
 const { document } = dom.window;
-const imageData = name => `data:image/png;base64,${fs.readFileSync(path.join(ROOT, name)).toString("base64")}`;
+const imageData = name => `data:image/png;base64,${fs.readFileSync(sourcePath(name)).toString("base64")}`;
 const scriptElement = (code) => {
   const element = document.createElement("script");
   element.textContent = code.replace(/<\/script>/gi, "<\\/script>");

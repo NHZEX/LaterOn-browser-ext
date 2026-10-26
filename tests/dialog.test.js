@@ -1,3 +1,5 @@
+const sourcePath = require("./helpers/source-path.cjs");
+const ts = require("typescript");
 // 自定义弹窗组件（dialog.js + dialog.css）的行为测试。
 // 它是用来取代浏览器原生 confirm / alert 的，所以重点验证：
 //  1) 各类交互都能给出正确结果：点确认、点取消、按 Esc、点遮罩、按回车
@@ -11,9 +13,9 @@ const path = require("path");
 const { JSDOM, VirtualConsole } = require("jsdom");
 
 const ROOT = path.resolve(__dirname, "..");
-const i18nSource = fs.readFileSync(`${ROOT}/i18n.js`, "utf8");
-const dialogSource = fs.readFileSync(`${ROOT}/dialog.js`, "utf8");
-const dialogCss = fs.readFileSync(`${ROOT}/dialog.css`, "utf8");
+const i18nSource = fs.readFileSync(sourcePath("i18n.js"), "utf8");
+const dialogSource = fs.readFileSync(sourcePath("dialog.js"), "utf8");
+const dialogCss = fs.readFileSync(sourcePath("dialog.css"), "utf8");
 
 const errors = [];
 const virtualConsole = new VirtualConsole();
@@ -149,13 +151,30 @@ const text = (selector) => visible()?.querySelector(selector)?.textContent || ""
 
   console.log("\n── 全项目排查：还有没有用浏览器自带弹窗的地方 ──");
   const offenders = [];
-  for (const name of fs.readdirSync(ROOT).filter((entry) => entry.endsWith(".js"))) {
-    const source = fs.readFileSync(`${ROOT}/${name}`, "utf8")
-      .replace(/\/\*[\s\S]*?\*\//g, "")     // 去掉块注释
-      .replace(/^[ \t]*\/\/.*$/gm, "");     // 去掉行注释
-    for (const matched of source.matchAll(/(^|[^.\w$])(window\.)?(confirm|alert|prompt)\s*\(/g)) {
-      offenders.push(`${name} → ${matched[3]}(`);
+  const files = [];
+  for (const directory of ["src", "wxt/entrypoints"]) {
+    const base = path.join(ROOT, directory);
+    for (const entry of fs.readdirSync(base, { recursive: true, withFileTypes: true })) {
+      if (!entry.isFile() || !/\.(?:js|ts)$/.test(entry.name)) continue;
+      files.push(path.join(entry.parentPath, entry.name));
     }
+  }
+  const program = ts.createProgram(files, { allowJs: true, noResolve: true, noLib: true, types: [] });
+  const checker = program.getTypeChecker();
+  for (const file of files) {
+    const tree = program.getSourceFile(file);
+    function visit(node) {
+      if (ts.isCallExpression(node)) {
+        const call = node.expression;
+        // Locally bound commands named confirm/alert/prompt are not browser globals.
+        const name = ts.isIdentifier(call) && !checker.getSymbolAtLocation(call) ? call.text
+          : ts.isPropertyAccessExpression(call) && ts.isIdentifier(call.expression) && call.expression.text === "window"
+            ? call.name.text : "";
+        if (["confirm", "alert", "prompt"].includes(name)) offenders.push(`${path.relative(ROOT, file)} → ${name}(`);
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(tree);
   }
   check("扩展代码里已没有浏览器自带弹窗的调用", offenders.length === 0, offenders.join(" | "));
 

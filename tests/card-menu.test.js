@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 单篇收藏的右键菜单（把实际编译的 Vue 收藏库页面 放进假 DOM 跑）：
 //  1) 卡片上右键 → 弹出菜单（新标签页打开 / 编辑 / 多选 / 删除）
 //  2) 点「多选」→ 进入多选模式（顶部按钮激活、底部批量条展开、这一篇已勾上）
@@ -12,8 +13,8 @@ const { JSDOM, VirtualConsole } = require("jsdom");
 const ROOT = path.resolve(__dirname, "..");
 const html = require("./helpers/read-runtime.cjs")("library.html");
 const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
-const dialogSource = fs.readFileSync(`${ROOT}/dialog.js`, "utf8");
-const i18nSource = fs.readFileSync(`${ROOT}/i18n.js`, "utf8");
+const dialogSource = fs.readFileSync(sourcePath("dialog.js"), "utf8");
+const i18nSource = fs.readFileSync(sourcePath("i18n.js"), "utf8");
 
 const errors = [];
 const virtualConsole = new VirtualConsole();

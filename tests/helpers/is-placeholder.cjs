@@ -1,7 +1,8 @@
+const sourcePath = require("./source-path.cjs");
 const fs = require("node:fs");
 const path = require("node:path");
 const root = path.resolve(__dirname, "../..");
-const expected = fs.readFileSync(path.join(root, "article-cover-placeholder.png"));
+const expected = fs.readFileSync(sourcePath("article-cover-placeholder.png"));
 
 // Asset names may be hashed by Vite; verify the actual displayed resource bytes.
 module.exports = function isPlaceholder(image) {

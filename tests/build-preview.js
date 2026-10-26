@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 生成「网页内选项目浮层」的设计预览页。
 // 背景：预览面板是把单个 HTML 放进快照目录里打开的，页面里的相对路径（../picker-ui.js）加载不到，
 // 所以这里把真实的实现**内联**进预览页：
@@ -10,8 +11,8 @@ const fs = require("fs");
 const path = require("path");
 
 const dir = __dirname;
-const PICKER_UI = path.join(dir, "..", "picker-ui.js");
-const PICKER_WRAPPER = path.join(dir, "..", "content-folder-picker.js");
+const PICKER_UI = sourcePath("picker-ui.js");
+const PICKER_WRAPPER = sourcePath("content-folder-picker.js");
 const TEMPLATE = path.join(dir, "picker-preview.template.html");
 const OUTPUT = path.join(dir, "picker-preview.html");
 const PLACEHOLDER = "<!--INLINE_OVERLAY_IMPLEMENTATION-->";

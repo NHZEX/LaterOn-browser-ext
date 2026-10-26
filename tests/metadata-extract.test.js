@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 回归测试：网页信息提取（重点覆盖 YouTube 这类「单页应用」）
 //
 // 背景（已实测确认）：YouTube 站内点开另一个视频时，og:title / og:image /
@@ -15,8 +16,8 @@ const vm = require("vm");
 const { JSDOM } = require("jsdom");
 
 const ROOT = path.join(__dirname, "..");
-const BACKGROUND = fs.readFileSync(path.join(ROOT, "background.js"), "utf8");
-const PAGE_SCRIPT = fs.readFileSync(path.join(ROOT, "content-metadata.js"), "utf8");
+const BACKGROUND = fs.readFileSync(sourcePath("background.js"), "utf8");
+const PAGE_SCRIPT = fs.readFileSync(sourcePath("content-metadata.js"), "utf8");
 
 let passed = 0;
 let failed = 0;
@@ -412,7 +413,7 @@ console.log("\n=== 十六、显示端：跨站图片防盗链（Referer）===");
   // 已实测：小红书图片 CDN 对 Referer: chrome-extension:// 返回 403、不带 Referer 返回 200。
   // 所以收藏库 / 侧栏 / 弹窗 / 设置页必须声明「不发 Referer」，否则封面抓到了也显示不出来。
   for (const page of ["library.html", "sidepanel.html", "settings.html"]) {
-    const html = fs.readFileSync(path.join(ROOT, page === "settings.html" ? "wxt/entrypoints/settings/index.html" : page === "library.html" ? "wxt/entrypoints/library/index.html" : page === "sidepanel.html" ? "wxt/entrypoints/sidepanel/index.html" : page), "utf8");
+    const html = fs.readFileSync(sourcePath(page === "settings.html" ? "wxt/entrypoints/settings/index.html" : page === "library.html" ? "wxt/entrypoints/library/index.html" : page === "sidepanel.html" ? "wxt/entrypoints/sidepanel/index.html" : page), "utf8");
     check(`${page} 声明了整页不发 Referer`, /<meta name="referrer" content="no-referrer"/.test(html));
   }
   // 封面与 favicon 的请求策略由 library-cards / sidepanel-cards 检查实际渲染节点。

@@ -1,10 +1,11 @@
+const sourcePath = require("./helpers/source-path.cjs");
 const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 
 const ROOT = path.resolve(__dirname, "..");
-const read = (name) => fs.readFileSync(path.join(ROOT, name), "utf8");
+const read = (name) => fs.readFileSync(sourcePath(name), "utf8");
 
 const context = {
   window: { dispatchEvent() {} },

@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 把实际编译的 Vue 收藏库页面 放进假 DOM 里跑一遍，检查「拖拽项目排序」：
 //  1) 项目行可以拖；拖动时出现指示线，被拖的行变淡、有一份跟随光标的实体影像
 //  2) 拖到最前 / 中间 / 最后，放下后顺序真的变了，并且写进了 laterOnProjects
@@ -13,8 +14,8 @@ const { JSDOM, VirtualConsole } = require("jsdom");
 const ROOT = path.resolve(__dirname, "..");
 const html = require("./helpers/read-runtime.cjs")("library.html");
 const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
-const dialogSource = fs.readFileSync(`${ROOT}/dialog.js`, "utf8");
-const i18nSource = fs.readFileSync(`${ROOT}/i18n.js`, "utf8");
+const dialogSource = fs.readFileSync(sourcePath("dialog.js"), "utf8");
+const i18nSource = fs.readFileSync(sourcePath("i18n.js"), "utf8");
 
 const errors = [];
 const virtualConsole = new VirtualConsole();

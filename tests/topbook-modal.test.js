@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 回归测试：topbook.cc 这类「弹窗式文章」站点，必须抓到正确的标题与封面。
 //
 // 背景（2026-09 用无头 Chrome 实测 topbook.cc）：
@@ -24,8 +25,8 @@ const vm = require("vm");
 const { JSDOM } = require("jsdom");
 
 const ROOT = path.resolve(__dirname, "..");
-const BACKGROUND = fs.readFileSync(path.join(ROOT, "background.js"), "utf8");
-const PAGE_SCRIPT = fs.readFileSync(path.join(ROOT, "content-metadata.js"), "utf8");
+const BACKGROUND = fs.readFileSync(sourcePath("background.js"), "utf8");
+const PAGE_SCRIPT = fs.readFileSync(sourcePath("content-metadata.js"), "utf8");
 const FIXTURE = fs.readFileSync(path.join(__dirname, "fixtures", "topbook-modal.html"), "utf8");
 
 let passed = 0;

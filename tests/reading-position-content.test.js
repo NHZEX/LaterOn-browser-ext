@@ -1,9 +1,10 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 网页端只保存 scrollY，并由用户点击“继续上次位置”后恢复。
 const fs = require("fs");
 const path = require("path");
 const { JSDOM } = require("jsdom");
 
-const source = fs.readFileSync(path.join(__dirname, "..", "content-reading-position.js"), "utf8");
+const source = fs.readFileSync(sourcePath("content-reading-position.js"), "utf8");
 const dom = new JSDOM("<!doctype html><html><body><main style='height:5000px'></main></body></html>", {
   runScripts: "outside-only", pretendToBeVisual: true, url: "https://example.com/article"
 });

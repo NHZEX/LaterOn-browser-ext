@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 侧边栏的搜索框：和全屏页同一个规矩——永远是「全局搜索」。
 // 侧栏上面有一排项目筛选，但搜索框里有字时不再受它限制：在「工作」里搜一个只存在于
 // 「阅读」里的标题，也要找得到（否则用户会以为这篇收藏丢了）。
@@ -112,7 +113,7 @@ async function search(word) {
 
 require('./helpers/item-mutation')(window);
 
-window.eval(fs.readFileSync(`${ROOT}/i18n.js`, "utf8"));
+window.eval(fs.readFileSync(sourcePath("i18n.js"), "utf8"));
 window.scrollTo = () => {};
 window.eval(sidepanelSource);
 

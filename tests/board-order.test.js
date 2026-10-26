@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 图板拖拽排序 —— 和「拖卡片换阅读顺序」同一套逻辑，这里验证：
 //   ① 拖动中不动 DOM，只靠 transform 让位；原位留虚线框，被拖的那块藏起来（不留重影）
 //   ② 松手后顺序写回：项目顺序进 PROJECTS_KEY（侧栏项目列表同步跟着变）
@@ -12,7 +13,7 @@ const { JSDOM } = require("jsdom");
 const ROOT = path.resolve(__dirname, "..");
 const html = require("./helpers/read-runtime.cjs")("library.html");
 const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
-const dialogSource = fs.readFileSync(`${ROOT}/dialog.js`, "utf8");
+const dialogSource = fs.readFileSync(sourcePath("dialog.js"), "utf8");
 
 let failures = 0;
 const check = (label, ok, extra = "") => {

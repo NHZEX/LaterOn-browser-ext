@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 删除单篇收藏必须先弹确认（危险操作，一点就没太容易误删）。
 // 用 jsdom 加载真实的 实际构建的 library.html、Vue 模块及 dialog.js，覆盖：
 //  1) 点卡片上的垃圾桶 → 弹出自定义确认弹窗（不是浏览器自带 alert）
@@ -11,8 +12,8 @@ const { JSDOM, VirtualConsole } = require("jsdom");
 const ROOT = path.resolve(__dirname, "..");
 const html = require("./helpers/read-runtime.cjs")("library.html");
 const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
-const dialogSource = fs.readFileSync(`${ROOT}/dialog.js`, "utf8");
-const i18nSource = fs.readFileSync(`${ROOT}/i18n.js`, "utf8");
+const dialogSource = fs.readFileSync(sourcePath("dialog.js"), "utf8");
+const i18nSource = fs.readFileSync(sourcePath("i18n.js"), "utf8");
 
 const errors = [];
 const virtualConsole = new VirtualConsole();

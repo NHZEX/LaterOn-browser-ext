@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 验证「已读收藏自动清除」：标为已读超过设定天数（默认 30，范围 30–180）就自动删除。
 // 用 vm 把真实 background.js 加载进 mock 了 chrome 的沙箱，通过 storage.onChanged 触发清除，
 // 测的就是上线那份代码本身。
@@ -6,7 +7,7 @@ const vm = require("vm");
 const path = require("path");
 
 const ROOT = path.join(__dirname, "..");
-const code = fs.readFileSync(path.join(ROOT, "background.js"), "utf8");
+const code = fs.readFileSync(sourcePath("background.js"), "utf8");
 const DAY = 24 * 60 * 60 * 1000;
 
 let failures = 0;

@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 把实际编译的 Vue 收藏库页面 放进一个假 DOM 里跑一遍，检查「项目」的管理交互：
 //  1) 图板墙末尾的虚线加号打开新建项目弹窗
 //  2) 新建成功后自动进入项目，侧栏项目列表随之出现
@@ -14,12 +15,12 @@ const { JSDOM, VirtualConsole } = require("jsdom");
 const ROOT = path.resolve(__dirname, "..");
 const html = require("./helpers/read-runtime.cjs")("library.html");
 const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
-const i18nSource = fs.readFileSync(`${ROOT}/i18n.js`, "utf8");
+const i18nSource = fs.readFileSync(sourcePath("i18n.js"), "utf8");
 // 确认框现在走自定义弹窗，所以把 dialog.js 也一起加载进来跑真实的组件。
-const dialogSource = fs.readFileSync(`${ROOT}/dialog.js`, "utf8");
+const dialogSource = fs.readFileSync(sourcePath("dialog.js"), "utf8");
 // 侧栏那套样式的源码：下面有几条「静态断言」用它锁住纯视觉的规矩
 // （jsdom 不做排版，「文字贴在缩略图上」这种问题它永远测不出来）。
-const libraryCss = fs.readFileSync(`${ROOT}/library.css`, "utf8");
+const libraryCss = fs.readFileSync(sourcePath("library.css"), "utf8");
 
 // 页面里任何未捕获的错误都记下来，最后统一断言（防止出现「改了没生效」这类静默失败）。
 const errors = [];

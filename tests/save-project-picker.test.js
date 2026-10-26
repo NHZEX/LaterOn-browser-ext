@@ -1,9 +1,10 @@
+const sourcePath = require("./helpers/source-path.cjs");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { JSDOM } = require("jsdom");
 const root = path.resolve(__dirname, "..");
-const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
+const read = (file) => fs.readFileSync(sourcePath(file), "utf8");
 const tick = () => new Promise((resolve) => setTimeout(resolve, 25));
 
 async function boot({ expired = false, language = "zh-CN", failConfirm = false, failCreate = false, failCancel = false } = {}) {

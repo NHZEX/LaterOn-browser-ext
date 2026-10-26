@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 侧栏「定位到正在读的那篇」行为测试。
 // 用 jsdom 加载真实 实际编译的 sidepanel 页面，自己铺一套假坐标 / 假滚动
 // （jsdom 没有排版，window.scrollTo 也不真的滚），覆盖：
@@ -16,7 +17,7 @@ const { JSDOM, VirtualConsole } = require("jsdom");
 
 const ROOT = path.resolve(__dirname, "..");
 const html = require("./helpers/read-runtime.cjs")("sidepanel.html");
-const i18nSource = fs.readFileSync(`${ROOT}/i18n.js`, "utf8");
+const i18nSource = fs.readFileSync(sourcePath("i18n.js"), "utf8");
 const sidepanelSource = require("./helpers/read-runtime.cjs")("sidepanel-page.js");
 const urlSource = require("./helpers/read-runtime.cjs")("url-utils.js");
 const tabNavigationSource = require("./helpers/read-runtime.cjs")("tab-navigation.js");

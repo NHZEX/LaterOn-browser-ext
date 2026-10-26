@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 模拟验证：一键收藏「先在网页里弹出选项目浮层 → 再一篇一篇收藏」的完整流程。
 // 用假的 chrome API 把 background.js 跑起来，检查：
 //  1) 触发快捷键后不会立刻收藏，而是在当前网页里注入一个「选项目」浮层（不新开窗口）
@@ -14,7 +15,7 @@ const vm = require("vm");
 const { webcrypto } = require("crypto");
 const { URL } = require("url");
 
-const SOURCE = path.resolve(__dirname, "..", "background.js");
+const SOURCE = sourcePath("background.js");
 const src = fs.readFileSync(SOURCE, "utf8");
 const TIMEOUT_MS = Number(/const EXTRACT_TIMEOUT_MS = (\d+)/.exec(src)[1]);
 

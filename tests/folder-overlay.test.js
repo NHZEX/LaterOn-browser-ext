@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // DOM 冒烟测试：把真实的「网页内选项目浮层」放进一个假 DOM 里跑一遍，
 // 确认它真的渲染出来、内容正确、交互（选择 / 新建 / 取消 / 键盘）都对。
 // 用 jsdom 而不是真浏览器，只是为了让这个检查能在命令行里快速反复跑。
@@ -5,11 +6,11 @@ const fs = require("fs");
 const path = require("path");
 const { JSDOM } = require("jsdom");
 
-const SOURCE = path.resolve(__dirname, "..", "content-folder-picker.js");
+const SOURCE = sourcePath("content-folder-picker.js");
 const src = fs.readFileSync(SOURCE, "utf8");
 
 // 真实浮层 UI 抽到了 picker-ui.js 的 openFolderPicker（和全屏卡片上那个浮层同一份）。
-const UI_SOURCE = path.resolve(__dirname, "..", "picker-ui.js");
+const UI_SOURCE = sourcePath("picker-ui.js");
 const uiSrc = fs.readFileSync(UI_SOURCE, "utf8");
 
 // 从 content-folder-picker.js 里取出真实的浮层入口函数源码（预览和测试都用这一份，避免脱节）。

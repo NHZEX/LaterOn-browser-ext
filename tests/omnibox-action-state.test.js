@@ -1,10 +1,11 @@
+const sourcePath = require("./helpers/source-path.cjs");
 // 地址栏搜索 + 工具栏收藏状态：用真实 background.js 验证用户可见行为。
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 
 const ROOT = path.join(__dirname, "..");
-const code = fs.readFileSync(path.join(ROOT, "background.js"), "utf8");
+const code = fs.readFileSync(sourcePath("background.js"), "utf8");
 const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "manifest.json"), "utf8"));
 
 let failures = 0;

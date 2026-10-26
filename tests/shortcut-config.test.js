@@ -1,3 +1,4 @@
+const sourcePath = require("./helpers/source-path.cjs");
 const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
@@ -5,7 +6,7 @@ const path = require("path");
 const ROOT = path.resolve(__dirname, "..");
 const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "manifest.json"), "utf8"));
 const { DEFAULTS } = require("../src/settings/shared.ts");
-const background = fs.readFileSync(path.join(ROOT, "background.js"), "utf8");
+const background = fs.readFileSync(sourcePath("background.js"), "utf8");
 const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
 
 assert.strictEqual(
