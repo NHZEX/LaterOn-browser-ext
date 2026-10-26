@@ -17,6 +17,46 @@ const seed = async (worker, theme) => worker.evaluate(async ({ theme, cover }) =
 }, { theme, cover });
 
 for (const [language, theme] of [["zh-CN", "light"], ["en", "dark"]]) {
+  test(`E4：当前页元数据、实际保存、切页与完整界面交接 ${language}/${theme}`, async ({ context, page, extension }, testInfo) => {
+    const errors = []; page.on("pageerror", error => errors.push(error.message));
+    await context.route("https://e4.test/**", route => route.fulfill({ contentType: "text/html", body:
+      '<title>E4 tab title</title><meta property="og:title" content="E4 metadata title"><meta property="og:description" content="E4 description"><main>Article body</main>' }));
+    await extension.worker.evaluate(async ({ language, theme }) => {
+      await chrome.storage.local.clear();
+      await chrome.storage.local.set({ laterOnOnboardingSeen: true, laterOnItems: [], laterOnProjects: [], laterOnCovers: {},
+        laterOnSettings: { language, theme, askFolderOnSingle: false, autoMarkRead: false }, laterOnActiveProject: "unfiled" });
+    }, { language, theme });
+    await page.goto(extension.url);
+    await expect(page.locator("body")).not.toHaveClass(/booting/);
+    const article = await context.newPage(); await article.goto("https://e4.test/article");
+    await expect(page.locator("#currentTitle")).toHaveText("E4 metadata title");
+    await expect(page.locator("#saveCurrent")).toBeEnabled();
+    await page.locator("#saveCurrent").click();
+    await expect.poll(() => extension.worker.evaluate(async () => (await chrome.storage.local.get("laterOnItems")).laterOnItems?.length)).toBe(1);
+    await expect(page.locator("#saveCurrent")).toHaveClass(/saved/);
+    await expect(page.locator("#items .item h2")).toHaveText("E4 metadata title");
+    await article.goto("https://e4.test/next"); await expect(page.locator("#saveCurrent")).toBeEnabled();
+    await article.goto("https://e4.test/article"); await expect(page.locator("#saveCurrent")).toHaveClass(/saved/);
+    const current = await extension.worker.evaluate(async () => {
+      const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+      return { windowId: active.windowId, item: (await chrome.storage.local.get("laterOnItems")).laterOnItems[0] };
+    });
+    const ping = await extension.worker.evaluate(windowId => chrome.runtime.sendMessage({ type: "PING_SIDEPANEL", windowId }), current.windowId);
+    expect(ping.ready).toBe(true);
+    expect((await extension.worker.evaluate(windowId => chrome.runtime.sendMessage({ type: "PING_SIDEPANEL", windowId }), current.windowId + 100)).ready).toBe(false);
+    await page.setViewportSize({ width: 375, height: 800 });
+    await page.screenshot({ path: testInfo.outputPath(`e4-${language}-${theme}.png`), fullPage: true });
+    const opened = context.waitForEvent("page");
+    await page.locator("#openLibrary").click();
+    const library = await opened; await library.waitForURL(/library\.html\?/);
+    const target = new URL(library.url());
+    expect(Object.fromEntries(target.searchParams)).toEqual({ from: "sidepanel", project: "unfiled", filter: "unread", focus: current.item.id });
+    await expect(library.locator(`#cardGrid [data-id="${current.item.id}"]`)).toHaveClass(/is-current/);
+    expect(errors).toEqual([]);
+  });
+}
+
+for (const [language, theme] of [["zh-CN", "light"], ["en", "dark"]]) {
   test(`E3：菜单键盘、编辑同步、原生拖拽与文章复用 ${language}/${theme}`, async ({ context, page, extension }, testInfo) => {
     const errors = []; page.on("pageerror", error => errors.push(error.message));
     await context.route("https://e3.test/**", route => route.fulfill({ contentType: "text/html", body: "<title>E3 article</title><main>Article</main>" }));

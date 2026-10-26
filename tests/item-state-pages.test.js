@@ -53,7 +53,7 @@ function boot(page, store, { failMigration = false, delayStorage = false, cache 
   };
   window.eval(read("i18n.js"));
   installStorage(window);
-  window.eval(read(page === "library" ? "library-page.js" : `${page}.js`));
+  window.eval(read(`${page}-page.js`));
   const card = id => window.document.querySelector(`${page === "library" ? ".card" : ".item"}[data-id="${id}"]`);
   const broadcast = () => listeners.forEach(listener => listener({ laterOnItems: { newValue: clone(store.laterOnItems) } }, "local"));
   return { window, card, writes, errors, broadcast, memory, releaseStorage, failedWrites: () => failedWrites, close: () => window.close() };

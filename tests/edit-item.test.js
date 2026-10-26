@@ -265,7 +265,7 @@ async function partPage(page) {
   window.eval(I18N_SOURCE);
   if (isLibrary) window.eval(DIALOG_SOURCE);
   require('./helpers/item-mutation')(window);
-  window.eval(read(page === "library" ? "library-page.js" : `${page}.js`));
+  window.eval(read(`${page}-page.js`));
 
   const tick = (ms = 20) => new Promise((resolve) => window.setTimeout(resolve, ms));
   const click = (el) => el.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));

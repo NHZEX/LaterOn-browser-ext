@@ -14,18 +14,13 @@ export function useSidepanelControls() {
   const collection = shallowRef<PanelCollection>({ items: [], projects: [], archivedProjectIds: new Set(), orders: {}, sortMode: "newest" });
   const visible = computed(() => visiblePanelItems(collection.value, state));
   const projects = computed(() => panelProjects(collection.value));
-  let invalidate: (() => void) | undefined;
+  const message = shallowRef("");
+  const preferenceVersion = { filter: 0, project: 0 };
   let painted: (() => void) | undefined;
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let alive = true;
 
-  function update(snapshot: PanelCollection, images: Readonly<Record<string, string>>): void {
-    if (!alive) return;
-    collection.value = snapshot;
-    covers.value = images;
-    ready.value = true;
-  }
-  function connect(render: () => void, onPaint: () => void): void { invalidate = render; painted = onPaint; }
+  function connect(onPaint: () => void): void { painted = onPaint; }
   function didPaint(): void { if (alive && ready.value) painted?.(); }
   function afterPaint(): Promise<void> { return nextTick(); }
   function locate(id: string | null): void {
@@ -41,24 +36,24 @@ export function useSidepanelControls() {
     if (!alive) return;
     search.value = value;
     clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => { state.query = normalizeSearch(value); invalidate?.(); }, 120);
+    searchTimer = setTimeout(() => { state.query = normalizeSearch(value); }, 120);
   }
   // 筛选只认三档；首次打开或异常偏好默认未读，手动选择后供两个页面共同恢复。
   function setFilter(value: ReadFilter): void {
     if (!alive) return;
     // 本地先生效，再写共享偏好；即使没有 storage 广播，按钮和卡片也立即更新。
     state.filter = normalizeFilter(value);
-    invalidate?.();
+    preferenceVersion.filter++;
     void browser.storage.local.set({ laterOnFilter: state.filter, laterOnFilterChosen: true }).catch(() => {});
   }
   function selectProject(id: string): void {
     if (!alive || !projects.value.some(project => project.id === id)) return;
     state.project = id;
-    invalidate?.();
+    preferenceVersion.project++;
     void browser.storage.local.set({ laterOnActiveProject: id }).catch(() => {});
   }
-  function dispose(): void { alive = false; clearTimeout(searchTimer); invalidate = undefined; painted = undefined; }
+  function dispose(): void { alive = false; clearTimeout(searchTimer); painted = undefined; }
   return { state, search, collection, visible, projects, ready, autoMarkRead, covers, currentId, locateRequest,
-    update, connect, didPaint, afterPaint, locate, cardElement, setSearch, setFilter, selectProject, dispose };
+    message, preferenceVersion, connect, didPaint, afterPaint, locate, cardElement, setSearch, setFilter, selectProject, dispose };
 }
 export type SidepanelControls = ReturnType<typeof useSidepanelControls>;

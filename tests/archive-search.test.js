@@ -30,7 +30,7 @@ function mount(page) {
     windows: {getCurrent: async () => ({id:1})}
   };
   require('./helpers/item-mutation')(w);
-  for (const file of ['i18n.js','dialog.js','picker-ui.js','url-utils.js','tab-navigation.js',page === 'library' ? 'library-page.js' : page+'.js']) w.eval(read(file));
+  for (const file of ['i18n.js','dialog.js','picker-ui.js','url-utils.js','tab-navigation.js',`${page}-page.js`]) w.eval(read(file));
   return { dom, w, store, errors, cache };
 }
 async function search(ctx) {

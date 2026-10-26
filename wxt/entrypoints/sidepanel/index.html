@@ -109,18 +109,16 @@
   <body class="booting">
     <header>
       <div class="brand"><img class="brand-icon" src="/icon128.png" vite-ignore width="25" height="25" alt="" />LaterOn</div>
-      <button id="openLibrary" class="icon-button" data-i18n-title="openLibrary" data-i18n-aria-label="openLibrary" title="打开完整界面" aria-label="打开完整界面">
-        <svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M8 21H5a2 2 0 0 1-2-2v-3m18 0v3a2 2 0 0 1-2 2h-3"/></svg>
-      </button>
+
     </header>
 
     <main>
       <!-- 打开明显偏慢时，这里直接把「慢在哪一步」写出来（不用去设置页翻） -->
-      <div id="slowBanner" class="slow-banner" role="status" hidden></div>
+      <div id="panelDiagnostics"></div>
 
       <!-- 骨架屏：数据还没到时，按真实界面的轮廓先画一份灰色占位
            （顶部收藏条 / 搜索框 / 筛选 / 项目 / 卡片），形状和真界面对齐，
-           真内容一来就是「原地填实」，不会整块跳一下。第一次 render() 时整体撤掉。 -->
+           真内容一来就是「原地填实」，不会整块跳一下。Vue 首批内容提交时整体撤掉。 -->
       <div id="bootSkeleton" aria-hidden="true">
         <div class="skel-save">
           <div class="sk sk-thumb-sm"></div>
@@ -208,15 +206,8 @@
       <!-- 真界面：骨架屏还在的时候整块不占位（body.booting 时隐藏），
            免得「灰色占位」和「真内容」同时出现在屏幕上。 -->
       <div id="appBody">
-      <section class="save-panel">
-        <div id="currentThumb" class="current-thumb"><img class="thumb-logo" src="/article-cover-placeholder.png" vite-ignore alt="" /></div>
-        <div class="current-copy">
-          <p id="currentSource" data-i18n="currentLoading">正在读取当前网页…</p>
-          <h1 id="currentTitle" data-i18n="currentPage">当前页面</h1>
-        </div>
-        <button id="saveCurrent" disabled><span>＋</span><span class="save-label" data-i18n="saveCurrent">添加</span></button>
-      </section>
-      <p id="status" role="status"></p>
+      <div id="panelCurrent"></div>
+      <div id="panelStatus"></div>
 
       <div id="panelControls"></div>
 

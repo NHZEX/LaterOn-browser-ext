@@ -55,6 +55,7 @@ module.exports = async function verifySidepanelPage(t, { language = "zh-CN", dir
   assert.equal(card.querySelector(".source").textContent, "updated.test");
   assert.equal(card.querySelector("time").textContent, window.LaterOnI18n.t("daysAgo", { n: 2 }));
   assert.equal(card.classList.contains("is-current"), true);
+  assert.equal(env.store.laterOnCurrentItem, "u", "同批阅读标记不被当前标签回写覆盖");
   assert.equal(card.querySelector(".thumb-img").getAttribute("referrerpolicy"), "no-referrer");
   for (const file of ["hq720", "hqdefault", "mqdefault"]) {
     card.querySelector(".thumb-img").dispatchEvent(new window.Event("error")); await env.flush();
@@ -91,4 +92,18 @@ module.exports = async function verifySidepanelPage(t, { language = "zh-CN", dir
   env.click(dialog().querySelector(".lod-ok")); await env.clock.tickAsync(280);
   assert.equal(env.item("old").querySelector("h2").textContent, "Edited in built page");
   assert.equal(env.store.laterOnItems.find(item => item.id === "old").titleEdited, true);
+  // 两种模式也执行当前网页的 Vue 入口；仅控制标签查询和扩展消息边界。
+  const requests = [];
+  window.chrome.tabs.query = async () => [{ id: 42, windowId: 7, active: true, title: "Tab fallback", url: "https://build.test/current" }];
+  window.chrome.runtime.sendMessage = async message => {
+    requests.push(structuredClone(message));
+    return message.type === "EXTRACT_METADATA" ? { ok: true, metadata: { title: "Built metadata", source: "build.test" } } : { ok: true, pending: true };
+  };
+  env.activated.forEach(listener => listener({ tabId: 42, windowId: 7 }));
+  await env.until(() => document.querySelector("#currentTitle").textContent === "Built metadata", "构建产物补齐当前页资料");
+  const save = document.querySelector("#saveCurrent");
+  assert.equal(save.disabled, false); env.click(save); await env.flush();
+  assert.equal(document.querySelector("#status").textContent, window.LaterOnI18n.t("pickerOpened"));
+  assert.equal(save.disabled, false); assert.equal(save.classList.contains("saved"), false);
+  assert.deepEqual(requests.find(message => message.type === "QUICK_SAVE_TAB"), { type: "QUICK_SAVE_TAB", source: "panel", tabId: 42 });
 };

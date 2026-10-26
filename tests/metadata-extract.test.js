@@ -205,18 +205,6 @@ console.log("\n=== 七、封面降级链（maxresdefault 不存在时逐级降�
 
 }
 
-console.log("\n=== 八、只保留一份提取逻辑（不再各处复制）===");
-{
-  for (const file of ["sidepanel.js"]) {
-    const src = fs.readFileSync(path.join(ROOT, file), "utf8");
-    check(`${file} 不再自带旧版提取函数`, !/function extractPageMetadata\s*\(/.test(src));
-    check(`${file} 改为向后台请求提取`, /EXTRACT_METADATA/.test(src));
-  }
-  const handlerCount = (BACKGROUND.match(/message\.type === "EXTRACT_METADATA"/g) || []).length;
-  check("后台只注册一处提取消息处理", handlerCount === 1, `出现 ${handlerCount} 次`);
-  check("后台提供了 extractTabMetadataById", /^async function extractTabMetadataById\(tabId\)/m.test(BACKGROUND));
-}
-
 console.log("\n=== 九、重复收藏时会不会修好坏掉的旧记录 ===");
 {
   const constFree = ["isPlaceholderText", "titleHasSiteNoise", "isIconLikeImage", "mergeDuplicateMetadata"]

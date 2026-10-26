@@ -8,7 +8,6 @@ const ROOT = path.resolve(__dirname, "..");
 const read = (name) => fs.readFileSync(path.join(ROOT, name), "utf8");
 const libraryHtml = require("./helpers/read-runtime.cjs")("library.html");
 const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
-const backgroundSource = read("background.js");
 
 const baseStore = () => ({
   laterOnItems: [
@@ -100,8 +99,6 @@ const tick = (window, ms = 100) => new Promise((resolve) => window.setTimeout(re
     });
     assert.deepStrictEqual(closed, [7]);
   } finally { cleanups.toReversed().forEach(cleanup => cleanup()); }
-  assert.match(backgroundSource, /openLibrary\(message\.context\)/);
-  assert.match(backgroundSource, /target\.searchParams\.set\("from",\s*"sidepanel"\)/);
   console.log("PASS 侧栏展开全屏会同步项目、筛选和正在阅读位置，普通入口仍回首页");
 })().catch((error) => {
   console.error(error);

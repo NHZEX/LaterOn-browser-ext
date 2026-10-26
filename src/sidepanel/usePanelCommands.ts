@@ -17,8 +17,7 @@ export function usePanelCommands(controls: SidepanelControls) {
   const active = new Set<string>();
   const t = (key: string): string => globalThis.LaterOnI18n?.t(key) ?? key;
   function notify(key: string): void {
-    const status = document.querySelector("#status");
-    if (alive && status) status.textContent = t(key);
+    if (alive) controls.message.value = t(key);
   }
   function bind(next: PanelCommandBoundary): void { if (alive) boundary = next; }
   async function execute<A extends CollectionAction>(action: A, fields: CommandFields<A>, beforeAccept?: () => void,
