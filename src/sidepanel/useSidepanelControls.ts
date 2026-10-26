@@ -7,6 +7,7 @@ export function useSidepanelControls() {
   const state = reactive<PanelScope>({ filter: "unread", query: "", project: "unfiled" });
   const search = shallowRef("");
   const ready = shallowRef(false);
+  const autoMarkRead = shallowRef(true);
   const covers = shallowRef<Readonly<Record<string, string>>>({});
   const currentId = shallowRef<string | null>(null);
   const locateRequest = shallowRef(0);
@@ -32,7 +33,7 @@ export function useSidepanelControls() {
     currentId.value = id;
     locateRequest.value++;
   }
-  // 过渡期交互只读 Vue 已提交的节点；不缓存节点，也不参与节点增删或排序。
+  // 阅读定位只读 Vue 已提交的节点，不缓存节点，也不参与节点增删或排序。
   function cardElement(id: string): HTMLElement | undefined {
     return Array.from(document.querySelectorAll<HTMLElement>("#items .item")).find(element => element.dataset.id === id);
   }
@@ -57,7 +58,7 @@ export function useSidepanelControls() {
     void browser.storage.local.set({ laterOnActiveProject: id }).catch(() => {});
   }
   function dispose(): void { alive = false; clearTimeout(searchTimer); invalidate = undefined; painted = undefined; }
-  return { state, search, collection, visible, projects, ready, covers, currentId, locateRequest,
+  return { state, search, collection, visible, projects, ready, autoMarkRead, covers, currentId, locateRequest,
     update, connect, didPaint, afterPaint, locate, cardElement, setSearch, setFilter, selectProject, dispose };
 }
 export type SidepanelControls = ReturnType<typeof useSidepanelControls>;

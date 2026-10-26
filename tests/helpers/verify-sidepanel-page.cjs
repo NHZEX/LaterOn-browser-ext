@@ -75,4 +75,20 @@ module.exports = async function verifySidepanelPage(t, { language = "zh-CN", dir
     env.broadcast({ laterOnSettings: { language, defaultSort: sort } }); await env.flush();
     assert.deepEqual(orderedIds(), order, `构建产物恢复 ${sort} 排序`);
   }
+  // 两种构建模式执行 Vue 菜单与编辑命令；自身写入不发送 storage 广播。
+  const link = env.item("old").querySelector(".open-item"); link.focus();
+  link.dispatchEvent(new window.KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true, cancelable: true }));
+  await env.until(() => document.querySelector('[role="menuitem"]'), "构建产物键盘菜单"); await env.flush();
+  assert.equal(document.activeElement, document.querySelector('[data-action="open"]'));
+  env.click(document.querySelector('[data-action="edit"]'));
+  const dialog = () => document.querySelector(".lod-root:not([hidden])");
+  await env.until(() => dialog(), "构建产物编辑入口"); await env.frame();
+  const input = dialog().querySelector('[data-field="title"]'); assert.equal(document.activeElement, input);
+  input.value = "Edited in built page"; env.failNextWrite(); env.click(dialog().querySelector(".lod-ok")); await env.clock.tickAsync(280);
+  assert.equal(env.item("old").querySelector("h2").textContent, "存储里的新标题");
+  env.click(env.item("old").querySelector(".edit")); await env.until(() => dialog(), "失败后重新编辑");
+  dialog().querySelector('[data-field="title"]').value = "Edited in built page";
+  env.click(dialog().querySelector(".lod-ok")); await env.clock.tickAsync(280);
+  assert.equal(env.item("old").querySelector("h2").textContent, "Edited in built page");
+  assert.equal(env.store.laterOnItems.find(item => item.id === "old").titleEdited, true);
 };

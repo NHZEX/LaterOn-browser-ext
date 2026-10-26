@@ -3,8 +3,8 @@ import { normalizePanelProject } from "./src/sidepanel/shared";
 import { nextCoverFallback } from "./src/shared/card-media";
 import { sortCollectionItems } from "./src/shared/collection-sort";
 
-// E2 过渡控制器：保留交互命令、缓存和浏览器适配；卡片、分批与阅读定位由 Vue 拥有。
-export function startSidepanelPage(controls) {
+// E3 过渡控制器：仅保留启动、缓存、当前网页与浏览器生命周期；卡片交互由 Vue 拥有。
+export function startSidepanelPage(controls, commands) {
 let alive = true;
 const cleanups = [];
 const timers = new Set();
@@ -23,6 +23,21 @@ function listenChrome(event, handler) {
   cleanups.push(() => event.removeListener?.(handler));
 }
 controls.connect(render, hideBootPlaceholder);
+commands.bind({
+  accept(response) {
+    if (!alive) return;
+    if (response.items) items = normalizeItems(response.items);
+    if (response.covers) covers = response.covers;
+    if (response.orders) orders = response.orders;
+    if (currentItemId && !items.some(item => item.id === currentItemId)) {
+      currentItemId = null;
+      applyCurrentAndLocate();
+    }
+    render();
+  },
+  customSort() { sortMode = "custom"; render(); },
+  setCurrent(id) { currentItemId = id; applyCurrentAndLocate(); }
+});
 const STORAGE_KEY = "laterOnItems";
 const PROJECTS_KEY = "laterOnProjects";
 const ACTIVE_PROJECT_KEY = "laterOnActiveProject";
@@ -70,8 +85,7 @@ let projects = [];
 let archivedProjectIds = new Set();
 let currentItem = null;
 const scope = controls.state;
-let autoMarkRead = true;   // 点开文章是否自动标记为「在读」（与设置页同步）
-let sortMode = "newest";   // 全屏那边的排序方式（只有 custom 会影响这里的先后顺序）
+let sortMode = "newest";   // 与全屏共享四档排序偏好
 let orders = {};           // 用户拖出来的自定义顺序（与全屏共享：{ 范围: [收藏 id] }）
 let covers = {};           // 用户上传的封面：{ 收藏 id: dataURL }（与 COVERS_KEY 对应）
 let loadGeneration = 0;
@@ -86,19 +100,6 @@ const nextFrame = (fn) => {
   frames.add(id);
 };
 const nowMs = () => (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now());
-let itemContextMenu = null;
-// 侧栏卡片拖拽：只在拖动开始时记录一次布局，过程中用 transform 预览位置，
-// 不反复挪 DOM，避免卡片在鼠标下方来回跳动。
-let cardDrag = null;
-let cardDragPreview = null;
-let suppressCardClickUntil = 0;
-
-// 三档：未读 / 在读 / 已读（已完成）。点「标为已读」按钮 = 标记完成，再点取消；
-// 「在读」由点开文章自动进入——这样「点过但没读完」不再被算作已读。
-function nextStatus(status) {
-  return LaterOnItemState.nextStatus(status);
-}
-const list = document.querySelector("#items");
 const saveButton = document.querySelector("#saveCurrent");
 const status = document.querySelector("#status");
 
@@ -330,7 +331,7 @@ async function init() {
   projects = (stored[PROJECTS_KEY] || []).filter((project) => !project.archived);
   scope.project = normalizeProject(stored[ACTIVE_PROJECT_KEY]);
   currentItemId = stored[CURRENT_ITEM_KEY] || null;
-  autoMarkRead = (stored[SETTINGS_KEY] || {}).autoMarkRead !== false;
+  controls.autoMarkRead.value = (stored[SETTINGS_KEY] || {}).autoMarkRead !== false;
   sortMode = (stored[SETTINGS_KEY] || {}).defaultSort || "newest";
   orders = stored[ORDER_KEY] || {};
   // 全屏那边可能已经切过筛选了，打开侧栏时接着用同一档。
@@ -378,7 +379,7 @@ listenChrome(chrome.storage.onChanged, (changes, area) => {
   }
   if (area === "local" && changes[SETTINGS_KEY]) {
     const s = changes[SETTINGS_KEY].newValue || {};
-    if (typeof s.autoMarkRead === "boolean") autoMarkRead = s.autoMarkRead;
+    controls.autoMarkRead.value = s.autoMarkRead !== false;
     const nextSort = s.defaultSort || "newest";
     if (nextSort !== sortMode) { sortMode = nextSort; render(); }
   }
@@ -412,29 +413,6 @@ async function loadCovers() {
 // 后台（service worker）空闲时会被 Chrome 回收，唤醒一次可能好几秒，
 // 不能让它把整个侧栏拖住——所以这里加了超时，超时就维持基础信息。
 const CURRENT_PAGE_TIMEOUT_MS = 4000;
-
-// 编辑弹窗不是首屏能力：侧栏打开时不加载 27KB 的 dialog.js 和对应 CSS，
-// 用户第一次点击编辑时再按需加载，避免冷启动把非必要资源也排进就绪链路。
-let dialogLoadPromise = null;
-function ensureDialogLoaded() {
-  if (window.LaterOnDialog) return Promise.resolve(window.LaterOnDialog);
-  if (dialogLoadPromise) return dialogLoadPromise;
-  dialogLoadPromise = new Promise((resolve, reject) => {
-    if (!document.querySelector('link[data-lateron-dialog-style]')) {
-      const style = document.createElement("link");
-      style.rel = "stylesheet";
-      style.href = "dialog.css";
-      style.dataset.lateronDialogStyle = "";
-      document.head.append(style);
-    }
-    const script = document.createElement("script");
-    script.src = "dialog.js";
-    script.onload = () => window.LaterOnDialog ? resolve(window.LaterOnDialog) : reject(new Error("弹窗脚本未就绪"));
-    script.onerror = () => reject(new Error("弹窗脚本加载失败"));
-    document.head.append(script);
-  });
-  return dialogLoadPromise;
-}
 
 // 给 Promise 加超时：到点就返回兜底值，绝不让界面无限期等下去。
 function withTimeout(promise, ms, fallback) {
@@ -613,298 +591,6 @@ document.querySelector("#openLibrary").addEventListener("click", async () => {
     else status.textContent = tr("libraryOpenFailed");
   }
 });
-// 事件委托：整页只挂一个监听器，避免给每张卡片单独绑监听。
-listen(list, "click", (event) => {
-  const article = event.target.closest(".item");
-  if (!article) return;
-  // 浏览器通常会在拖拽结束后抑制 click，但不同平台行为不完全一致；
-  // 这里再兜底一次，避免松手排序时误把文章打开。
-  if (Date.now() < suppressCardClickUntil) {
-    event.preventDefault();
-    return;
-  }
-  const item = items.find((entry) => entry.id === article.dataset.id);
-  if (!item) return;
-  if (event.target.closest(".delete")) deleteItem(item.id);
-  else if (event.target.closest(".edit")) editItem(item);
-  else if (event.target.closest(".read-toggle")) updateItem(item.id, { status: nextStatus(item.status) });
-  else if (event.target.closest(".open-item")) {
-    // 这是一个真实链接：⌘/Ctrl/Shift 点击交还给浏览器，保留标准的新标签页/新窗口行为。
-    // 普通左键也不会覆盖当前网页：LaterOn 先复用已打开标签，否则新建前台标签页。
-    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    event.preventDefault();
-    openItem(item);
-  }
-});
-
-// ── 侧栏卡片拖拽排序 ─────────────────────────────────────
-// 整张卡片都是拖动区域；按钮、下拉和输入控件仍只执行它们自己的操作。
-listen(list, "dragstart", (event) => {
-  const article = event.target.closest(".item");
-  if (!article) return;
-  // 搜索结果会跨越多个项目，此时没有唯一的排序范围；禁止在搜索结果里改顺序，
-  // 避免把别的项目的卡片误写进当前项目的顺序。
-  if (scope.query) {
-    event.preventDefault();
-    return;
-  }
-  if (event.target.closest("button, select, input, textarea")) {
-    event.preventDefault();
-    return;
-  }
-  const id = article.dataset.id;
-  if (!id) return;
-
-  const elements = [...list.querySelectorAll(".item")];
-  cardDrag = {
-    id,
-    slot: null,
-    elements,
-    ids: elements.map((element) => element.dataset.id),
-    rects: elements.map((element) => {
-      const rect = element.getBoundingClientRect();
-      return {
-        left: rect.left + window.scrollX,
-        top: rect.top + window.scrollY,
-        right: rect.right + window.scrollX,
-        bottom: rect.bottom + window.scrollY,
-        width: rect.width,
-        height: rect.height
-      };
-    })
-  };
-
-  if (event.dataTransfer) {
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", id);
-  }
-  const bounds = article.getBoundingClientRect();
-  cardDragPreview = article.cloneNode(true);
-  cardDragPreview.removeAttribute("draggable");
-  cardDragPreview.classList.remove("dragging", "is-current");
-  cardDragPreview.classList.add("card-drag-preview");
-  cardDragPreview.style.width = `${bounds.width}px`;
-  cardDragPreview.style.height = `${bounds.height}px`;
-  document.body.append(cardDragPreview);
-  event.dataTransfer?.setDragImage?.(
-    cardDragPreview,
-    Math.max(0, Math.min(bounds.width, event.clientX - bounds.left)),
-    Math.max(0, Math.min(bounds.height, event.clientY - bounds.top))
-  );
-  list.classList.add("is-reordering");
-  nextFrame(() => article.classList.add("dragging"));
-});
-
-listen(list, "dragover", (event) => {
-  if (!cardDrag?.rects?.length) return;
-  event.preventDefault();
-  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-  const index = sidepanelInsertionIndex(
-    (Number.isFinite(event.clientX) ? event.clientX : 0) + window.scrollX,
-    (Number.isFinite(event.clientY) ? event.clientY : 0) + window.scrollY
-  );
-  if (index === cardDrag.slot) return;
-  cardDrag.slot = index;
-  previewSidepanelOrder(index);
-});
-
-listen(list, "drop", (event) => {
-  if (!cardDrag) return;
-  event.preventDefault();
-  const index = cardDrag.slot ?? sidepanelInsertionIndex(
-    (Number.isFinite(event.clientX) ? event.clientX : 0) + window.scrollX,
-    (Number.isFinite(event.clientY) ? event.clientY : 0) + window.scrollY
-  );
-  commitSidepanelCardOrder(index).catch(() => {
-    finishSidepanelDrag();
-    render();
-  });
-});
-
-listen(list, "dragend", finishSidepanelDrag);
-
-function sidepanelInsertionIndex(x, y) {
-  if (!cardDrag?.rects) return 0;
-  const fromIndex = cardDrag.ids.indexOf(cardDrag.id);
-  const isGrid = cardDrag.rects.some((rect, index) =>
-    cardDrag.rects.some((candidate, candidateIndex) => candidateIndex !== index && Math.abs(candidate.top - rect.top) < 2)
-  );
-  for (let index = 0; index < cardDrag.ids.length; index += 1) {
-    if (index === fromIndex) continue;
-    const rect = cardDrag.rects[index];
-    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) continue;
-    const restIndex = index < fromIndex ? index : index - 1;
-    // 窄侧栏按上下半区判断；拖宽后变成网格，则沿用左右半区判断。
-    return isGrid
-      ? (x >= rect.left + rect.width / 2 ? restIndex + 1 : restIndex)
-      : (y >= rect.top + rect.height / 2 ? restIndex + 1 : restIndex);
-  }
-  if (cardDrag.slot !== null) return cardDrag.slot;
-  return cardDrag.rects.length && y < cardDrag.rects[0].top ? 0 : cardDrag.ids.length - 1;
-}
-
-function previewSidepanelOrder(dropIndex) {
-  if (!cardDrag?.rects) return;
-  const fromIndex = cardDrag.ids.indexOf(cardDrag.id);
-  if (fromIndex === -1) return;
-  for (let index = 0; index < cardDrag.ids.length; index += 1) {
-    const element = cardDrag.elements[index];
-    if (!element) continue;
-    let targetIndex;
-    if (index === fromIndex) targetIndex = dropIndex;
-    else {
-      const restIndex = index < fromIndex ? index : index - 1;
-      targetIndex = restIndex < dropIndex ? restIndex : restIndex + 1;
-    }
-    const from = cardDrag.rects[index];
-    const target = cardDrag.rects[targetIndex];
-    element.style.transform = `translate(${target.left - from.left}px, ${target.top - from.top}px)`;
-  }
-}
-
-function clearSidepanelOrderPreview() {
-  if (cardDrag?.ids) {
-    for (const element of cardDrag.elements) {
-      if (element) element.style.transform = "";
-    }
-  }
-  list.classList.remove("is-reordering");
-  document.querySelectorAll(".item.dragging").forEach((element) => element.classList.remove("dragging"));
-}
-
-function finishSidepanelDrag() {
-  if (!cardDrag && !cardDragPreview) return;
-  clearSidepanelOrderPreview();
-  cardDragPreview?.remove();
-  cardDragPreview = null;
-  cardDrag = null;
-  suppressCardClickUntil = Date.now() + 250;
-}
-
-function sidepanelOrderScope() {
-  return scope.project || "unfiled";
-}
-
-function sidepanelScopeOrder(scopedItems) {
-  const saved = Array.isArray(orders[sidepanelOrderScope()]) ? orders[sidepanelOrderScope()] : [];
-  const ids = new Set(scopedItems.map((item) => item.id));
-  const known = saved.filter((id) => ids.has(id));
-  const knownSet = new Set(known);
-  const rest = scopedItems
-    .filter((item) => !knownSet.has(item.id))
-    .sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0))
-    .map((item) => item.id);
-  return [...known, ...rest];
-}
-
-async function commitSidepanelCardOrder(dropIndex) {
-  const draggedId = cardDrag?.id;
-  if (!draggedId || dropIndex == null) return;
-  const visibleIds = [...list.querySelectorAll(".item")]
-    .map((article) => article.dataset.id)
-    .filter((id) => id && id !== draggedId);
-  const anchorId = visibleIds[dropIndex] ?? null;
-  const wasCustom = sortMode === "custom";
-  const response = await LaterOnStorage.run("moveItem", { id: draggedId, scope: sidepanelOrderScope(), beforeId: anchorId });
-  orders = response.orders;
-  sortMode = "custom";
-  finishSidepanelDrag();
-  render();
-  status.textContent = tr(wasCustom ? "orderSaved" : "customSortEnabled");
-
-  const stored = await chrome.storage.local.get(SETTINGS_KEY);
-  const settings = stored[SETTINGS_KEY] || {};
-  await chrome.storage.local.set({
-    [SETTINGS_KEY]: { ...settings, defaultSort: "custom" }
-  });
-}
-
-listen(list, "contextmenu", (event) => {
-  const link = event.target.closest(".open-item");
-  const article = link?.closest(".item");
-  if (!article) return;
-  const item = items.find((entry) => entry.id === article.dataset.id);
-  if (!item || !safeTarget(item.url)) return;
-  // 侧栏卡片的封面和文字都属于同一个网页入口。用自己的菜单取代浏览器针对
-  // “选中文字 / 单独图片”的菜单，避免出现复制图片、查询文字等无关动作。
-  event.preventDefault();
-  event.stopPropagation();
-  showItemContextMenu(item, event.clientX, event.clientY);
-});
-
-function closeItemContextMenu() {
-  itemContextMenu?.remove();
-  itemContextMenu = null;
-}
-
-function showItemContextMenu(item, x, y) {
-  closeItemContextMenu();
-  const menu = document.createElement("div");
-  menu.className = "folder-menu";
-  menu.setAttribute("role", "menu");
-  menu.append(
-    sidepanelMenuItem(tr("openInNewTab"), "open", () => openItemInNewTab(item)),
-    sidepanelMenuItem(tr("itemEdit"), "pencil", () => editItem(item)),
-    sidepanelMenuItem(tr("delete"), "trash", () => deleteItem(item.id), true)
-  );
-  document.body.append(menu);
-  itemContextMenu = menu;
-
-  const margin = 8;
-  const rect = menu.getBoundingClientRect();
-  const width = rect.width || 172;
-  const height = rect.height || 120;
-  menu.style.left = `${Math.min(Math.max(margin, x - width), Math.max(margin, window.innerWidth - width - margin))}px`;
-  menu.style.top = `${Math.min(Math.max(margin, y), Math.max(margin, window.innerHeight - height - margin))}px`;
-  nextFrame(() => menu.classList.add("is-open"));
-  menu.querySelector("button")?.focus({ preventScroll: true });
-}
-
-function sidepanelMenuItem(label, icon, onPick, danger = false) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = `folder-menu-item${danger ? " danger" : ""}`;
-  button.setAttribute("role", "menuitem");
-  const paths = {
-    open: "M14 5h5v5M19 5l-8 8M17 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h5",
-    pencil: "M4 20h4L20 8l-4-4L4 16zM14 6l4 4",
-    trash: "M4 7h16m-10 4v6m4-6v6M9 7l1-3h4l1 3m3 0-1 13H7L6 7"
-  };
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  path.setAttribute("d", paths[icon] || paths.open);
-  svg.append(path);
-  const text = document.createElement("span");
-  text.textContent = label;
-  button.append(svg, text);
-  button.addEventListener("click", () => {
-    closeItemContextMenu();
-    onPick();
-  });
-  return button;
-}
-
-async function openItemInNewTab(item) {
-  const target = safeTarget(item.url);
-  if (!target) { status.textContent = tr("invalidItemUrl"); return; }
-  try {
-    // 和浏览器原生 ⌘/Ctrl + 点击一致：在当前窗口后台新建标签，不打断侧栏里的浏览。
-    await chrome.tabs.create({ url: target, active: false });
-  } catch {
-    status.textContent = tr("invalidItemUrl");
-  }
-}
-
-listen(document, "pointerdown", (event) => {
-  if (itemContextMenu && !itemContextMenu.contains(event.target)) closeItemContextMenu();
-}, true);
-listen(document, "keydown", (event) => {
-  if (event.key === "Escape") closeItemContextMenu();
-});
-listen(document, "scroll", closeItemContextMenu, true);
-listen(window, "blur", closeItemContextMenu);
-listen(window, "resize", closeItemContextMenu);
 // 骨架屏 / 「正在打开…」提示条：真内容一画出来就撤掉，让真界面露面。
 // body 上的 .booting 一去掉，#appBody 就从「不占位」变回正常显示，两者不会同时出现。
 function hideBootPlaceholder() {
@@ -931,15 +617,6 @@ function normalizeProject(projectId) {
 
 function normalizeItems(list) {
   return LaterOnItemState.normalizeItems(list);
-}
-
-// ── 封面取值 ────────────────────────────────────────────────
-// item.image 里存的可能是三种东西：
-//   ① 远程图片网址（自动抓取的）——直接用
-//   ② local://<收藏id> —— 用户上传的封面，本体在 COVERS_KEY 那个键里，按 id 取
-//   ③ data: 开头的老数据（封面搬家功能上线前存的）——兼容直接用
-function resolveImage(item) {
-  return LaterOnItemEdit.resolveImage(item, covers);
 }
 
 // 一次性搬家：把还躺在收藏列表里的 base64 封面挪到单独的键里。
@@ -985,120 +662,6 @@ function readSlimCache() {
 
 
 
-// ── 编辑收藏的标题 / 摘要 ──────────────────────────────────
-// 自动抓取难免有偏差（标题带站名、摘要抓成导航文字），所以允许用户自己改。
-// 改过的会被标记为 titleEdited / descriptionEdited，
-// 之后再次收藏同一网址时，后台不会再拿自动抓取的结果覆盖掉用户手写的版本。
-
-async function editItem(item) {
-  const originalCover = resolveImage(item);
-  try {
-    await ensureDialogLoaded();
-  } catch {
-    status.textContent = tr("dialogLoadFailed");
-    return;
-  }
-  const result = await LaterOnDialog.prompt({
-    title: tr("editItem"),
-    message: LaterOnItemEdit.isEmptySummary(item.description) ? tr("missingSummaryHint") : "",
-    // 封面：可以自己上传一张本地图片（自动压缩后保存），也可以移除。
-    cover: { name: "cover", label: tr("cover"), value: originalCover },
-    fields: [
-      { name: "title", label: tr("title"), value: item.title, maxLength: 200 },
-      {
-        name: "description",
-        label: tr("summary"),
-        value: LaterOnItemEdit.isEmptySummary(item.description) ? "" : item.description,
-        placeholder: tr("summaryPlaceholder"),
-        multiline: true,
-        maxLength: 500
-      }
-    ],
-    confirmText: tr("save")
-  });
-  if (!result?.ok) return;
-
-  const patch = LaterOnItemEdit.buildEditPatch(item, result.values || {}, originalCover);
-  if (!Object.keys(patch).length) return;
-  await updateItem(item.id, patch);
-  // 立刻重画一次：存储的变更广播不一定会回到自己这个页面，靠它会显得「改了没反应」。
-  render();
-}
-
-async function openItem(item) {
-  const target = safeTarget(item.url);
-  if (!target) {
-    status.textContent = tr("invalidItemUrl");
-    return;
-  }
-  // 记下「正在读这篇」——全屏界面据此高亮并滚动定位，两个视图保持一致。
-  chrome.storage.local.set({ [CURRENT_ITEM_KEY]: item.id });
-  const openTab = await globalThis.LaterOnTabs.findOpen(target);
-  if (openTab) {
-    if (autoMarkRead && item.status === "unread") await updateItem(item.id, { status: "reading" });
-    await globalThis.LaterOnTabs.activate(openTab);
-    // 如果命中的页面在另一个窗口，也让 LaterOn 侧栏跟到那个窗口。
-    if (openTab.windowId != null && typeof chrome.sidePanel?.open === "function") {
-      await chrome.sidePanel.open({ windowId: openTab.windowId }).catch(() => null);
-    }
-    return;
-  }
-  // 侧栏依附在用户正在浏览的网页旁边，普通点击不能把那个网页覆盖掉。
-  // 没有可复用页面时，在当前窗口创建一个新的前台标签页。
-  try {
-    await chrome.tabs.create({ url: target, active: true });
-  } catch {
-    status.textContent = tr("invalidItemUrl");
-    return;
-  }
-  // 打开未读的那篇会自动标记为「在读」（读完再由用户手动点按钮标成已完成）。
-  if (autoMarkRead && item.status === "unread") await updateItem(item.id, { status: "reading" });
-}
-
-function safeTarget(url) {
-  try {
-    const parsed = new URL(url);
-    return ["http:", "https:"].includes(parsed.protocol) ? String(url).trim() : "";
-  } catch {
-    return "";
-  }
-}
-
-async function commitItemMutation(operation, ids, patch) {
-  try {
-    const response = await LaterOnStorage.run("mutateItems", { operation, ids: [...ids], patch });
-    if (!response?.ok || !Array.isArray(response.items)) throw new Error(response?.error || "Item write failed");
-    items = normalizeItems(response.items);
-    covers = response.covers || {};
-    render();
-    return response;
-  } catch {
-    status.textContent = tr("operationFailed");
-    return null;
-  }
-}
-
-async function updateItem(id, patch) {
-  return !!(await commitItemMutation("update", [id], patch));
-}
-
-async function deleteItem(id) {
-  const target = items.find((entry) => entry.id === id);
-  if (!target) return;
-  // 删除是没法撤销的，删之前一定问一句（弹窗组件是 defer 加载的，
-  // 万一还没就绪就直接删，别把删除卡死）。
-  const raw = (target.title || "").trim() || tr("itemFallback");
-  const title = raw.length > 26 ? `${raw.slice(0, 26)}…` : raw;
-  try { await ensureDialogLoaded(); }
-  catch { status.textContent = tr("operationFailed"); return; }
-  const confirmed = await window.LaterOnDialog.confirm({
-    tone: "danger", title: tr("deleteItemTitle", { title }),
-    message: tr("deleteCannotUndo"), confirmText: tr("delete")
-  });
-  if (!confirmed) return;
-  await commitItemMutation("delete", [id]);
-}
-
 // 没抓到封面（或封面加载不出来）时，缩略图区域继续显示 LaterOn 的 Logo。
 function resetCurrentThumb() {
   const thumb = document.querySelector("#currentThumb");
@@ -1126,8 +689,6 @@ return () => {
   alive = false;
   sidePanelReady = false;
   loadGeneration++;
-  closeItemContextMenu();
-  finishSidepanelDrag();
   cleanups.forEach(stop => stop());
   timers.forEach(id => window.clearTimeout(id));
   frames.forEach(id => window.cancelAnimationFrame(id));

@@ -16,6 +16,64 @@ const seed = async (worker, theme) => worker.evaluate(async ({ theme, cover }) =
   });
 }, { theme, cover });
 
+for (const [language, theme] of [["zh-CN", "light"], ["en", "dark"]]) {
+  test(`E3：菜单键盘、编辑同步、原生拖拽与文章复用 ${language}/${theme}`, async ({ context, page, extension }, testInfo) => {
+    const errors = []; page.on("pageerror", error => errors.push(error.message));
+    await context.route("https://e3.test/**", route => route.fulfill({ contentType: "text/html", body: "<title>E3 article</title><main>Article</main>" }));
+    await extension.worker.evaluate(async ({ language, theme }) => {
+      await chrome.storage.local.clear();
+      const item = (id, savedAt, status = "unread") => ({ id, title: `E3 ${id}`, url: `https://e3.test/${id}`, description: "Original summary", source: "e3.test", savedAt, status, projectId: null });
+      await chrome.storage.local.set({ laterOnOnboardingSeen: true, laterOnItems: [item("a", 3), item("b", 2), item("c", 1), item("hidden", 0, "done")],
+        laterOnProjects: [], laterOnCovers: {}, laterOnActiveProject: "unfiled", laterOnFilterChosen: true, laterOnFilter: "unread",
+        laterOnSettings: { language, theme, autoMarkRead: true } });
+    }, { language, theme });
+    const library = await context.newPage();
+    await library.setViewportSize({ width: 1200, height: 800 });
+    await library.goto(extension.url.replace("sidepanel.html", "library.html?from=sidepanel&project=unfiled&filter=unread"));
+    await page.goto(extension.url);
+    const cards = page.locator("#items .item"), link = page.locator('[data-id="a"] .open-item');
+    await expect(cards).toHaveCount(3); await link.focus(); await page.keyboard.press("Shift+F10");
+    const menu = page.getByRole("menu"), entries = menu.getByRole("menuitem");
+    await expect(entries.nth(0)).toBeFocused(); await page.keyboard.press("ArrowDown"); await page.keyboard.press("Enter");
+    const dialog = page.locator(".lod-root:not([hidden])"), title = dialog.locator('[data-field="title"]');
+    await expect(title).toBeFocused(); await title.fill("E3 edited"); await dialog.locator(".lod-ok").click();
+    await expect(page.locator('[data-id="a"] h2')).toHaveText("E3 edited");
+    await expect(library.locator('#cardGrid [data-id="a"] h2')).toHaveText("E3 edited");
+    await expect(link).toBeFocused();
+    for (const width of [375, 640]) {
+      await page.setViewportSize({ width, height: 800 });
+      await link.click({ button: "right" }); await expect(menu).toBeVisible();
+      const box = await menu.boundingBox(); expect(box.x).toBeGreaterThanOrEqual(8); expect(box.x + box.width).toBeLessThanOrEqual(width - 7);
+      await page.keyboard.press("End"); await expect(entries.nth(2)).toBeFocused();
+      await page.keyboard.press("Escape"); await expect(link).toBeFocused(); await expect(menu).toHaveCount(0);
+    }
+    await page.setViewportSize({ width: 375, height: 800 });
+    // 从非链接的卡片边缘用原生鼠标发起排序，验证浏览器实际 dragstart/drop 链。
+    const from = await page.locator('[data-id="c"]').boundingBox(), to = await page.locator('[data-id="a"]').boundingBox();
+    await page.mouse.move(from.x + 3, from.y + 25); await page.mouse.down();
+    await page.mouse.move(from.x + 15, from.y + 35, { steps: 5 }); await expect(page.locator(".card-drag-preview")).toHaveCount(1);
+    await page.mouse.move(to.x + 30, to.y + 10, { steps: 12 }); await page.mouse.up();
+    const order = () => cards.evaluateAll(elements => elements.map(element => element.dataset.id));
+    await expect.poll(order).toEqual(["c", "a", "b"]);
+    await expect.poll(() => extension.worker.evaluate(async () => (await chrome.storage.local.get("laterOnOrder")).laterOnOrder.unfiled)).toEqual(["c", "a", "b", "hidden"]);
+    await expect.poll(() => library.locator("#cardGrid .card").evaluateAll(elements => elements.map(element => element.dataset.id))).toEqual(["c", "a", "b"]);
+    await page.reload(); await expect.poll(order).toEqual(["c", "a", "b"]);
+    const article = await context.newPage(); await article.goto("https://e3.test/a"); await page.bringToFront();
+    const pageCount = context.pages().length;
+    await link.click();
+    await expect.poll(() => extension.worker.evaluate(async () => (await chrome.storage.local.get("laterOnItems")).laterOnItems.find(item => item.id === "a").status)).toBe("reading");
+    expect(context.pages().length).toBe(pageCount); expect(page.url()).toBe(extension.url);
+    await page.bringToFront(); await expect(page.locator('[data-id="a"]')).toHaveClass(/is-reading/);
+    await link.focus(); await page.keyboard.press("Shift+F10"); await page.keyboard.press("End"); await page.keyboard.press("Enter");
+    await dialog.locator(".lod-cancel").click(); await expect(link).toBeFocused();
+    await link.focus(); await page.keyboard.press("Shift+F10"); await page.keyboard.press("End"); await page.keyboard.press("Enter");
+    await dialog.locator(".lod-ok").click(); await expect(page.locator('[data-id="a"]')).toHaveCount(0);
+    await page.reload(); await expect(cards).toHaveCount(2);
+    await page.screenshot({ path: testInfo.outputPath(`e3-${language}-${theme}.png`), fullPage: true });
+    expect(errors).toEqual([]);
+  });
+}
+
 test("待整理四档排序在全屏与侧栏一致，最近添加不受存储数组及移入位置影响", async ({ context, page, extension }) => {
   await extension.worker.evaluate(async () => {
     await chrome.storage.local.clear();

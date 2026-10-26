@@ -1,12 +1,8 @@
 const assert = require("assert");
-const fs = require("fs");
-const path = require("path");
 const vm = require("vm");
 
-const ROOT = path.resolve(__dirname, "..");
 const urlSource = require("./helpers/read-runtime.cjs")("url-utils.js");
 const navigationSource = require("./helpers/read-runtime.cjs")("tab-navigation.js");
-const sidepanelSource = fs.readFileSync(path.join(ROOT, "sidepanel.js"), "utf8");
 
 const tabs = [
   { id: 1, windowId: 10, active: true, url: "chrome-extension://lateron/library.html" },
@@ -107,7 +103,6 @@ vm.runInContext(navigationSource, context, { filename: "tab-navigation.js" });
   delete context.chrome.windows;
   assert.strictEqual(await context.LaterOnTabs.activate({ id: 10, windowId: 40 }), true, "窗口 API 不可用时仍兼容");
 
-  assert.match(sidepanelSource, /LaterOnTabs\.findOpen\(target\)/);
   console.log("PASS 已打开页面会被复用并聚焦其窗口");
 })().catch((error) => {
   console.error(error);
