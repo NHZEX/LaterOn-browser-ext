@@ -110,6 +110,7 @@ module.exports = async function verifySettingsPage(directory) {
       assert.equal(document.documentElement.dataset.theme, "dark", "Theme applies before Vue mounts");
       // JSDOM lacks ES modules; rebundle only the already-built dependency graph.
       const { outputFiles } = buildSync({ entryPoints: [resource(scripts[1].src)], bundle: true, write: false, format: "iife", platform: "browser" });
+      window.eval(require("./ui-modules.cjs"));
       window.eval(outputFiles[0].text);
       await until(() => document.querySelector("#retrySettings"), "Failed initial read offers retry rather than permanent loading");
       document.querySelector("#retrySettings").click();
@@ -161,9 +162,9 @@ module.exports = async function verifySettingsPage(directory) {
       assert.deepEqual(clone(store), beforeEnable, "Opening confirmation does not change settings or collection data");
       assert.equal(autoClean.getAttribute("aria-checked"), "false");
       assert.equal(cleanupDays.disabled, true);
-      assert.equal(document.querySelector(".lod-title").textContent, window.LaterOnI18n.t("autoCleanConfirmTitle"));
-      assert.equal(document.querySelector(".lod-message").textContent, window.LaterOnI18n.t("autoCleanConfirmMessage", { days: 90 }));
-      assert.equal(document.querySelector(".lod-ok").textContent, window.LaterOnI18n.t("autoCleanConfirmButton"));
+      assert.equal(document.querySelector(".lod-title").textContent, window.uiTest.i18n.t("autoCleanConfirmTitle"));
+      assert.equal(document.querySelector(".lod-message").textContent, window.uiTest.i18n.t("autoCleanConfirmMessage", { days: 90 }));
+      assert.equal(document.querySelector(".lod-ok").textContent, window.uiTest.i18n.t("autoCleanConfirmButton"));
       await closeDialog(false);
       await until(() => !autoClean.disabled, "Cancel leaves the cleanup switch usable");
       assert.deepEqual(clone(store), beforeEnable, "Cancel keeps cleanup off and does not delete any data");
@@ -193,8 +194,8 @@ module.exports = async function verifySettingsPage(directory) {
       assert.equal(store.laterOnSettings.libraryView, "boards");
       await until(() => document.querySelector("#cmdSave").textContent.includes("Alt+9"), "Configured shortcut is shown");
       assert.ok(document.querySelector("#cmdSaveAll").textContent.includes("Alt+Shift+1"));
-      assert.ok(document.querySelector("#diagShortcut").textContent.includes(window.LaterOnI18n.t("cmdSaveAllTabs")));
-      assert.ok(document.querySelector("#diagPanelSpeed").textContent.includes(window.LaterOnI18n.t("speedOk")));
+      assert.ok(document.querySelector("#diagShortcut").textContent.includes(window.uiTest.i18n.t("cmdSaveAllTabs")));
+      assert.ok(document.querySelector("#diagPanelSpeed").textContent.includes(window.uiTest.i18n.t("speedOk")));
       faults.write = true; click('[data-setting="theme"] [data-value="dark"]');
       await until(dialog, "Settings write error opens dialog");
       assert.equal(store.laterOnSettings.theme, "light");
@@ -254,7 +255,7 @@ module.exports = async function verifySettingsPage(directory) {
       assert.equal(store.laterOnItems[0].title, "A", "Cancelled replacement preserves data");
       await startImport(JSON.stringify(replacement));
       assert.equal(document.querySelector(".lod-root").dataset.tone, "danger");
-      assert.equal(document.querySelector(".lod-ok").textContent, window.LaterOnI18n.t("backupReplaceConfirm"));
+      assert.equal(document.querySelector(".lod-ok").textContent, window.uiTest.i18n.t("backupReplaceConfirm"));
       await closeDialog(); await closeDialog(); await endImport();
       assert.equal(store.laterOnItems[0].title, "Restored");
       assert.equal(store.laterOnSettings.libraryView, "boards");

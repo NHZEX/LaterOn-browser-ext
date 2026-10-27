@@ -17,7 +17,7 @@ const { JSDOM, VirtualConsole } = require("jsdom");
 
 const ROOT = path.resolve(__dirname, "..");
 const html = require("./helpers/read-runtime.cjs")("sidepanel.html");
-const i18nSource = fs.readFileSync(sourcePath("i18n.js"), "utf8");
+const i18nSource = require("./helpers/ui-modules.cjs");
 const sidepanelSource = require("./helpers/read-runtime.cjs")("sidepanel-page.js");
 const urlSource = require("./helpers/read-runtime.cjs")("url-utils.js");
 const tabNavigationSource = require("./helpers/read-runtime.cjs")("tab-navigation.js");

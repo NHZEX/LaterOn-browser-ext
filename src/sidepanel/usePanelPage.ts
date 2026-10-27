@@ -1,6 +1,6 @@
 import { watch } from "vue";
 import { normalizeItems } from "../collection/item-state";
-import { t } from "../shared/i18n";
+import { t, ready, applyStatic } from "../shared/i18n";
 import { ITEMS } from "../storage/contracts";
 import { usePanelCache } from "./usePanelCache";
 import { panelNow, usePanelDiagnostics } from "./usePanelDiagnostics";
@@ -33,7 +33,7 @@ export function usePanelPage(controls: SidepanelControls, commands: PanelCommand
     const start = globalThis.LaterOnBoot?.t0 ?? panelNow();
     const seg: BootSegments = { page: Math.round(panelNow() - start), cache: 0, paint: 0, data: 0, migrate: 0 };
     // 语言是独立读取，不能阻塞缓存首屏，也不能算入「准备页面」。
-    void Promise.resolve(globalThis.LaterOnI18n?.ready).catch(() => {}).then(() => { if (alive) globalThis.LaterOnI18n?.applyStatic(); });
+    void ready.then(() => { if (alive) applyStatic(); });
     // 先发出完整存储请求再同步读缓存，两者并行；封面大，留到首屏后单独读。
     const dataStart = panelNow();
     const stored = storage.read().then(snapshot => ({ snapshot }), cause => ({ error: String(cause?.message || cause) }));

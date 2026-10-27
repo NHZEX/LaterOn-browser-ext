@@ -133,9 +133,8 @@ function createPanelPage(t, {
   window.eval(read("boot.js"));
   clock.tick(pageDelayMs);
   if (panel) {
-    window.eval(read("dialog.js"));
+    window.eval(defaultRead("i18n.js"));
     installMutations(window, read);
-    window.eval(read("i18n.js"));
     window.eval(read("url-utils.js"));
     window.eval(read("tab-navigation.js"));
     window.eval(read("sidepanel-page.js"));

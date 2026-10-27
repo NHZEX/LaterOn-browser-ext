@@ -17,7 +17,7 @@ const ROOT = path.resolve(__dirname, "..");
 const html = require("./helpers/read-runtime.cjs")("library.html");
 const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
 const tabNavigationSource = require("./helpers/read-runtime.cjs")("tab-navigation.js");
-const i18nSource = fs.readFileSync(sourcePath("i18n.js"), "utf8");
+const i18nSource = require("./helpers/ui-modules.cjs");
 
 const errors = [];
 const virtualConsole = new VirtualConsole();

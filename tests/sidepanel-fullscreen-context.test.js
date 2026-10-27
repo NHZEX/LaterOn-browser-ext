@@ -6,7 +6,7 @@ const path = require("path");
 const { JSDOM, VirtualConsole } = require("jsdom");
 
 const ROOT = path.resolve(__dirname, "..");
-const read = (name) => fs.readFileSync(sourcePath(name), "utf8");
+const read = require("./helpers/read-runtime.cjs");
 const libraryHtml = require("./helpers/read-runtime.cjs")("library.html");
 const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
 

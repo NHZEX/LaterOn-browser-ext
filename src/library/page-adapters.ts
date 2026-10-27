@@ -3,21 +3,28 @@ import { projectPickerFolders, typingTarget } from "./shared";
 import { SIDEBAR_WIDTH } from "./page";
 import type { LibraryControls } from "./useLibraryControls";
 import type { LibrarySnapshot } from "./page";
-import type { LibraryCommands } from "./useLibraryCommands";
+import type { DialogService } from "../ui/dialog.js";
 import { openFolderPicker } from "../picker/ui.js";
+import { loadDialog } from "../ui/load-dialog";
+import { bindStorageFeedback } from "../storage/page-feedback";
 import { t } from "../shared/i18n";
 
-type CommandBoundary = Parameters<LibraryCommands["bind"]>[0];
-export type LibraryDialog = Pick<CommandBoundary, "prompt" | "confirm"> & {
-  readonly close: () => void;
-  readonly alert: (config: { tone: "danger"; title: string; message: string }) => Promise<unknown>;
-};
+export type LibraryDialog = DialogService;
 export function bindPageAdapters(controls: LibraryControls): { mount: () => void; dispose: () => void } {
   const { commands, bulk, projects, collection } = controls;
+  let alive = true;
+  let openedDialog: LibraryDialog | undefined;
+  // The library already imports the stylesheet through its native HTML entry.
+  const loadLibraryDialog = async (): Promise<LibraryDialog> => {
+    const api = await loadDialog(false);
+    openedDialog = api;
+    return api;
+  };
   commands.bind({ storage: globalThis.LaterOnStorage, translate: t, toast: controls.notice.show, navigate: controls.project,
     accept: controls.storage.accept,
-    prompt: config => globalThis.LaterOnDialog!.prompt(config), confirm: config => globalThis.LaterOnDialog!.confirm(config),
-    closeDialog: () => globalThis.LaterOnDialog?.close(),
+    prompt: async config => { const api = await loadLibraryDialog(); return alive ? api.prompt(config) : false; },
+    confirm: async config => { const api = await loadLibraryDialog(); return alive ? api.confirm(config) : false; },
+    closeDialog: () => openedDialog?.close(),
     pick: request => openFolderPicker({ ...request, theme: controls.preferences.value.theme || "system",
       language: document.documentElement.lang, folders: projectPickerFolders(collection.value, t) }) });
   bulk.bind({ translate: t, toast: controls.notice.show, mutate: commands.mutate, confirm: commands.confirm,
@@ -36,11 +43,11 @@ export function bindPageAdapters(controls: LibraryControls): { mount: () => void
       event.preventDefault(); document.querySelector<HTMLElement>("#searchInput")?.focus();
     }
   };
+  const stopFeedback = bindStorageFeedback(loadLibraryDialog);
   function mount(): void {
     document.addEventListener("keydown", keydown);
-    globalThis.LaterOnI18n?.applyStatic();
   }
-  function dispose(): void { document.removeEventListener("keydown", keydown); }
+  function dispose(): void { alive = false; stopFeedback(); openedDialog?.dispose(); document.removeEventListener("keydown", keydown); }
   return { mount, dispose };
 }
 

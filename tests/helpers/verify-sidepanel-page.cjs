@@ -42,7 +42,7 @@ module.exports = async function verifySidepanelPage(t, { language = "zh-CN", dir
   env.broadcast({ laterOnActiveProject: "all" });
   await env.flush();
   assert.equal(ids(), "u", "全屏 all 范围不能在侧栏留下无选中目录");
-  assert.equal(document.querySelector("#itemCount").textContent, window.LaterOnI18n.t("cardCount", { n: 1 }));
+  assert.equal(document.querySelector("#itemCount").textContent, window.uiTest.i18n.t("cardCount", { n: 1 }));
   const card = env.item("u");
   const button = card.querySelector(".read-toggle");
   button.focus();
@@ -53,7 +53,7 @@ module.exports = async function verifySidepanelPage(t, { language = "zh-CN", dir
   assert.equal(document.activeElement, button);
   assert.equal(card.querySelector("h2").textContent, "Updated card");
   assert.equal(card.querySelector(".source").textContent, "updated.test");
-  assert.equal(card.querySelector("time").textContent, window.LaterOnI18n.t("daysAgo", { n: 2 }));
+  assert.equal(card.querySelector("time").textContent, window.uiTest.i18n.t("daysAgo", { n: 2 }));
   assert.equal(card.classList.contains("is-current"), true);
   assert.equal(env.store.laterOnCurrentItem, "u", "同批阅读标记不被当前标签回写覆盖");
   assert.equal(card.querySelector(".thumb-img").getAttribute("referrerpolicy"), "no-referrer");
@@ -103,7 +103,7 @@ module.exports = async function verifySidepanelPage(t, { language = "zh-CN", dir
   await env.until(() => document.querySelector("#currentTitle").textContent === "Built metadata", "构建产物补齐当前页资料");
   const save = document.querySelector("#saveCurrent");
   assert.equal(save.disabled, false); env.click(save); await env.flush();
-  assert.equal(document.querySelector("#status").textContent, window.LaterOnI18n.t("pickerOpened"));
+  assert.equal(document.querySelector("#status").textContent, window.uiTest.i18n.t("pickerOpened"));
   assert.equal(save.disabled, false); assert.equal(save.classList.contains("saved"), false);
   assert.deepEqual(requests.find(message => message.type === "QUICK_SAVE_TAB"), { type: "QUICK_SAVE_TAB", source: "panel", tabId: 42 });
 };

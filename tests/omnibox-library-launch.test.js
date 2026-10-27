@@ -5,7 +5,7 @@ const path = require("path");
 const { JSDOM } = require("jsdom");
 
 const ROOT = path.join(__dirname, "..");
-const read = (name) => fs.readFileSync(sourcePath(name), "utf8");
+const read = require("./helpers/read-runtime.cjs");
 const dom = new JSDOM(require("./helpers/read-runtime.cjs")("library.html"), {
   runScripts: "outside-only",
   pretendToBeVisual: true,

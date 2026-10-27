@@ -73,8 +73,8 @@ module.exports = async function verifyLibraryPage(directory) {
       window.eval(page.script);
       await until(() => document.querySelector(".board-card"), "Native Vue library loads projects");
       assert.equal(document.documentElement.lang, language);
-      assert.equal(document.querySelector(".sidebar-slogan").textContent, window.LaterOnI18n.t("slogan"));
-      assert.equal(document.querySelector('.top-entry > span:last-of-type').textContent, window.LaterOnI18n.t("allProjectsOverview"));
+      assert.equal(document.querySelector(".sidebar-slogan").textContent, window.uiTest.i18n.t("slogan"));
+      assert.equal(document.querySelector('.top-entry > span:last-of-type').textContent, window.uiTest.i18n.t("allProjectsOverview"));
       const click = selector => document.querySelector(selector).click();
       const ids = () => [...document.querySelectorAll("#cardGrid .card")].map(card => card.dataset.id).join(",");
       const search = value => {
@@ -128,11 +128,11 @@ module.exports = async function verifyLibraryPage(directory) {
       assert.equal(document.querySelector("#boardGrid").hidden, false, "Returning home cancels pending search");
       assert.equal(document.querySelector("#selectMode").hidden, true);
       assert.equal(document.querySelector("#selectMode").getAttribute("aria-pressed"), "false");
-      await window.LaterOnI18n.setLanguage(language === "en" ? "zh-CN" : "en");
+      await window.uiTest.i18n.setLanguage(language === "en" ? "zh-CN" : "en");
       await until(() => document.documentElement.lang !== language, "Language change event updates Vue controls");
       assert.equal(document.querySelector('.nav-item[data-filter="unread"]').textContent, language === "en" ? "未读" : "Unread");
-      assert.equal(document.querySelector(".sidebar-slogan").textContent, window.LaterOnI18n.t("slogan"));
-      assert.equal(document.querySelector('.top-entry > span:last-of-type').textContent, window.LaterOnI18n.t("allProjectsOverview"));
+      assert.equal(document.querySelector(".sidebar-slogan").textContent, window.uiTest.i18n.t("slogan"));
+      assert.equal(document.querySelector('.top-entry > span:last-of-type').textContent, window.uiTest.i18n.t("allProjectsOverview"));
       assert.equal(document.querySelector('.board-meta').textContent, language === "en" ? "3 篇 · 2 没看完" : "3 saves · 2 unfinished");
 
       const row = id => document.querySelector(`#projectList .project-row[data-id="${id}"]`);
@@ -149,7 +149,7 @@ module.exports = async function verifyLibraryPage(directory) {
       const menu = async (element, label) => {
         element.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
         await until(() => document.querySelector('.folder-menu-item'), "Vue menu appears");
-        const action = [...document.querySelectorAll('.folder-menu-item')].find(item => item.textContent === window.LaterOnI18n.t(label));
+        const action = [...document.querySelectorAll('.folder-menu-item')].find(item => item.textContent === window.uiTest.i18n.t(label));
         assert.ok(action, `Menu action ${label}`); action.click();
       };
       const menuTrigger = row("p").querySelector(".project-more");
@@ -201,7 +201,7 @@ module.exports = async function verifyLibraryPage(directory) {
       assert.equal(project().name, "Renamed project");
       failProjectWrite = true;
       const failed = await rename(); input(failed, "Retry name"); key(failed, "Enter");
-      await until(() => document.querySelector('#toast').textContent === window.LaterOnI18n.t("operationFailed"), "Rename failure is reported");
+      await until(() => document.querySelector('#toast').textContent === window.uiTest.i18n.t("operationFailed"), "Rename failure is reported");
       assert.equal(project().name, "Renamed project");
       const retry = document.querySelector('.project-rename');
       assert.equal(retry.value, "Retry name", "Failed rename keeps the draft for retry");

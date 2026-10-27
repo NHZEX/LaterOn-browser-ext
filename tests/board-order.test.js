@@ -13,7 +13,7 @@ const { JSDOM } = require("jsdom");
 const ROOT = path.resolve(__dirname, "..");
 const html = require("./helpers/read-runtime.cjs")("library.html");
 const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
-const dialogSource = fs.readFileSync(sourcePath("dialog.js"), "utf8");
+const dialogSource = require("./helpers/ui-modules.cjs");
 
 let failures = 0;
 const check = (label, ok, extra = "") => {

@@ -11,7 +11,9 @@ const read = (name) => fs.readFileSync(sourcePath(name), "utf8");
 
 const themeVars = read("theme-vars.css");
 const dialogCss = read("dialog.css");
-const dialogJs = read("dialog.js");
+const { buildSync } = require("esbuild");
+const dialogJs = buildSync({ stdin: { contents: 'import { dialog } from "./src/ui/dialog.js"; window.dialogPreview = dialog;',
+  resolveDir: ROOT }, bundle: true, write: false, format: "iife", platform: "browser" }).outputFiles[0].text;
 const iconData = fs.readFileSync(sourcePath("icon128.png")).toString("base64");
 
 const html = `<!doctype html>
@@ -125,35 +127,35 @@ ${dialogJs}
     <script>
       const resultEl = document.getElementById("result");
       const demos = {
-        deleteFolder: () => LaterOnDialog.confirm({
+        deleteFolder: () => window.dialogPreview.confirm({
           tone: "danger",
           title: "删除项目「工作与灵感」？",
           message: "里面的 2 篇收藏会移到「等待整理」，不会被删除。",
           confirmText: "删除项目"
         }),
-        bulkDelete: () => LaterOnDialog.confirm({
+        bulkDelete: () => window.dialogPreview.confirm({
           tone: "danger",
           title: "删除选中的 7 篇收藏？",
           message: "此操作无法撤销。",
           confirmText: "删除 7 篇"
         }),
-        wipe: () => LaterOnDialog.confirm({
+        wipe: () => window.dialogPreview.confirm({
           tone: "danger",
           title: "清空所有收藏？",
           message: "所有收藏都会被删除，此操作无法撤销。",
           confirmText: "全部清空"
         }),
-        importOk: () => LaterOnDialog.alert({
+        importOk: () => window.dialogPreview.alert({
           tone: "success",
           title: "导入完成",
           message: "当前共 128 篇收藏。"
         }),
-        importFail: () => LaterOnDialog.alert({
+        importFail: () => window.dialogPreview.alert({
           tone: "danger",
           title: "导入失败",
           message: "文件格式不正确"
         }),
-        shortcuts: () => LaterOnDialog.alert({
+        shortcuts: () => window.dialogPreview.alert({
           title: "没能自动打开快捷键设置",
           message: "请手动在地址栏输入：chrome://extensions/shortcuts"
         })

@@ -92,8 +92,8 @@ test("外部改名、置顶和语言实时更新菜单，删除目标后关闭�
   assert.equal(menu(env).querySelector('[data-action="pin"]').textContent, "取消置顶");
   assert.equal(menu(env).querySelector('[data-action="archive"]').textContent, "恢复项目");
   assert.equal(env.document.activeElement, focused);
-  await env.window.LaterOnI18n.setLanguage("en"); await env.flush();
-  assert.equal(menu(env).querySelector('[data-action="archive"]').textContent, env.window.LaterOnI18n.t("restoreProject"));
+  await env.window.uiTest.i18n.setLanguage("en"); await env.flush();
+  assert.equal(menu(env).querySelector('[data-action="archive"]').textContent, env.window.uiTest.i18n.t("restoreProject"));
   env.broadcast({ laterOnProjects: [] }); await env.flush();
   assert.equal(menu(env), null);
   assert.equal(env.document.activeElement, env.document.querySelector("#searchInput"));

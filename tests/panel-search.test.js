@@ -113,7 +113,7 @@ async function search(word) {
 
 require('./helpers/item-mutation')(window);
 
-window.eval(fs.readFileSync(sourcePath("i18n.js"), "utf8"));
+window.eval(require("./helpers/ui-modules.cjs"));
 window.scrollTo = () => {};
 window.eval(sidepanelSource);
 

@@ -90,13 +90,13 @@ test("外部删除编辑目标不复活；挂起写入阻止重复命令，卸�
 
 test("编辑弹窗显示前卸载不遗留浮层或写入；加载失败后可重新加载确认框", async t => {
   const env = createPanelPage(t, { store: store() }); await ready(env);
-  const api = env.window.LaterOnDialog; env.window.LaterOnDialog = undefined;
+  env.window.testUiResourceError = true;
   env.click(env.item("a").querySelector(".delete"));
-  env.document.querySelector('script[src="dialog.js"]').dispatchEvent(new env.window.Event("error")); await env.flush();
+  env.document.querySelector('link[data-lateron-dialog-style]').dispatchEvent(new env.window.Event("error")); await env.flush();
   assert.ok(env.item("a"));
   env.click(env.item("a").querySelector(".delete"));
-  env.window.LaterOnDialog = api;
-  env.document.querySelector('script[src="dialog.js"]').dispatchEvent(new env.window.Event("load")); await env.flush();
+  env.window.testUiResourceError = false;
+  env.document.querySelector('link[data-lateron-dialog-style]').dispatchEvent(new env.window.Event("load")); await env.flush();
   await env.until(() => dialog(env), "加载失败后重试确认"); await submit(env, false);
   env.click(env.item("a").querySelector(".edit")); env.window.dispatchEvent(new env.window.Event("pagehide"));
   await env.flush(); assert.equal(dialog(env), null); assert.equal(env.store.laterOnItems.length, 4);

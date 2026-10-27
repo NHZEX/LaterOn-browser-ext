@@ -42,10 +42,10 @@ async function partDialog() {
   const visible = () => document.querySelector(".lod-root:not([hidden])");
   const field = (name) => visible()?.querySelector(`[data-field="${name}"]`);
 
-  check("导出了 prompt 方法", typeof window.LaterOnDialog?.prompt === "function");
+  check("导出了 prompt 方法", typeof window.uiTest.dialog?.prompt === "function");
 
   let result;
-  window.LaterOnDialog.prompt({
+  window.uiTest.dialog.prompt({
     title: "编辑标题和摘要",
     fields: [
       { name: "title", label: "标题", value: "原标题" },
@@ -81,7 +81,7 @@ async function partDialog() {
 
   // 点取消 / Esc 都不能改东西。
   let cancelled;
-  window.LaterOnDialog.prompt({ title: "改一改", fields: [{ name: "title", label: "标题", value: "别动我" }] })
+  window.uiTest.dialog.prompt({ title: "改一改", fields: [{ name: "title", label: "标题", value: "别动我" }] })
     .then((value) => { cancelled = value; });
   await tick();
   field("title").value = "改坏了";
@@ -90,7 +90,7 @@ async function partDialog() {
   check("点取消 → ok=false", cancelled?.ok === false && cancelled.values === null, JSON.stringify(cancelled));
 
   let escaped;
-  window.LaterOnDialog.prompt({ title: "再试一次", fields: [{ name: "title", label: "标题", value: "原文案" }] })
+  window.uiTest.dialog.prompt({ title: "再试一次", fields: [{ name: "title", label: "标题", value: "原文案" }] })
     .then((value) => { escaped = value; });
   await tick();
   press(visible(), "Escape");
@@ -99,7 +99,7 @@ async function partDialog() {
 
   // 普通 confirm 不受影响，返回值还是布尔。
   let plain;
-  window.LaterOnDialog.confirm({ title: "还是布尔吗？" }).then((value) => { plain = value; });
+  window.uiTest.dialog.confirm({ title: "还是布尔吗？" }).then((value) => { plain = value; });
   await tick();
   press(visible(), "Enter");
   await tick(300);
@@ -345,7 +345,7 @@ async function partPage(page) {
     visible().querySelector('[data-field="title"]').value = "重试后的标题";
     visible().querySelector('[data-field="description"]').value = "重试后的摘要";
     click(visible().querySelector(".lod-ok"));
-    await waitFor("存储失败有明确提示", () => feedback() === window.LaterOnI18n.t("operationFailed"));
+    await waitFor("存储失败有明确提示", () => feedback() === window.uiTest.i18n.t("operationFailed"));
     check("保存失败时收藏数据不变", JSON.stringify(store.laterOnItems) === beforeNoop && itemWrites.length === writesBeforeNoop);
     check("保存失败时卡片保留旧标题和摘要", titleOf("item-1") === "我重写的标题" && descOf("item-1") === "暂无摘要");
 

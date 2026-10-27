@@ -10,7 +10,7 @@ const vm = require("vm");
 const { JSDOM } = require("jsdom");
 
 const ROOT = path.join(__dirname, "..");
-const read = (name) => fs.readFileSync(sourcePath(name), "utf8");
+const read = require("./helpers/read-runtime.cjs");
 const I18N_SOURCE = read("i18n.js");
 const DIALOG_SOURCE = read("dialog.js");
 const DIALOG_CSS = read("dialog.css");
@@ -94,7 +94,7 @@ async function partDialog() {
 
   // ── 没传 cover 配置：不显示封面区（老的调用方式不受影响）──
   let plain;
-  window.LaterOnDialog.prompt({ title: "只改文字", fields: [{ name: "title", label: "标题", value: "A" }] })
+  window.uiTest.dialog.prompt({ title: "只改文字", fields: [{ name: "title", label: "标题", value: "A" }] })
     .then((value) => { plain = value; });
   await tick();
   check("不传 cover 时不显示封面区", visible().querySelector(".lod-cover").hidden === true);
@@ -104,7 +104,7 @@ async function partDialog() {
 
   // ── 有封面：显示预览 ──
   let withCover;
-  window.LaterOnDialog.prompt({
+  window.uiTest.dialog.prompt({
     title: "编辑收藏",
     fields: [{ name: "title", label: "标题", value: "A" }],
     cover: { name: "cover", label: "封面", value: "https://site.com/a.jpg" }
@@ -121,7 +121,7 @@ async function partDialog() {
 
   // ── 上传一张 1600×900 的图 ──
   let uploaded;
-  window.LaterOnDialog.prompt({
+  window.uiTest.dialog.prompt({
     title: "编辑收藏",
     fields: [{ name: "title", label: "标题", value: "A" }],
     cover: { name: "cover", label: "封面", value: "" }
@@ -147,7 +147,7 @@ async function partDialog() {
 
   // ── 移除封面 ──
   let removed;
-  window.LaterOnDialog.prompt({
+  window.uiTest.dialog.prompt({
     title: "编辑收藏",
     fields: [{ name: "title", label: "标题", value: "A" }],
     cover: { name: "cover", label: "封面", value: "https://site.com/a.jpg" }
@@ -162,7 +162,7 @@ async function partDialog() {
 
   // ── 取消时不返回任何值 ──
   let cancelled;
-  window.LaterOnDialog.prompt({
+  window.uiTest.dialog.prompt({
     title: "编辑收藏",
     fields: [{ name: "title", label: "标题", value: "A" }],
     cover: { name: "cover", label: "封面", value: "https://site.com/a.jpg" }
@@ -176,7 +176,7 @@ async function partDialog() {
   // 项目图板就是这么用的（项目没设过封面时，显示集合里第一篇的封面）。
   // 这种封面照样要显示出来（不能写「无封面」），但「移除」没有意义 → 按钮先禁用。
   let derived;
-  window.LaterOnDialog.prompt({
+  window.uiTest.dialog.prompt({
     title: "编辑项目",
     fields: [{ name: "name", label: "项目名称", value: "视频创作" }],
     cover: {
@@ -202,7 +202,7 @@ async function partDialog() {
 
   // ── derived 的封面被换掉 / 清掉之后 ──
   let derived2;
-  window.LaterOnDialog.prompt({
+  window.uiTest.dialog.prompt({
     title: "编辑项目",
     fields: [{ name: "name", label: "项目名称", value: "视频创作" }],
     cover: {

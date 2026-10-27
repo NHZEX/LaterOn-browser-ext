@@ -134,7 +134,7 @@ test("当前页收藏失败可重试，项目选择等待不误标成功，保�
   await env.until(() => !save(env).disabled, "添加入口可用");
   env.click(save(env)); await env.flush(); assert.equal(status(env), "Try again"); assert.equal(save(env).disabled, false);
   response = { ok: true, pending: true }; env.click(save(env)); await env.flush();
-  assert.equal(status(env), env.window.LaterOnI18n.t("pickerOpened")); assert.equal(save(env).classList.contains("saved"), false);
+  assert.equal(status(env), env.window.uiTest.i18n.t("pickerOpened")); assert.equal(save(env).classList.contains("saved"), false);
   response = null; env.click(save(env)); env.click(save(env)); await env.flush();
   assert.equal(requests.length, 3); assert.equal(save(env).disabled, true);
   assert.deepEqual(requests[2], { type: "QUICK_SAVE_TAB", source: "panel", tabId: 1 });
@@ -166,7 +166,7 @@ for (const [url, key] of [["file:///C:/notes.txt", "localFileUnsupported"], ["ch
       window.chrome.tabs.query = async () => [{ ...tab(1), url }];
       window.chrome.runtime.sendMessage = async () => { requests++; return { ok: true }; };
     } });
-    await env.until(() => source(env) === env.window.LaterOnI18n.t(key), "显示限制说明");
+    await env.until(() => source(env) === env.window.uiTest.i18n.t(key), "显示限制说明");
     assert.equal(save(env).disabled, true); env.click(save(env)); await env.flush(); assert.equal(requests, 0);
   });
 }
@@ -184,7 +184,7 @@ test("展开完整界面失败可重试，打开成功后关闭失败才降级�
   await env.until(() => env.store.laterOnPanelDiag, "初始化完成");
   const button = env.document.querySelector("#openLibrary");
   env.click(button); await env.flush(); assert.equal(closed, 0); assert.equal(fallback, 0);
-  assert.equal(status(env), env.window.LaterOnI18n.t("libraryOpenFailed")); assert.equal(button.disabled, false);
+  assert.equal(status(env), env.window.uiTest.i18n.t("libraryOpenFailed")); assert.equal(button.disabled, false);
   success = true; env.click(button); env.click(button); await env.flush();
   assert.equal(requests, 2); assert.equal(closed, 1); assert.equal(fallback, 1);
 });

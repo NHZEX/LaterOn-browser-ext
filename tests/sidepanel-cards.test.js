@@ -38,10 +38,10 @@ test("Vue 卡片原地更新全部内容、焦点和阅读标识，不依赖自�
   assert.equal(updatedCard.querySelector(".thumb-img").getAttribute("src"), "data:image/png;base64,YQ==");
   assert.equal(updatedCard.classList.contains("is-reading"), true);
   assert.equal(updatedCard.classList.contains("is-current"), true);
-  await env.window.LaterOnI18n.setLanguage("en");
+  await env.window.uiTest.i18n.setLanguage("en");
   await env.until(() => updatedCard.querySelector("time").textContent === "2 days ago", "卡片随语言原地更新");
-  assert.equal(button.getAttribute("aria-label"), env.window.LaterOnI18n.t("readButton"));
-  assert.equal(updatedCard.dataset.currentLabel, env.window.LaterOnI18n.t("currentReading"));
+  assert.equal(button.getAttribute("aria-label"), env.window.uiTest.i18n.t("readButton"));
+  assert.equal(updatedCard.dataset.currentLabel, env.window.uiTest.i18n.t("currentReading"));
   assert.equal(env.item(id), updatedCard);
   assert.equal(env.document.activeElement, button);
   env.broadcast({ laterOnCurrentItem: null, laterOnItems: [{ ...env.store.laterOnItems[0], url: "javascript:alert(1)", image: "" }] });

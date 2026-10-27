@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import type { SidepanelControls } from "../../../src/sidepanel/useSidepanelControls";
+import { t, ready } from "../../../src/shared/i18n";
 import type { Translate } from "../../../src/shared/i18n";
+import { initOnboarding } from "../../../src/ui/onboarding.js";
 import { usePanelPage } from "../../../src/sidepanel/usePanelPage";
 import { usePanelActions } from "../../../src/sidepanel/usePanelActions";
 import PanelControls from "./PanelControls.vue";
@@ -13,18 +15,21 @@ const props = defineProps<{ controls: SidepanelControls }>();
 const actions = usePanelActions(props.controls);
 const page = usePanelPage(props.controls, actions.commands);
 const languageVersion = ref(0);
+let stopOnboarding: (() => void) | undefined;
 let alive = true;
 const translate: Translate = (key, values) => {
   void languageVersion.value;
-  return globalThis.LaterOnI18n?.t(key, values) ?? key;
+  return t(key, values);
 };
 function refreshLanguage(): void { if (alive) languageVersion.value++; }
 onMounted(() => {
+  stopOnboarding = initOnboarding();
   window.addEventListener("lateron-language-change", refreshLanguage);
   page.mount(); actions.drag.mount();
-  void globalThis.LaterOnI18n?.ready.then(refreshLanguage, refreshLanguage);
+  void ready.then(refreshLanguage, refreshLanguage);
 });
 onBeforeUnmount(() => {
+  stopOnboarding?.();
   alive = false; window.removeEventListener("lateron-language-change", refreshLanguage);
   page.dispose(); actions.dispose(); props.controls.dispose();
 });

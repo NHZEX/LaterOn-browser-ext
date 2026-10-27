@@ -14,8 +14,8 @@ const { JSDOM, VirtualConsole } = require("jsdom");
 const ROOT = path.resolve(__dirname, "..");
 const html = require("./helpers/read-runtime.cjs")("library.html");
 const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
-const i18nSource = fs.readFileSync(sourcePath("i18n.js"), "utf8");
-const dialogSource = fs.readFileSync(sourcePath("dialog.js"), "utf8");
+const i18nSource = require("./helpers/ui-modules.cjs");
+const dialogSource = require("./helpers/ui-modules.cjs");
 const urlSource = require("./helpers/read-runtime.cjs")("url-utils.js");
 const tabNavigationSource = require("./helpers/read-runtime.cjs")("tab-navigation.js");
 

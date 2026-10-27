@@ -1,4 +1,7 @@
 import { nextTick } from "vue";
+import { t } from "../shared/i18n";
+import { loadDialog } from "../ui/load-dialog";
+import { bindStorageFeedback } from "../storage/page-feedback";
 import type { CollectionAction, CollectionSuccess, CommandFields } from "../storage/contracts";
 import type { LibraryDialog } from "../library/page-adapters";
 import type { SidepanelControls } from "./useSidepanelControls";
@@ -12,10 +15,10 @@ export interface PanelCommandBoundary {
 export function usePanelCommands(controls: SidepanelControls) {
   let boundary: PanelCommandBoundary | null = null;
   let alive = true;
-  let dialogLoad: Promise<LibraryDialog> | undefined;
+  let loadedDialog: LibraryDialog | undefined;
+  const stopFeedback = bindStorageFeedback(loadDialog);
   let dialogPending = false;
   const active = new Set<string>();
-  const t = (key: string): string => globalThis.LaterOnI18n?.t(key) ?? key;
   function notify(key: string): void {
     if (alive) controls.message.value = t(key);
   }
@@ -55,28 +58,12 @@ export function usePanelCommands(controls: SidepanelControls) {
     catch { notify("operationFailed"); }
     finally { active.delete(key); await restoreFocus(origin); }
   }
-  // 编辑不是首屏能力，仍按需加载脚本和样式，避免把 27KB 弹窗排入冷启动链路。
-  function loadDialog(): Promise<LibraryDialog> {
-    if (globalThis.LaterOnDialog) return Promise.resolve(globalThis.LaterOnDialog);
-    if (dialogLoad) return dialogLoad;
-    dialogLoad = new Promise<LibraryDialog>((resolve, reject) => {
-      if (!document.querySelector("link[data-lateron-dialog-style]")) {
-        const style = document.createElement("link");
-        style.rel = "stylesheet"; style.href = "dialog.css"; style.dataset.lateronDialogStyle = "";
-        document.head.append(style);
-      }
-      const script = document.createElement("script"); script.src = "dialog.js";
-      script.onload = () => globalThis.LaterOnDialog ? resolve(globalThis.LaterOnDialog) : reject(new Error("Dialog unavailable"));
-      script.onerror = () => { script.remove(); reject(new Error("Dialog load failed")); };
-      document.head.append(script);
-    }).catch(error => { dialogLoad = undefined; throw error; });
-    return dialogLoad;
-  }
   async function dialog<T>(show: (dialog: LibraryDialog) => Promise<T>, failure: string): Promise<T | null> {
     if (!alive || dialogPending) return null;
     dialogPending = true;
     try {
       const api = await loadDialog();
+      loadedDialog = api;
       if (!alive) return null;
       const pending = show(api);
       // 共享弹窗排队显示；显示前卸载也必须关闭，不能遗留浮层或执行陈旧命令。
@@ -88,7 +75,8 @@ export function usePanelCommands(controls: SidepanelControls) {
   }
   function dispose(): void {
     alive = false; boundary = null; active.clear();
-    if (dialogPending) globalThis.LaterOnDialog?.close();
+    stopFeedback();
+    loadedDialog?.dispose();
   }
   return { bind, execute, perform, restoreFocus, notify, dialog, setCurrent: (id: string) => { if (alive) boundary?.setCurrent(id); },
     customSort: () => { if (alive) boundary?.customSort(); }, current: () => alive && boundary !== null,

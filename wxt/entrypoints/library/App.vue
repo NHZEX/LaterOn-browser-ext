@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import type { LibraryControls } from "../../../src/library/useLibraryControls";
+import { t } from "../../../src/shared/i18n";
 import type { Translate } from "../../../src/shared/i18n";
+import { initOnboarding } from "../../../src/ui/onboarding.js";
 import LibraryHeader from "./LibraryHeader.vue";
 import CollectionToolbar from "./CollectionToolbar.vue";
 import ProjectNavigation from "./ProjectNavigation.vue";
@@ -12,18 +14,21 @@ import BulkToolbar from "./BulkToolbar.vue";
 
 const props = defineProps<{ controls: LibraryControls }>();
 const languageVersion = ref(0);
+let stopOnboarding: (() => void) | undefined;
 const english = computed(() => {
   void languageVersion.value;
   return document.documentElement.lang === "en";
 });
 const translate: Translate = (key, values) => {
   void languageVersion.value;
-  return globalThis.LaterOnI18n?.t(key, values) ?? key;
+  return t(key, values);
 };
 function refreshLanguage(): void { languageVersion.value++; }
 
-onMounted(() => { window.addEventListener("lateron-language-change", refreshLanguage); props.controls.mount(); });
+onMounted(() => {
+  stopOnboarding = initOnboarding(); window.addEventListener("lateron-language-change", refreshLanguage); props.controls.mount(); });
 onBeforeUnmount(() => {
+  stopOnboarding?.();
   window.removeEventListener("lateron-language-change", refreshLanguage);
   props.controls.dispose();
 });

@@ -40,4 +40,6 @@ CI 在 Windows / Ubuntu 上复用打包后的目录运行 `pnpm exec playwright 
 
 F3a 的 `picker.spec.cjs` 增加四个中英文 / 深浅主题场景，通过真实后台收藏消息验证单文件网页浮层、站点 CSS 隔离、重复打开、新建项目、旧批次拒绝、持久化及取消；独立 WXT 选择页验证主题、确认后关闭与过期提示。独立页的 JSDOM 行为验证由 `tests/helpers/verify-picker-page.cjs` 复用于 production 和自定义构建，浮层重复注入测试执行实际 WXT bundle，覆盖配置先到 / 后到、旧监听释放和失效 runtime。F3a 后本地完整 Node 回归 79/79 文件、Chromium 35/35 场景通过。
 
+F3b 的 `ui-modules.spec.cjs` 增加五个真实扩展场景，检查两页退出旧全局 / 旧脚本、编辑器按需请求、原生图片上传与持久化、焦点恢复、首轮英文引导、存储通知切换中文、已读与强制重播；另在外部样式请求失败后验证保留数据、重试与取消删除。JSDOM 使用测试命名空间接收真实模块导出，资源交付 / 设置通知由浏览器边界夹具控制，不向产品恢复 UI 全局。`i18n-onboarding.test.js` 增补语言竞态、引导清理、当前 / 排队弹窗取消、并发 epoch 提示和读取前卸载；旧弹窗 CSS / 源码耦合断言删除，样式由真实浏览器行为覆盖。最终完整 Node 79/79 文件、Chromium 40/40 场景（无重试）及 8 个生命周期专项通过。
+
 采用的工具能力见 [Playwright 扩展测试](https://playwright.dev/docs/chrome-extensions)、[测试隔离](https://playwright.dev/docs/browser-contexts)及 [fake-timers](https://github.com/sinonjs/fake-timers)。其余存量测试仍按 [ITER-021](../../docs/roadmap.md#测试改进的迭代方式iter-021) 渐进改造。

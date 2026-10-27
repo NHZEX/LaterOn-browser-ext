@@ -14,8 +14,8 @@ const { JSDOM, VirtualConsole } = require("jsdom");
 const ROOT = path.resolve(__dirname, "..");
 const html = require("./helpers/read-runtime.cjs")("library.html");
 const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
-const dialogSource = fs.readFileSync(sourcePath("dialog.js"), "utf8");
-const i18nSource = fs.readFileSync(sourcePath("i18n.js"), "utf8");
+const dialogSource = require("./helpers/ui-modules.cjs");
+const i18nSource = require("./helpers/ui-modules.cjs");
 const dialogCss = fs.readFileSync(sourcePath("dialog.css"), "utf8");
 const libraryCss = fs.readFileSync(sourcePath("library.css"), "utf8");
 
@@ -277,7 +277,7 @@ async function saveBoardEdit() {
 
   console.log("\n── ⑩ 没备选的弹窗不受影响 ──");
   let plain;
-  window.LaterOnDialog.prompt({ title: "编辑收藏", cover: { name: "cover", label: "封面", value: "" } })
+  window.uiTest.dialog.prompt({ title: "编辑收藏", cover: { name: "cover", label: "封面", value: "" } })
     .then((value) => { plain = value; });
   await tick(30);
   check("不传备选时不显示封面组合区", dialog().querySelector(".lod-picks").hidden === true);

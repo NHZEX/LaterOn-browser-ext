@@ -15,7 +15,7 @@ const { JSDOM, VirtualConsole } = require("jsdom");
 const ROOT = path.resolve(__dirname, "..");
 const html = require("./helpers/read-runtime.cjs")("library.html");
 const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
-const dialogSource = fs.readFileSync(sourcePath("dialog.js"), "utf8");
+const dialogSource = require("./helpers/ui-modules.cjs");
 // 侧栏那套样式的源码：下面有几条「静态断言」用它锁住纯视觉的规矩
 // （jsdom 不做排版，「图钉角标贴在缩略图的哪个角」这种事它永远测不出来）。
 const libraryCss = fs.readFileSync(sourcePath("library.css"), "utf8");
@@ -149,7 +149,7 @@ const openMenu = async (id) => {
 const topOf = (index) => ROW_TOP + index * ROW_STEP;
 const midOf = (index) => topOf(index) + ROW_HEIGHT / 2;
 
-window.eval(fs.readFileSync(sourcePath("i18n.js"), "utf8"));
+window.eval(require("./helpers/ui-modules.cjs"));
 window.eval(dialogSource);
 require('./helpers/item-mutation')(window);
 window.eval(librarySource);

@@ -6,15 +6,15 @@ const ts = require("typescript");
 //  2) 危险操作有红色主题与警示图标
 //  3) alert 只有一个按钮
 //  4) 同时要求弹两个时不会叠在一起，而是排队依次显示
-//  5) dialog.js 用到的类名都和 dialog.css 对得上（拼错类名会没有样式，肉眼很难发现）
+//  5) 实际样式、焦点和窄屏布局由 Chromium 页面场景验证
 //  6) 全程不碰浏览器自带的 confirm / alert
 const fs = require("fs");
 const path = require("path");
 const { JSDOM, VirtualConsole } = require("jsdom");
 
 const ROOT = path.resolve(__dirname, "..");
-const i18nSource = fs.readFileSync(sourcePath("i18n.js"), "utf8");
-const dialogSource = fs.readFileSync(sourcePath("dialog.js"), "utf8");
+const i18nSource = require("./helpers/ui-modules.cjs");
+const dialogSource = require("./helpers/ui-modules.cjs");
 const dialogCss = fs.readFileSync(sourcePath("dialog.css"), "utf8");
 
 const errors = [];
@@ -50,11 +50,11 @@ const text = (selector) => visible()?.querySelector(selector)?.textContent || ""
 (async () => {
   console.log("── 懒创建 ──");
   check("还没用就先不往页面塞东西", !document.querySelector(".lod-root"));
-  check("导出了 confirm / alert 两个方法", typeof window.LaterOnDialog?.confirm === "function" && typeof window.LaterOnDialog?.alert === "function");
+  check("导出了 confirm / alert 两个方法", typeof window.uiTest.dialog?.confirm === "function" && typeof window.uiTest.dialog?.alert === "function");
 
   console.log("\n── 普通确认框 ──");
   let answer;
-  const first = window.LaterOnDialog.confirm({ title: "删除项目「工作」？", message: "里面的 2 篇收藏会移到「等待整理」。", confirmText: "删除项目" });
+  const first = window.uiTest.dialog.confirm({ title: "删除项目「工作」？", message: "里面的 2 篇收藏会移到「等待整理」。", confirmText: "删除项目" });
   first.then((value) => { answer = value; });
   await tick();
   check("弹窗出现在页面上", !!visible());
@@ -72,7 +72,7 @@ const text = (selector) => visible()?.querySelector(selector)?.textContent || ""
   check("收起来用的是「隐藏」而不是「禁用按钮」，下次还能正常用", document.querySelector(".lod-root").hidden === true && document.querySelector(".lod-root .lod-ok").disabled === false);
 
   console.log("\n── 危险操作主题 ──");
-  const dangerPromise = window.LaterOnDialog.confirm({ tone: "danger", title: "清空所有收藏？", message: "此操作无法撤销。", confirmText: "全部清空" });
+  const dangerPromise = window.uiTest.dialog.confirm({ tone: "danger", title: "清空所有收藏？", message: "此操作无法撤销。", confirmText: "全部清空" });
   await tick();
   check("标成了危险主题", visible()?.dataset.tone === "danger", visible()?.dataset.tone);
   check("图标换成了警示三角", /M10.3 3.9/.test(visible().querySelector(".lod-icon").innerHTML));
@@ -81,27 +81,27 @@ const text = (selector) => visible()?.querySelector(selector)?.textContent || ""
   check("点取消 → false", (await dangerPromise) === false);
 
   console.log("\n── 键盘操作 ──");
-  const escPromise = window.LaterOnDialog.confirm({ title: "按 Esc 试试" });
+  const escPromise = window.uiTest.dialog.confirm({ title: "按 Esc 试试" });
   await tick();
   pressKey(visible(), "Escape");
   await tick(300);
   check("按 Esc → false", (await escPromise) === false);
 
-  const enterPromise = window.LaterOnDialog.confirm({ title: "按回车试试" });
+  const enterPromise = window.uiTest.dialog.confirm({ title: "按回车试试" });
   await tick();
   pressKey(visible(), "Enter");
   await tick(300);
   check("按回车 → true", (await enterPromise) === true);
 
   console.log("\n── 点遮罩取消 ──");
-  const backdropPromise = window.LaterOnDialog.confirm({ title: "点背景试试" });
+  const backdropPromise = window.uiTest.dialog.confirm({ title: "点背景试试" });
   await tick();
   click(visible().querySelector(".lod-backdrop"));
   await tick(300);
   check("点背景 → false", (await backdropPromise) === false);
 
   console.log("\n── 只告知、不需要选择的提示框 ──");
-  const infoPromise = window.LaterOnDialog.alert({ tone: "success", title: "导入完成", message: "当前共 12 篇收藏。" });
+  const infoPromise = window.uiTest.dialog.alert({ tone: "success", title: "导入完成", message: "当前共 12 篇收藏。" });
   await tick();
   check("只有一个按钮，取消键被藏起来", visible().querySelector(".lod-cancel").hidden === true && !visible().querySelector(".lod-ok").hidden);
   check("按钮文案是「知道了」", text(".lod-ok") === "知道了", text(".lod-ok"));
@@ -117,8 +117,8 @@ const text = (selector) => visible()?.querySelector(selector)?.textContent || ""
 
   console.log("\n── 同时弹两个：排队而不是叠加 ──");
   let valueA, valueB;
-  window.LaterOnDialog.confirm({ title: "第一个", message: "A" }).then((v) => { valueA = v; });
-  window.LaterOnDialog.confirm({ title: "第二个", message: "B" }).then((v) => { valueB = v; });
+  window.uiTest.dialog.confirm({ title: "第一个", message: "A" }).then((v) => { valueA = v; });
+  window.uiTest.dialog.confirm({ title: "第二个", message: "B" }).then((v) => { valueB = v; });
   await tick(40);
   check("页面上只有一个弹窗", document.querySelectorAll(".lod-root").length === 1, `${document.querySelectorAll(".lod-root").length} 个`);
   check("先显示第一个", text(".lod-title") === "第一个", text(".lod-title"));
@@ -131,23 +131,6 @@ const text = (selector) => visible()?.querySelector(selector)?.textContent || ""
   await tick(320);
   check("第二个拿到结果 false", valueB === false, String(valueB));
   check("都处理完，页面恢复干净", !visible());
-
-  console.log("\n── 样式与脚本对得上（拼错类名会没有样式）──");
-  const usedClasses = new Set();
-  for (const matched of dialogSource.matchAll(/class="([^"]+)"/g)) matched[1].split(/\s+/).forEach((name) => usedClasses.add(name));
-  for (const matched of dialogSource.matchAll(/classList\.(?:add|remove)\("([^"]+)"\)/g)) usedClasses.add(matched[1]);
-  for (const matched of dialogSource.matchAll(/querySelector\("\.([\w-]+)"\)/g)) usedClasses.add(matched[1]);
-  for (const matched of dialogSource.matchAll(/classList\.(?:add|remove)\(([^)]*)\)/g)) {
-    for (const name of matched[1].split(",")) {
-      const clean = name.trim().replace(/^["']|["']$/g, "");
-      if (/^[\w-]+$/.test(clean)) usedClasses.add(clean);
-    }
-  }
-  const missing = [...usedClasses].filter((name) => name.startsWith("lod-") && !dialogCss.includes(`.${name}`));
-  check("脚本里用到的每个 lod- 类名都在 CSS 里定义了", missing.length === 0, missing.join(", "));
-  check("危险主题的样式也在 CSS 里", dialogCss.includes('[data-tone="danger"]'));
-  check("深色模式有覆盖", dialogCss.includes('[data-theme="dark"]'));
-  check("CSS 花括号配对", (dialogCss.match(/{/g) || []).length === (dialogCss.match(/}/g) || []).length);
 
   console.log("\n── 全项目排查：还有没有用浏览器自带弹窗的地方 ──");
   const offenders = [];

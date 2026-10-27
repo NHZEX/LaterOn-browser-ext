@@ -14,7 +14,7 @@ const ROOT = path.resolve(__dirname, "..");
 const html = require("./helpers/read-runtime.cjs")("sidepanel.html");
 const sidepanelSource = require("./helpers/read-runtime.cjs")("sidepanel-page.js");
 const tabNavigationSource = require("./helpers/read-runtime.cjs")("tab-navigation.js");
-const i18nSource = fs.readFileSync(sourcePath("i18n.js"), "utf8");
+const i18nSource = require("./helpers/ui-modules.cjs");
 
 const errors = [];
 const virtualConsole = new VirtualConsole();

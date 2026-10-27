@@ -167,8 +167,8 @@ test("封面失败回退不因无关更新重载，后续新封面可恢复，�
   assert.equal(favicon.style.visibility, "");
   env.broadcast({ laterOnItems: env.store.laterOnItems.map(item => ({ ...item, image: "local://a" })), laterOnCovers: { a: "data:image/png;base64,AAAA" } }); await env.flush();
   assert.equal(image().getAttribute("src"), env.store.laterOnCovers.a);
-  await env.window.LaterOnI18n.setLanguage("en"); await env.flush();
-  assert.equal(card.querySelector(".edit").getAttribute("aria-label"), env.window.LaterOnI18n.t("editItemAria"));
+  await env.window.uiTest.i18n.setLanguage("en"); await env.flush();
+  assert.equal(card.querySelector(".edit").getAttribute("aria-label"), env.window.uiTest.i18n.t("editItemAria"));
 });
 
 test("外部集合更新取消卡片拖拽并清理临时节点，迟到 drop 不写过期顺序", async t => {

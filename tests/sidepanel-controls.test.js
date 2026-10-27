@@ -34,11 +34,10 @@ test("握手在数据读取前注册，等待窗口 ID，卸载取消待执行�
   drag.dataTransfer = { setData() {}, setDragImage() {} };
   card.dispatchEvent(drag);
   assert.ok(env.document.querySelector(".card-drag-preview"));
-  const baselineListeners = env.listeners.size;
   env.window.dispatchEvent(new env.window.Event("pagehide"));
   assert.equal(env.messages.size, 0);
   assert.equal(env.activated.size, 0); assert.equal(env.updated.size, 0);
-  assert.equal(env.listeners.size, baselineListeners - 1, "卸载移除侧栏存储订阅");
+  assert.equal(env.listeners.size, 1, "卸载移除页面与语言订阅，仅保留独立存储传输桥");
   const count = env.count(), writes = env.cacheWrites.length;
   env.broadcast({ laterOnItems: [] });
   await env.clock.tickAsync(1000); await env.frame(); await env.idleTurn();

@@ -45,7 +45,7 @@ function readPage(directory, name) {
   dom.window.close();
   // Rebundle the already-built module graph for JSDOM, which has no ES module loader.
   const { outputFiles } = buildSync({ entryPoints: [entry], bundle: true, write: false, format: "iife", platform: "browser" });
-  return { html, script: outputFiles[0].text };
+  return { html, script: require("./ui-modules.cjs") + "\n" + outputFiles[0].text };
 }
 
 module.exports = function builtPage(directory, name = "library") {

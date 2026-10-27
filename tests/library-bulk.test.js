@@ -136,7 +136,7 @@ test("外部删除清理计数、语言跟随，Escape、空白及返回图板�
   const env = createLibraryPage(t, { items: [makeItem("a"), makeItem("b")] });
   await inbox(env); await pick(env, "a", "b");
   env.broadcast({ laterOnItems: [makeItem("b")] }); await env.flush(); assert.equal(count(env), "已选 1 篇");
-  await env.window.LaterOnI18n.setLanguage("en"); await env.flush(); assert.equal(count(env), "1 selected");
+  await env.window.uiTest.i18n.setLanguage("en"); await env.flush(); assert.equal(count(env), "1 selected");
   env.document.querySelector("#bulkDone").focus();
   env.document.activeElement.dispatchEvent(new env.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })); await env.flush();
   assert.equal(env.document.activeElement.id, "selectMode"); assert.equal(selected(env, "b"), false);

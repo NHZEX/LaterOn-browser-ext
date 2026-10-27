@@ -82,7 +82,7 @@ for (const page of ["library", "sidepanel"]) test(page + ": 封面上传和移�
   }
   const before = structuredClone(store);
   env.failNextWrite(); await edit({ upload: true });
-  await env.until(() => !visible() && feedback() === window.LaterOnI18n.t("operationFailed"), "failed upload");
+  await env.until(() => !visible() && feedback() === window.uiTest.i18n.t("operationFailed"), "failed upload");
   assert.deepEqual(store.laterOnItems, before.laterOnItems); assert.deepEqual(store.laterOnCovers, before.laterOnCovers);
   assert.equal(env.card("a").querySelector("h2").textContent, "Title a");
   assert.equal(env.card("a").querySelector(".cover-img, .thumb-img").getAttribute("src"), oldCover);
@@ -93,7 +93,7 @@ for (const page of ["library", "sidepanel"]) test(page + ": 封面上传和移�
   assert.equal(env.card("a").querySelector(".cover-img, .thumb-img").getAttribute("src"), newCover);
   const beforeRemove = structuredClone(store);
   env.failNextWrite(); await edit({ remove: true });
-  await env.until(() => !visible() && feedback() === window.LaterOnI18n.t("operationFailed"), "failed removal");
+  await env.until(() => !visible() && feedback() === window.uiTest.i18n.t("operationFailed"), "failed removal");
   assert.deepEqual(store.laterOnItems, beforeRemove.laterOnItems); assert.deepEqual(store.laterOnCovers, beforeRemove.laterOnCovers);
   await edit({ remove: true });
   await env.until(() => !env.card("a").querySelector(".cover-img, .thumb-img"), "successful removal without broadcast");

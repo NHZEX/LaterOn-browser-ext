@@ -5,7 +5,7 @@ module.exports = function install(window, read = defaultRead) {
   if (!window.chrome?.runtime || window.__itemMutationMock) return;
   window.__itemMutationMock = true;
   window.fetch ??= async () => ({}); // Built modulepreload fetches are an external resource boundary.
-  if (window.document.querySelector('#libraryHeader') && !window.LaterOnI18n) window.eval(read('i18n.js'));
+  if (window.document.querySelector('#libraryHeader') && !window.uiTest) window.eval(read('i18n.js'));
   window.eval(read('item-edit.js'));
   window.eval(read('item-state.js'));
   window.eval(read('collection-filter.js'));

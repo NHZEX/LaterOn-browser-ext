@@ -21,9 +21,10 @@ function page() {
   const state = { reloads: 0, cacheCleared: 0, alerts: [] };
   const ctx = vm.createContext({ chrome, location: { pathname: '/library.html', reload() { state.reloads++; } },
     localStorage: { removeItem() { state.cacheCleared++; } },
-    LaterOnDialog: { async alert(config) { state.alerts.push(config); } }, LaterOnI18n: { t: key => key } });
+  });
   ctx.window = ctx;
   vm.runInContext(read('storage-client.js'), ctx);
+  ctx.LaterOnStorage.setFailureHandler(async code => { if (code === 'STALE_COLLECTION') state.alerts.push({ message: 'backupDataChanged' }); });
   return { api: ctx.LaterOnStorage, state };
 }
 (async () => {
