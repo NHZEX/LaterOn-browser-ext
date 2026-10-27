@@ -106,24 +106,12 @@ pnpm install --frozen-lockfile
 
 源码与扩展安装目录分离；根目录 `manifest.json` 是构建配置输入，不能直接加载仓库根目录作为扩展。
 
-| 目录 | 职责 |
-| --- | --- |
-| `wxt/entrypoints/` | WXT 入口、Vue 页面及页面专属样式 |
-| `wxt/public/` | 原样发布的图标、封面占位图与语言文件 |
-| `src/background/` | 按职责拆分的后台模块，由 WXT 直接编译依赖 |
-| `src/content/` | 按需注入网页的独立脚本 |
-| `src/picker/`、`src/ui/`、`src/styles/` | 共享项目选择模块、公共界面脚本和共享样式 |
-| `src/library/`、`src/sidepanel/`、其他 `src/` 子目录 | 页面职责模块、共享规则及存储 / 备份等领域逻辑 |
-| `scripts/`、`tests/`、`docs/` | 构建发布、回归测试与项目文档 |
-| `.output/`、`.wxt/` | 忽略的构建 / 验证产物与 WXT 生成文件 |
-
-运行脚本和样式均由 WXT 原生入口或页面资源依赖构建。网页浮层、元数据、阅读位置和翻译保留原有 `content-*.js` 地址与按需注入方式；独立选择页保留 `save-project-picker.html`。侧栏 `boot.js` 独立构建以保留主页面失败时的兜底；首屏样式通过原生资源 URL 非阻塞加载，弹窗脚本与样式仍按需加载，`translation.css` 由独立样式入口生成。静态图标等使用 WXT public，LICENSE 由配置中的单项法律资源声明从根目录交付。`scripts/runtime-files.json` 和 `scripts/build-assets.mjs` 已退役。部分早期主题 / 存储等入口仍保留经典脚本与全局 API，现有 JavaScript 也未全部转换为 TypeScript；构建归属与后续边界见 [目录整理方案](docs/plans/023-source-layout-and-wxt-native.md)。
-
+当前代码职责、WXT 入口及保留的经典脚本边界见 [架构与代码入口](docs/architecture.md)，依赖版本与脚本定义以 package.json 为准。
 
 | 命令 | 用途 |
 | --- | --- |
 | `pnpm test` | 运行 Node / JSDOM 测试 |
-| `pnpm test:browser` | 构建后用真实 Chromium 验证侧栏首屏、收藏卡片布局、拖拽与持久化 |
+| `pnpm test:browser` | 构建后用真实 Chromium 验证扩展界面、后台与持久化 |
 | `pnpm typecheck` | 生成 WXT 类型配置并检查已迁移的 TypeScript 代码 |
 | `pnpm build` | 使用 WXT 构建扩展到 `.output/chrome-mv3` |
 | `pnpm zip` | 按默认 production 模式构建、打包，并按环境开关决定是否发布 |
@@ -150,8 +138,6 @@ production 模式的产物为 `.output/chrome-mv3` 和 `.output/LaterOn-<版本>
 
 扩展版本由 `manifest.json` 定义。发布前先运行测试；`pnpm build` 仅构建，即使发布开关开启也不部署。部署前检查 ZIP，安装目录的父目录须已存在，已有目录必须为同一扩展。旧版本保存在安装目录同级的 `<目录名>-backups/` 中，发布后需在浏览器中重新加载扩展。
 
-浏览器测试首次运行前执行 `pnpm exec playwright install --no-shell chromium`（Linux CI 加上 `--with-deps`）。每个用例使用独立的临时浏览器资料目录，不读取日常浏览器数据；测试结果和失败截图在 `.output/browser-results`。已有构建可直接运行 `pnpm exec playwright test`。实现与分层边界见 [侧栏与收藏库测试说明](tests/browser/README.md)。
+浏览器安装、测试执行与验证限制见 [测试说明](tests/browser/README.md)。CI 步骤以 [工作流](.github/workflows/ci.yml) 为准。
 
-GitHub Actions 在 Windows / Ubuntu 上执行依赖安装、Node / JSDOM 测试、侧栏用例逆序验证、构建和产物校验，再使用构建产物运行真实 Chromium 测试。
-
-任务路线、迁移方案、调研和实施记录见 [项目文档](docs/README.md)。
+未完成任务、最近本机发布证据及历史回溯方法见 [项目文档](docs/README.md)。
