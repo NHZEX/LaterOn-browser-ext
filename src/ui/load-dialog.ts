@@ -1,4 +1,5 @@
 import type { DialogService } from "./dialog.js";
+import dialogStyleUrl from "../styles/dialog.css?url&no-inline";
 
 let pending: Promise<DialogService> | undefined;
 
@@ -8,7 +9,7 @@ function loadStyle(): Promise<void> {
   return new Promise((resolve, reject) => {
     const style = document.createElement("link");
     style.rel = "stylesheet";
-    style.href = "dialog.css";
+    style.href = dialogStyleUrl;
     style.dataset.lateronDialogStyle = "";
     style.onload = () => resolve();
     style.onerror = () => { style.remove(); reject(new Error("Dialog style unavailable")); };

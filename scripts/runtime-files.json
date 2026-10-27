@@ -1,9 +1,0 @@
-{
-  "LICENSE": "LICENSE",
-  "boot.js": "src/sidepanel/boot.js",
-  "dialog.css": "src/styles/dialog.css",
-  "onboarding.css": "src/styles/onboarding.css",
-  "sidepanel.css": "wxt/entrypoints/sidepanel/style.css",
-  "theme-vars.css": "src/styles/theme-vars.css",
-  "translation.css": "src/styles/translation.css"
-}

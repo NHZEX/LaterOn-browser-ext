@@ -11,6 +11,12 @@ const { metafile } = buildSync({ entryPoints: [path.join(ROOT, "wxt/entrypoints/
   bundle: true, write: false, metafile: true, platform: "browser" });
 const sources = Object.keys(metafile.inputs).filter(file => file.startsWith("src/") || file.startsWith("wxt/"));
 assert.ok(!sources.some(file => file.startsWith("src/content/")), "网页注入实现不进入后台模块图");
+const boot = buildSync({ entryPoints: [path.join(ROOT, "wxt/entrypoints/boot.ts")],
+  bundle: true, write: false, metafile: true, platform: "browser" });
+assert.deepEqual(Object.keys(boot.metafile.inputs).filter(file => file.startsWith("src/") || file.startsWith("wxt/")).sort(),
+  ["src/sidepanel/boot.js", "wxt/entrypoints/boot.ts"], "启动兜底独立构建，不依赖页面、Vue 或业务模块");
+assert.ok(!Object.keys(boot.metafile.inputs).some(file => /node_modules\/(?:\.pnpm\/)?(?:@vue[+/]|vue[@/])/.test(file)),
+  "独立启动产物不打包 Vue 运行时");
 const injected = [];
 const startup = [];
 const definitions = new Set();

@@ -13,15 +13,20 @@ const stored = (worker, key) => worker.evaluate(async key => (await chrome.stora
 
 for (const name of ["library", "sidepanel"]) {
   test(`F3b ${name}：模块语言、按需编辑、封面持久化与焦点恢复`, async ({ page, extension }) => {
-    const errors = [], scripts = [];
+    const errors = [], scripts = [], styles = [];
     page.on("pageerror", error => errors.push(error.message));
-    page.on("request", request => { if (request.resourceType() === "script") scripts.push(new URL(request.url()).pathname); });
+    page.on("request", request => {
+      const file = new URL(request.url()).pathname;
+      if (request.resourceType() === "script") scripts.push(file);
+      if (request.resourceType() === "stylesheet") styles.push(file);
+    });
     await seed(extension.worker);
     await page.goto(url(extension, name));
     const card = page.locator('[data-id="one"]'), edit = card.locator(".edit");
     await expect(card.locator("h2")).toHaveText("Original");
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
     expect(scripts.filter(path => /\/dialog-[^/]+\.js$/.test(path))).toHaveLength(0);
+    if (name === "sidepanel") expect(styles.filter(path => /\/dialog-[^/]+\.css$/.test(path))).toHaveLength(0);
     expect(await page.evaluate(() => ["LaterOnI18n", "LaterOnDialog", "LaterOnOnboarding"].filter(key => key in window))).toEqual([]);
     await edit.focus(); await page.keyboard.press("Enter");
     const dialog = page.locator(".lod-root:not([hidden])"), title = dialog.locator('[data-field="title"]');
@@ -35,6 +40,7 @@ for (const name of ["library", "sidepanel"]) {
     await expect(card.locator("h2")).toHaveText("Module edit"); await expect(edit).toBeFocused();
     expect((await stored(extension.worker, "laterOnCovers")).one).toMatch(/^data:image\/jpeg;base64,/);
     expect(scripts.filter(path => /\/dialog-[^/]+\.js$/.test(path))).toHaveLength(1);
+    if (name === "sidepanel") expect(styles.filter(path => /\/dialog-[^/]+\.css$/.test(path))).toHaveLength(1);
     await expect(page.locator(".settings-shell")).toHaveCount(0);
     expect(scripts.some(path => /\/(i18n|onboarding|dialog)\.js$/.test(path))).toBe(false);
     await page.reload(); await expect(card.locator("h2")).toHaveText("Module edit");
@@ -65,7 +71,7 @@ for (const name of ["library", "sidepanel"]) {
 test("F3b 侧栏：弹窗样式加载失败保留数据，重试后可取消删除", async ({ page, extension }) => {
   await seed(extension.worker);
   let fail = true;
-  await page.route("**/dialog.css", route => fail ? route.abort() : route.continue());
+  await page.route("**/assets/dialog-*.css", route => fail ? route.abort() : route.continue());
   await page.goto(url(extension, "sidepanel"));
   const card = page.locator('[data-id="one"]');
   await card.locator(".delete").click(); await expect(page.locator("#status")).toHaveText("Something went wrong. Try again.");

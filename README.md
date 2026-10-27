@@ -117,7 +117,7 @@ pnpm install --frozen-lockfile
 | `scripts/`、`tests/`、`docs/` | 构建发布、回归测试与项目文档 |
 | `.output/`、`.wxt/` | 忽略的构建 / 验证产物与 WXT 生成文件 |
 
-后台和项目选择页已通过 WXT 原生模块构建，共享项目选择器由收藏库、独立选择页与网页浮层显式导入。网页浮层、元数据、阅读位置和翻译均由 WXT unlisted 入口构建，保留原有 `content-*.js` 地址与按需注入方式；独立选择页保留 `save-project-picker.html`。`scripts/runtime-files.json` 仍记录侧栏启动脚本、共享样式及 LICENSE 共 7 项资源的「包内路径 → 源码位置」，由 `scripts/build-assets.mjs` 交给 WXT 复制；静态资源使用 WXT public。国际化、弹窗和新手引导已由页面显式导入，退出三个旧 UI 全局和独立脚本；侧栏弹窗仍按需加载。两个辅助文件将在剩余资源原生化后退役，迁移范围见 [目录整理方案](docs/plans/023-source-layout-and-wxt-native.md)。
+运行脚本和样式均由 WXT 原生入口或页面资源依赖构建。网页浮层、元数据、阅读位置和翻译保留原有 `content-*.js` 地址与按需注入方式；独立选择页保留 `save-project-picker.html`。侧栏 `boot.js` 独立构建以保留主页面失败时的兜底；首屏样式通过原生资源 URL 非阻塞加载，弹窗脚本与样式仍按需加载，`translation.css` 由独立样式入口生成。静态图标等使用 WXT public，LICENSE 由配置中的单项法律资源声明从根目录交付。`scripts/runtime-files.json` 和 `scripts/build-assets.mjs` 已退役。部分早期主题 / 存储等入口仍保留经典脚本与全局 API，现有 JavaScript 也未全部转换为 TypeScript；构建归属与后续边界见 [目录整理方案](docs/plans/023-source-layout-and-wxt-native.md)。
 
 
 | 命令 | 用途 |

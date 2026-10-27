@@ -86,6 +86,8 @@ async function verifyModePublishing(hook) {
 }
 
 async function verifyBuiltWorker(directory = builtDirectory) {
+  assert.deepEqual(fs.readFileSync(path.join(directory, "LICENSE")), fs.readFileSync(path.join(root, "LICENSE")),
+    "The root license is included unchanged in every build mode");
   await require("./helpers/verify-content-scripts.cjs")(directory);
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const event = () => ({ addListener() {} });
@@ -107,7 +109,8 @@ async function verifyBuiltWorker(directory = builtDirectory) {
   const context = vm.createContext({ chrome, URL, TextEncoder, crypto: webcrypto, console, setTimeout, clearTimeout, setInterval, clearInterval });
   for (const name of ["background-runtime.js", "reading-position-background.js", "modules/backup/background.js",
     "storage-coordinator.js", "backup-core.js", "collection-picker.js",
-    "picker-ui.js", "save-project-picker.js", "save-project-picker.css"]) {
+    "picker-ui.js", "save-project-picker.js", "save-project-picker.css",
+    "dialog.css", "onboarding.css", "sidepanel.css", "theme-vars.css"]) {
     assert.equal(fs.existsSync(path.join(directory, name)), false, `${name} has retired from the package`);
   }
   context.importScripts = () => { throw Error("Native background must not load classic dependencies"); };

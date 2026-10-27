@@ -16,6 +16,44 @@ const seed = async (worker, theme) => worker.evaluate(async ({ theme, cover }) =
   });
 }, { theme, cover });
 
+test("F3d：主页面脚本失败时独立启动，异步样式恢复且十二秒兜底生效", async ({ context, page }) => {
+  const blockedStyles = [];
+  await page.clock.install();
+  await page.clock.pauseAt(new Date());
+  await page.addInitScript(() => {
+    window.chrome = { storage: { local: { get: async () => ({ laterOnSettings: { language: "en" } }) } } };
+  });
+  await context.route("https://lateron-boot.test/**", async route => {
+    const request = route.request(), file = new URL(request.url()).pathname.slice(1);
+    if (request.resourceType() === "script" && file !== "boot.js") return route.abort();
+    if (request.resourceType() === "stylesheet") { blockedStyles.push(route); return; }
+    await route.fulfill({ body: await fs.readFile(path.join(buildDir, file)),
+      contentType: file.endsWith(".html") ? "text/html" : file.endsWith(".js") ? "text/javascript" : "image/png" });
+  });
+  try {
+    await page.goto("https://lateron-boot.test/sidepanel.html", { waitUntil: "domcontentloaded" });
+    await expect(page.locator("#bootSkeleton")).toBeVisible();
+    await expect(page.locator("#appBody")).toBeHidden();
+    await expect(page.locator("#bootTipText")).toHaveText("Opening your saves…");
+    await expect(page.locator("#bootTip")).toBeHidden();
+    expect(await page.locator("link[data-boot-style]").evaluateAll(links => links.map(link => link.media))).toEqual(["print", "print", "print"]);
+    await expect.poll(() => blockedStyles.length).toBe(3);
+    await page.clock.runFor(1400);
+    await expect(page.locator("#bootTip")).toBeVisible();
+    await Promise.all(blockedStyles.splice(0).map(async route => route.fulfill({
+      body: await fs.readFile(path.join(buildDir, new URL(route.request().url()).pathname.slice(1))), contentType: "text/css"
+    })));
+    await expect.poll(() => page.locator("link[data-boot-style]").evaluateAll(links => links.every(link => link.media === "all"))).toBe(true);
+    await expect(page.locator("body")).toHaveCSS("padding", "0px");
+    await page.clock.runFor(4800);
+    await expect(page.locator("#bootTipHint")).toContainText("Close and reopen the side panel");
+    await page.clock.runFor(6200);
+    await expect(page.locator("#bootSkeleton")).toHaveCount(0);
+    await expect(page.locator("#bootTip")).toHaveCount(0);
+    await expect(page.locator("body")).not.toHaveClass(/booting/);
+  } finally { await Promise.all(blockedStyles.map(route => route.abort())); }
+});
+
 for (const [language, theme] of [["zh-CN", "light"], ["en", "dark"]]) {
   test(`E4：当前页元数据、实际保存、切页与完整界面交接 ${language}/${theme}`, async ({ context, page, extension }, testInfo) => {
     const errors = []; page.on("pageerror", error => errors.push(error.message));

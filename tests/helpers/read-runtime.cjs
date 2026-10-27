@@ -41,7 +41,7 @@ const scripts = Object.fromEntries(entries.map(([name, contents]) => {
 
 module.exports = (name) => {
   if (["i18n.js", "dialog.js", "onboarding.js"].includes(name)) return require("./ui-modules.cjs");
-  if (["content-folder-picker.js", "content-metadata.js", "content-reading-position.js", "content-translation.js"].includes(name)) {
+  if (["boot.js", "content-folder-picker.js", "content-metadata.js", "content-reading-position.js", "content-translation.js"].includes(name)) {
     return require("./library-page.cjs").script(name);
   }
   if (name === "sidepanel.html") return require("./library-page.cjs")(undefined, "sidepanel").html;

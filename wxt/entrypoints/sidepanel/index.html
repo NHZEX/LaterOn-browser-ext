@@ -86,13 +86,13 @@
 
     <!-- 下面三个样式表故意「先不生效」（media=print）：这样它们不阻塞首屏渲染，
          由 boot.js 在加载完成后切换成 media=all。 -->
-    <link rel="stylesheet" href="/theme-vars.css" vite-ignore media="print" data-boot-style />
-    <link rel="stylesheet" href="/sidepanel.css" vite-ignore media="print" data-boot-style />
-    <link rel="stylesheet" href="/onboarding.css" vite-ignore media="print" data-boot-style />
+    <link rel="stylesheet" href="../../../src/styles/theme-vars.css?no-inline" media="print" data-boot-style />
+    <link rel="stylesheet" href="./style.css?no-inline" media="print" data-boot-style />
+    <link rel="stylesheet" href="../../../src/styles/onboarding.css?no-inline" media="print" data-boot-style />
     <noscript>
       <!-- 万一脚本被禁用，样式照样要生效（此时没人去切换 media）。 -->
-      <link rel="stylesheet" href="/theme-vars.css" vite-ignore />
-      <link rel="stylesheet" href="/sidepanel.css" vite-ignore />
+      <link rel="stylesheet" href="../../../src/styles/theme-vars.css?no-inline" media="all" />
+      <link rel="stylesheet" href="./style.css?no-inline" media="all" />
     </noscript>
     <!-- 启动占位提示（自带计时）：早于其他脚本，页面一进来就能显示「正在打开…」 -->
     <script src="/boot.js" vite-ignore defer></script>

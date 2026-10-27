@@ -6,6 +6,32 @@ const { createPanelPage: page, makeItem, makeStore } = require("./helpers/panel-
 
 const DATA_URL = "data:image/jpeg;base64,BIGCOVERDATA";
 const cases = [
+  ["独立启动产物按已保存语言显示慢打开提示，不依赖主页面启动", async (t) => {
+    const env = page(t, { panel: false, store: { ...makeStore(), laterOnSettings: { language: "en" } } });
+    await env.flush();
+    assert.equal(env.document.querySelector("#bootTipText").textContent, "Opening your saves…");
+    await env.clock.tickAsync(1400);
+    assert.equal(env.document.querySelector("#bootTip").hidden, false);
+    assert.equal(env.document.querySelector("#bootTipTime").textContent, "1.4 s");
+    await env.clock.tickAsync(4800);
+    assert.match(env.document.querySelector("#bootTipHint").textContent, /Close and reopen the side panel/);
+  }],
+  ["异步样式分别通过已解析、加载事件和定时检查激活", async (t) => {
+    const env = page(t, { panel: false, setup(window) {
+      const links = window.document.querySelectorAll("link[data-boot-style]");
+      Object.defineProperty(links[0], "sheet", { value: {} });
+    } });
+    const links = [...env.document.querySelectorAll("link[data-boot-style]")];
+    assert.equal(links.length, 3);
+    assert.deepEqual(links.map(link => link.media), ["all", "print", "print"]);
+    Object.defineProperty(links[1], "sheet", { value: {} });
+    links[1].dispatchEvent(new env.window.Event("load"));
+    assert.equal(links[1].media, "all");
+    Object.defineProperty(links[2], "sheet", { value: {} });
+    await env.clock.tickAsync(300);
+    assert.equal(links[2].media, "all");
+    assert.ok(env.document.querySelector("#bootSkeleton"), "样式激活不提前结束页面骨架");
+  }],
   ["存储未返回时先显示缓存，返回后更新页面和下次快照", async (t) => {
     const env = page(t, { pendingGet: true, cache: [makeItem({ id: "cached", title: "旧标题" })] });
     await env.until(() => env.item("cached"), "缓存首屏");

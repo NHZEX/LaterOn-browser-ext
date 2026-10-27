@@ -1,7 +1,7 @@
 // 启动阶段的小助手：页面文档一进来就把「正在打开…」的骨架屏守在那里，
 // 让任何情况下都不是一块白屏；顺带把各阶段耗时记下来，方便排查「打开慢」到底慢在哪一步。
 // 必须放在 <head> 里最先加载（早于 body 解析），这样计时从页面一开始就算起。
-(function () {
+export function startBoot() {
   // 本脚本使用 defer，让 HTML 里的骨架能先被解析、先画出来。计时仍从导航
   // 开始算（performance.now() 的 0 点），不能从脚本终于执行时才开始算。
   const t0 = (window.performance && performance.now) ? 0 : Date.now();
@@ -90,4 +90,4 @@
     done: reveal,
     reveal
   };
-})();
+}

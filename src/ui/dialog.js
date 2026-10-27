@@ -1,5 +1,5 @@
 // 共享的自定义弹窗：取代浏览器原生 confirm / alert，视觉与「选项目」浮层一致。
-// 页面引入 dialog.css，并从本模块导入 dialog，然后：
+// 页面通过构建依赖加载共享弹窗样式，并从本模块导入 dialog，然后：
 //   const ok = await dialog.confirm({ title: "删除项目？", message: "…", tone: "danger", confirmText: "删除" });
 //   await dialog.alert({ title: "已清空所有收藏", message: "…", tone: "success" });
 //   // 带输入框的（改标题 / 摘要就用的这个）：
