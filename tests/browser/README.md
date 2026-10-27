@@ -29,7 +29,8 @@ Remove-Item Env:PANEL_TEST_ORDER
 | --- | --- |
 | `tests/*.test.js`，由 [test.cjs](../../scripts/test.cjs) 逐文件启动独立子进程 | 纯规则、实际模块、WXT 编译页面与存储行为；JSDOM 不负责真实布局、绘制或权限 |
 | [panel-fast-open.test.js](../panel-fast-open.test.js) | 真实侧栏 / boot / 存储，虚拟时间与帧 / 空闲队列控制读取、缓存、广播和失败恢复；支持逆序 |
-| [release-tools.test.js](../release-tools.test.js) | production / 自定义模式真实产物、页面 helper、ZIP 资源契约和隔离目录部署边界 |
+| [release-tools.test.js](../release-tools.test.js) | production / store / 自定义模式真实产物、页面 helper、ZIP 资源契约和隔离目录部署边界 |
+| [prepare-release.test.js](../prepare-release.test.js) | 真实 ZIP 与临时 Git 仓库的版本 / 公钥策略、标签范围提交说明、校验和与原始字节交付；GitHub 上传和发布需远端验收 |
 | [background.spec.cjs](background.spec.cjs) | 真实 MV3 后台、收藏、阅读位置、备份及浏览器重启 |
 | [library.spec.cjs](library.spec.cjs)、[sidepanel.spec.cjs](sidepanel.spec.cjs) | 布局、键盘、菜单、编辑 / 批量 / 拖拽、同步及持久化；侧栏独立启动与 CSS 延迟 / 主脚本失败 |
 | [picker.spec.cjs](picker.spec.cjs) | 网页浮层与独立选择页、样式隔离、重复打开、过期批次、确认 / 取消 |

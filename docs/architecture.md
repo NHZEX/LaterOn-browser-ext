@@ -7,6 +7,7 @@
 | 职责 | 实现入口 |
 | --- | --- |
 | 构建、资源交付与 ZIP 后部署 | [wxt.config.mjs](../wxt.config.mjs)、[本机部署](../scripts/publish-local.mjs)、[包校验](../scripts/check-release.mjs) |
+| CI 产物与 GitHub 版本发布 | [工作流](../.github/workflows/ci.yml)、[发布文件整理与校验](../scripts/prepare-release.mjs)；按 Git 版本标签生成提交说明，保存普通安装 ZIP 及对应 `.zip.sha256`，独立发布作业复用同一产物 |
 | MV3 后台与同步监听注册 | [WXT 入口](../wxt/entrypoints/background.ts) → [后台注册](../src/background/index.ts) |
 | 收藏抓取、项目选择与保存 | [保存流程](../src/background/save-workflow.ts)、[单条保存](../src/background/collection.ts)、[项目选择](../src/background/project-picker.ts) |
 | 收藏库、侧栏、设置页 | 各页的 [library](../wxt/entrypoints/library/main.ts)、[sidepanel](../wxt/entrypoints/sidepanel/main.ts)、[settings](../wxt/entrypoints/settings/main.ts) Vue 入口；页面业务位于 `src/library/`、`src/sidepanel/` |

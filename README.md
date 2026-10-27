@@ -25,7 +25,7 @@ LaterOn 会自动提取网页标题、摘要、封面和来源。已经打开的
 
 LaterOn 目前通过开发者模式安装，支持 Chrome / Edge 121 及以上版本。
 
-1. 获取构建后的安装 ZIP 并解压；从源码安装时，先按下方「项目开发」执行依赖安装及 `pnpm build`。
+1. 从 GitHub Releases 下载 `LaterOn-<版本>.zip` 并解压（不要使用 GitHub 自动附带的 Source code）；从源码安装时，先按下方「项目开发」执行依赖安装及 `pnpm build`。
 2. 打开 `chrome://extensions/`；Edge 使用 `edge://extensions/`。
 3. 开启右上角的“开发者模式”。
 4. 点击“加载已解压的扩展程序”，选择安装包解压目录；从源码构建时选择 `.output/chrome-mv3`，不要选择仓库根目录。
@@ -120,6 +120,7 @@ pnpm install --frozen-lockfile
 | `pnpm zip --mode test` | 按 test 模式加载环境配置、打包并按开关发布 |
 | `pnpm zip --mode store` | 构建商店上传包，移除 manifest 的 `key`，不执行本地部署 |
 | `pnpm release:check` | 检查已有 ZIP 的 manifest、引用文件及开发文件混入 |
+| `pnpm release:prepare` | 校验普通安装 ZIP，收集到 `.output/release`，生成对应 `.zip.sha256` 及当前版本发布说明 |
 
 未设置发布开关时只打包。需要发布时，将 `.env.example` 复制为 `.env.<mode>.local`，启用发布并设置目录，例如：
 
@@ -144,5 +145,21 @@ store 模式的产物为 `.output/chrome-mv3-store` 和 `.output/LaterOn-<版本
 扩展版本由 `manifest.json` 定义。发布前先运行测试；`pnpm build` 仅构建，即使发布开关开启也不部署。部署前检查 ZIP，安装目录的父目录须已存在，已有目录必须为同一扩展。旧版本保存在安装目录同级的 `<目录名>-backups/` 中，发布后需在浏览器中重新加载扩展。
 
 浏览器安装、测试执行与验证限制见 [测试说明](tests/browser/README.md)。CI 步骤以 [工作流](.github/workflows/ci.yml) 为准。
+
+### GitHub 构建与发布
+
+分支推送、PR 和手动运行使用 Ubuntu 执行类型检查、Node 测试及 Chromium 测试；通过后可在 Actions 的 Artifacts 下载 `lateron-<提交 SHA>`，保留 14 天。CI 强制关闭本机部署，不需要扩展私钥。涉及 Windows 路径或本机部署的改动，另在 Windows 运行相关测试。
+
+正式发布时，先更新根 `manifest.json` 的版本并提交，再创建、推送同版本的 `v<版本>` 标签。标签必须与 manifest 版本完全一致并指向被构建的提交；所有检查通过后，工作流使用内置 `GITHUB_TOKEN` 创建 GitHub Release，上传普通安装 ZIP 及同名 `.zip.sha256`，最后公开草稿。发布作业直接使用本轮检查后的产物，不重新构建；只有该作业具有仓库写权限。CI 发布产物不提供商店包，商店模式可按需在本地构建。
+
+本地运行 `pnpm zip` 后，用 `pnpm release:prepare` 预览当前提交；已有匹配标签时，可用 `pnpm release:prepare --tag v<版本>` 校验正式发布。该脚本只整理已有产物，不构建或部署；本机只打包时应设置 `LATERON_PUBLISH=false`。
+
+发布说明由 Git 历史生成：选取当前提交之前最近的可达 `v<数字版本>` 标签，逐条列出此后提交的标题及短 SHA；CI 中附提交链接和完整 Compare 链接，再写入 `RELEASE_NOTES.md` 作为 Release 正文。没有先前版本标签时列出全部历史；当前提交上的标签、预发布标签及不在当前历史中的标签不作为基线。CI 获取完整历史与标签，浅克隆需先补全历史。首次启用时应将选定的基线标签一并推送到远端，确保本地和 CI 的比较起点一致。CHANGELOG 可继续维护面向用户的摘要，发布流程不读取它。
+
+每份安装 ZIP 使用单独的 `LaterOn-<版本>.zip.sha256`，内容为 SHA-256 摘要及 ZIP 文件名。下载 ZIP 和校验文件到同一目录后，运行 `sha256sum --check LaterOn-<版本>.zip.sha256`；PowerShell 可运行 `Get-FileHash <ZIP路径> -Algorithm SHA256` 与校验文件核对。
+
+`retention-days` 仅控制 Actions 临时产物的保留天数：当前构建包为 14 天，浏览器失败截图为 7 天，过期自动删除；不影响 GitHub Release 中的下载附件。
+
+已经存在的同名 Release 不会被覆盖；中途失败可能留下草稿，检查并删除未发布草稿后再重跑失败作业。已公开版本应修复后使用新版本标签，不移动旧标签或替换其资产。远端首次运行及发布验收见 roadmap。
 
 未完成任务、最近本机发布证据及历史回溯方法见 [项目文档](docs/README.md)。
