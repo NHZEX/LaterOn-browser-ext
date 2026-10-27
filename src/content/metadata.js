@@ -11,7 +11,7 @@
 //   ① 从「当前网址」推出视频 id（不依赖任何 meta，永远是最新的）；
 //   ② 优先读实时 DOM（站内跳转后 YouTube 会更新它）；
 //   ③ og / 页面内嵌数据必须用视频 id 校验，确认它真属于当前这个视频才采用。
-function extractPageMetadataForShortcut() {
+export function extractPageMetadataForShortcut() {
   const meta = (selector) => document.querySelector(selector)?.content?.trim() || "";
   const absolute = (value) => {
     if (!value) return "";
@@ -697,5 +697,3 @@ function extractPageMetadataForShortcut() {
     videoId: douyin?.readId || ""
   };
 }
-
-extractPageMetadataForShortcut();

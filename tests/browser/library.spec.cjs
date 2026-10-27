@@ -381,7 +381,13 @@ for (const [theme, language] of [["light", "zh-CN"], ["dark", "en"]]) {
     await page.keyboard.press("Escape"); await expect(card.locator(".title-link")).toBeFocused();
     await page.setViewportSize({ width: 375, height: 640 });
     await settleCards(page);
-    await card.click({ button: "right", position: { x: 8, y: 8 } });
+    async function openCardMenu() {
+      // The menu dismisses on scroll. Finish locator auto-scrolling before opening it.
+      await card.scrollIntoViewIfNeeded();
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await card.click({ button: "right", position: { x: 8, y: 8 } });
+    }
+    await openCardMenu();
     await expect(popup).toBeVisible();
     await expect(popup).toHaveCSS("opacity", "1");
     const box = await popup.boundingBox();
@@ -389,11 +395,11 @@ for (const [theme, language] of [["light", "zh-CN"], ["dark", "en"]]) {
     expect(box.x + box.width).toBeLessThanOrEqual(368); expect(box.y + box.height).toBeLessThanOrEqual(633);
     await page.screenshot({ path: test.info().outputPath(`library-menu-${theme}.png`) });
     await page.setViewportSize({ width: 390, height: 640 }); await expect(popup).toHaveCount(0);
-    await card.click({ button: "right", position: { x: 8, y: 8 } });
+    await openCardMenu();
     await page.mouse.wheel(0, 400); await expect(popup).toHaveCount(0);
-    await card.click({ button: "right", position: { x: 8, y: 8 } });
+    await openCardMenu();
     await page.locator("#searchInput").click(); await expect(popup).toHaveCount(0);
-    await card.click({ button: "right", position: { x: 8, y: 8 } });
+    await openCardMenu();
     await expect(popup).toBeVisible();
     await expect(popup.locator('[data-action="open"]')).toBeFocused();
     await extension.worker.evaluate(() => chrome.storage.local.set({ laterOnItems: [] }));

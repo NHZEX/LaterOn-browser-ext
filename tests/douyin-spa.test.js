@@ -1,4 +1,3 @@
-const sourcePath = require("./helpers/source-path.cjs");
 // 回归测试：抖音「站内滑动切换视频」后，必须抓到新视频的标题与封面。
 //
 // 背景（实测时间线，无头 Chrome 逐 100ms 采样）：
@@ -12,15 +11,11 @@ const sourcePath = require("./helpers/source-path.cjs");
 // 这个测试用假的 chrome API 把真实的 settleDouyinDom / extractTabMetadata 跑起来，
 // 模拟「面板滞后 N 次探测」的场景，验证最终抓到的确实是新视频。
 //
-// 运行：NODE_PATH=~/.workbuddy/binaries/node/workspace/node_modules node tests/douyin-spa.test.js
-const fs = require("fs");
-const path = require("path");
+// 运行：node tests/douyin-spa.test.js
 const vm = require("vm");
 const { JSDOM } = require("jsdom");
 
-const ROOT = path.resolve(__dirname, "..");
-
-const PAGE_SCRIPT = fs.readFileSync(sourcePath("content-metadata.js"), "utf8");
+const PAGE_SCRIPT = require("./helpers/read-runtime.cjs")("content-metadata.js");
 
 let passed = 0;
 let failed = 0;

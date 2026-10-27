@@ -1,4 +1,4 @@
-async function togglePageTranslation() {
+export async function togglePageTranslation() {
   const translationClass = "lateron-inline-translation";
   const statusId = "lateron-translation-status";
   const stateKey = "__laterOnTranslationRun";
@@ -158,5 +158,3 @@ async function togglePageTranslation() {
     return { ok: false, error: error?.message || "网页翻译失败" };
   }
 }
-
-togglePageTranslation();

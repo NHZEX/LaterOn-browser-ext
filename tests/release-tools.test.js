@@ -86,6 +86,7 @@ async function verifyModePublishing(hook) {
 }
 
 async function verifyBuiltWorker(directory = builtDirectory) {
+  await require("./helpers/verify-content-scripts.cjs")(directory);
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const event = () => ({ addListener() {} });
   const saved = { id: "existing", url: "https://example.com/existing", title: "Existing collection", status: "unread", savedAt: Date.now() };

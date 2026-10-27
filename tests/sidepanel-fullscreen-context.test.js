@@ -1,11 +1,7 @@
-const sourcePath = require("./helpers/source-path.cjs");
 // 从侧栏展开到全屏时应继承项目、筛选和当前文章；普通打开仍是「全部项目」首页。
 const assert = require("assert");
-const fs = require("fs");
-const path = require("path");
 const { JSDOM, VirtualConsole } = require("jsdom");
 
-const ROOT = path.resolve(__dirname, "..");
 const read = require("./helpers/read-runtime.cjs");
 const libraryHtml = require("./helpers/read-runtime.cjs")("library.html");
 const librarySource = require("./helpers/read-runtime.cjs")("library-page.js");
@@ -62,11 +58,17 @@ function mount(url) {
   return { dom, window, store, scrolled, errors };
 }
 
-const tick = (window, ms = 100) => new Promise((resolve) => window.setTimeout(resolve, ms));
+async function until(window, predicate, label) {
+  const deadline = Date.now() + 2000;
+  while (!predicate()) {
+    assert(Date.now() < deadline, label);
+    await new Promise(resolve => window.setTimeout(resolve, 10));
+  }
+}
 
 (async () => {
   const expanded = mount("chrome-extension://lateron/library.html?from=sidepanel&project=p1&filter=unread&focus=reading");
-  await tick(expanded.window);
+  await until(expanded.window, () => expanded.scrolled.includes("reading"), "正在阅读的卡片应滚动到可视位置");
   const { document } = expanded.window;
   assert(document.querySelector('.project-nav[data-project="p1"]')?.classList.contains("active"), "应进入侧栏当前项目");
   assert(document.querySelector('.nav-item[data-filter="unread"]')?.classList.contains("active"), "应继承侧栏筛选");
@@ -78,7 +80,7 @@ const tick = (window, ms = 100) => new Promise((resolve) => window.setTimeout(re
   expanded.dom.window.close();
 
   const direct = mount("chrome-extension://lateron/library.html");
-  await tick(direct.window);
+  await until(direct.window, () => direct.window.document.querySelector('.project-nav[data-project="all"]')?.classList.contains("active"), "普通入口应完成初始化");
   assert(direct.window.document.querySelector('.project-nav[data-project="all"]')?.classList.contains("active"), "普通打开仍应进入全部项目首页");
   assert.strictEqual(direct.window.document.title, "LaterOn - 有价值的网页，留给 LaterOn。");
   direct.dom.window.close();

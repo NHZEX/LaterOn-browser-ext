@@ -1,4 +1,3 @@
-const sourcePath = require("./helpers/source-path.cjs");
 // 回归测试：topbook.cc 这类「弹窗式文章」站点，必须抓到正确的标题与封面。
 //
 // 背景（2026-09 用无头 Chrome 实测 topbook.cc）：
@@ -18,15 +17,13 @@ const sourcePath = require("./helpers/source-path.cjs");
 //
 // 夹具 fixtures/topbook-modal.html 是弹窗打开状态下的完整真实 DOM。
 //
-// 运行：NODE_PATH=~/.workbuddy/binaries/node/workspace/node_modules node tests/topbook-modal.test.js
+// 运行：node tests/topbook-modal.test.js
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 const { JSDOM } = require("jsdom");
 
-const ROOT = path.resolve(__dirname, "..");
-
-const PAGE_SCRIPT = fs.readFileSync(sourcePath("content-metadata.js"), "utf8");
+const PAGE_SCRIPT = require("./helpers/read-runtime.cjs")("content-metadata.js");
 const FIXTURE = fs.readFileSync(path.join(__dirname, "fixtures", "topbook-modal.html"), "utf8");
 
 let passed = 0;

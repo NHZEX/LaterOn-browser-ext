@@ -1,8 +1,5 @@
 {
   "LICENSE": "LICENSE",
-  "content-metadata.js": "src/content/metadata.js",
-  "content-reading-position.js": "src/content/reading-position.js",
-  "content-translation.js": "src/content/translation.js",
   "boot.js": "src/sidepanel/boot.js",
   "dialog.css": "src/styles/dialog.css",
   "onboarding.css": "src/styles/onboarding.css",

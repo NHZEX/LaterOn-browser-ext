@@ -42,4 +42,6 @@ F3a 的 `picker.spec.cjs` 增加四个中英文 / 深浅主题场景，通过真
 
 F3b 的 `ui-modules.spec.cjs` 增加五个真实扩展场景，检查两页退出旧全局 / 旧脚本、编辑器按需请求、原生图片上传与持久化、焦点恢复、首轮英文引导、存储通知切换中文、已读与强制重播；另在外部样式请求失败后验证保留数据、重试与取消删除。JSDOM 使用测试命名空间接收真实模块导出，资源交付 / 设置通知由浏览器边界夹具控制，不向产品恢复 UI 全局。`i18n-onboarding.test.js` 增补语言竞态、引导清理、当前 / 排队弹窗取消、并发 epoch 提示和读取前卸载；旧弹窗 CSS / 源码耦合断言删除，样式由真实浏览器行为覆盖。最终完整 Node 79/79 文件、Chromium 40/40 场景（无重试）及 8 个生命周期专项通过。
 
+F3c 的 `content-injections.spec.cjs` 新增三个真实扩展场景：经扩展页面向后台请求元数据；已收藏文章重复注入阅读位置脚本、提示布局 / 实际样式、确认恢复、滚动持久化与重载恢复；MAIN world 翻译注入的 Promise 结果、可见译文、恢复原文、API 不支持及翻译中取消。只替换网络和外部 Translator API，正文筛选、排版与取消逻辑执行真实脚本。`verify-content-scripts.cjs` 在 production / 自定义模式验证同一批实际产物的返回值与行为；元数据、抖音、Topbook、阅读位置存量回归也使用 WXT bundle。阅读提示 CSS 源码匹配退出，侧栏展开固定等待改为有超时的行为条件；菜单右键前完成自动滚动和帧交付，保留滚动退出及外部删除焦点断言。最终 Node 80/80；完整 Chromium 42/43，原生鼠标拖拽失败项单独复验通过，不记作全套一次通过。详见 [实施记录](../../docs/iterations/2026-10.md#2026-10-27f3c-网页注入原生化iter-023)。
+
 采用的工具能力见 [Playwright 扩展测试](https://playwright.dev/docs/chrome-extensions)、[测试隔离](https://playwright.dev/docs/browser-contexts)及 [fake-timers](https://github.com/sinonjs/fake-timers)。其余存量测试仍按 [ITER-021](../../docs/roadmap.md#测试改进的迭代方式iter-021) 渐进改造。

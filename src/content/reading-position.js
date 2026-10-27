@@ -1,6 +1,6 @@
 // 注入到“已收藏网页”的轻量脚本：记住 scrollY，并在再次打开时询问是否继续。
 // 重复注入是安全的；SPA 切换到另一篇收藏时由 INIT 消息更新目标。
-(function () {
+export function registerReadingPosition() {
   // 扩展更新 / 开发时重新加载后，旧内容脚本不会随网页一起消失，但它持有的
   // chrome.runtime 已经失效。再次注入时先彻底撤掉旧实例，不能仅凭全局标记 return。
   try { globalThis.__laterOnReadingPosition?.dispose?.(); } catch {}
@@ -178,4 +178,4 @@
   } catch {
     dispose();
   }
-})();
+}

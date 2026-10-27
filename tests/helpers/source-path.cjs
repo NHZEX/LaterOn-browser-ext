@@ -8,6 +8,9 @@ const sources = {
   ...runtime,
   "background.js": "src/background/index.js",
   "content-folder-picker.js": "wxt/entrypoints/content-folder-picker.ts",
+  "content-metadata.js": "src/content/metadata.js",
+  "content-reading-position.js": "src/content/reading-position.js",
+  "content-translation.js": "src/content/translation.js",
   "library.css": "wxt/entrypoints/library/style.css"
 };
 

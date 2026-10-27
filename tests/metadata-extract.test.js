@@ -11,12 +11,10 @@ const sourcePath = require("./helpers/source-path.cjs");
 //
 // 运行：node tests/metadata-extract.test.js
 const fs = require("fs");
-const path = require("path");
 const vm = require("vm");
 const { JSDOM } = require("jsdom");
 
-const ROOT = path.join(__dirname, "..");
-const PAGE_SCRIPT = fs.readFileSync(sourcePath("content-metadata.js"), "utf8");
+const PAGE_SCRIPT = require("./helpers/read-runtime.cjs")("content-metadata.js");
 
 let passed = 0;
 let failed = 0;

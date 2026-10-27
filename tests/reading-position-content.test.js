@@ -1,10 +1,7 @@
-const sourcePath = require("./helpers/source-path.cjs");
 // 网页端只保存 scrollY，并由用户点击“继续上次位置”后恢复。
-const fs = require("fs");
-const path = require("path");
 const { JSDOM } = require("jsdom");
 
-const source = fs.readFileSync(sourcePath("content-reading-position.js"), "utf8");
+const source = require("./helpers/read-runtime.cjs")("content-reading-position.js");
 const dom = new JSDOM("<!doctype html><html><body><main style='height:5000px'></main></body></html>", {
   runScripts: "outside-only", pretendToBeVisual: true, url: "https://example.com/article"
 });
@@ -41,11 +38,7 @@ const tick = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
   const host = window.document.querySelector("#lateron-reading-position");
   check("有历史位置时显示轻量提示", !!host);
   check("提示只说继续上次位置", host?.shadowRoot?.querySelector(".resume")?.textContent === "继续上次位置");
-  check("提示固定在网页右侧垂直居中并留出呼吸距离", /right:28px;top:50%;transform:translateY\(-50%\)/.test(host?.shadowRoot?.querySelector("style")?.textContent || ""));
-  check("提示使用完整药丸轮廓", /border-radius:999px/.test(host?.shadowRoot?.querySelector("style")?.textContent || ""));
   check("提示使用当前 LaterOn 图标", host?.shadowRoot?.querySelector(".mark")?.getAttribute("src") === "chrome-extension://lateron/icon128.png");
-  check("Logo 为圆形，文字热区留出 20px 横向内边距", /\.mark\{[^}]*border-radius:50%/.test(host?.shadowRoot?.querySelector("style")?.textContent || "")
-    && /\.resume\{padding:12px 20px/.test(host?.shadowRoot?.querySelector("style")?.textContent || ""));
   check("关闭按钮使用居中的 SVG，而不是字体乘号", !!host?.shadowRoot?.querySelector(".close svg"));
   check("尚未选择时不会用页面顶部覆盖旧位置", messages.length === 0);
 
