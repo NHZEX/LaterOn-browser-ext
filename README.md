@@ -31,6 +31,8 @@ LaterOn 目前通过开发者模式安装，支持 Chrome / Edge 121 及以上�
 4. 点击“加载已解压的扩展程序”，选择安装包解压目录；从源码构建时选择 `.output/chrome-mv3`，不要选择仓库根目录。
 5. 建议在扩展菜单中固定 LaterOn，点击图标即可打开侧栏。
 
+本地安装包通过根 manifest 的固定公钥保持扩展 ID。更新时替换原安装目录中的文件并重新加载，不要先卸载扩展；卸载会清除该扩展的本地数据。从未配置固定公钥的旧版本首次迁移时，先在旧实例导出备份（需要保留上传图片时勾选图片数据），再在新实例导入并核对；确认恢复完成后再移除旧实例。本机主题、语言等设置需另行设置，不同浏览器或配置文件的数据也不会因 ID 相同而自动同步。
+
 ## 日常使用
 
 | 操作 | 方式 |
@@ -116,6 +118,7 @@ pnpm install --frozen-lockfile
 | `pnpm build` | 使用 WXT 构建扩展到 `.output/chrome-mv3` |
 | `pnpm zip` | 按默认 production 模式构建、打包，并按环境开关决定是否发布 |
 | `pnpm zip --mode test` | 按 test 模式加载环境配置、打包并按开关发布 |
+| `pnpm zip --mode store` | 构建商店上传包，移除 manifest 的 `key`，不执行本地部署 |
 | `pnpm release:check` | 检查已有 ZIP 的 manifest、引用文件及开发文件混入 |
 
 未设置发布开关时只打包。需要发布时，将 `.env.example` 复制为 `.env.<mode>.local`，启用发布并设置目录，例如：
@@ -132,9 +135,11 @@ LATERON_PUBLISH=true
 LATERON_RELEASE_DIR="D:/浏览器扩展/LaterOn"
 ```
 
-环境由 WXT 的 `--mode` 选择，常用配置按 `.env` → `.env.local` → `.env.<mode>` → `.env.<mode>.local` 覆盖，系统环境变量优先。`.env`、`.env.local` 和 `.env.*.local` 均已忽略，仓库提供 `.env.example` 示例；相对目录以项目根目录为基准。仅当 `LATERON_PUBLISH` 为 `true` 时，打包完成钩子才执行部署，此时缺少目录会报错。
+环境由 WXT 的 `--mode` 选择，常用配置按 `.env` → `.env.local` → `.env.<mode>` → `.env.<mode>.local` 覆盖，系统环境变量优先。`.env`、`.env.local` 和 `.env.*.local` 均已忽略，仓库提供 `.env.example` 示例；相对目录以项目根目录为基准。除 store 模式外，仅当 `LATERON_PUBLISH` 为 `true` 时，打包完成钩子才执行部署，此时缺少目录会报错；store 模式始终跳过本地部署。
 
 production 模式的产物为 `.output/chrome-mv3` 和 `.output/LaterOn-<版本>.zip`；test 模式为 `.output/chrome-mv3-test` 和 `.output/LaterOn-<版本>-test.zip`。默认 `pnpm zip` 使用 production 配置，因此本机 production 开关启用时也会部署；关闭开关即可只打包。`pnpm release:check` 检查默认 production ZIP。
+
+store 模式的产物为 `.output/chrome-mv3-store` 和 `.output/LaterOn-<版本>-store.zip`，构建时通过 WXT 的 manifest 配置函数省略 `key`，根 manifest 保持不变。GitHub 下载和本地加载使用普通 ZIP；上传 Chrome 商店使用 store ZIP，商店版本的 ID 由商店条目确定。该命令只生成上传包，不自动上传或发布到商店。
 
 扩展版本由 `manifest.json` 定义。发布前先运行测试；`pnpm build` 仅构建，即使发布开关开启也不部署。部署前检查 ZIP，安装目录的父目录须已存在，已有目录必须为同一扩展。旧版本保存在安装目录同级的 `<目录名>-backups/` 中，发布后需在浏览器中重新加载扩展。
 

@@ -15,7 +15,10 @@ export default defineConfig({
   imports: false,
   manifestVersion,
   targetBrowsers: ["chrome"],
-  manifest,
+  manifest: ({ mode }) => {
+    const { key, ...storeManifest } = manifest;
+    return mode === "store" ? storeManifest : manifest;
+  },
   zip: { artifactTemplate: "LaterOn-{{version}}{{modeSuffix}}.zip", zipSources: false },
   hooks: {
     "vite:build:extendConfig"(entries, config) {
@@ -29,6 +32,8 @@ export default defineConfig({
       assets.push({ absoluteSrc: fileURLToPath(new URL("LICENSE", projectRoot)), relativeDest: "LICENSE" });
     },
     "zip:extension:done"(wxt, archive) {
+      // Store packages omit the local identity and must not replace a local installation.
+      if (wxt.config.mode === "store") return;
       if (process.env.LATERON_PUBLISH !== "true") return;
       const directory = process.env.LATERON_RELEASE_DIR?.trim();
       if (!directory) throw new Error("LATERON_RELEASE_DIR is required when LATERON_PUBLISH=true");

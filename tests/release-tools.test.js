@@ -31,6 +31,40 @@ const wxtCli = path.resolve(path.dirname(require.resolve("wxt")), "../bin/wxt.mj
 const wxt = (args, env = {}) => command(process.execPath, [wxtCli, ...args], { LATERON_PUBLISH: "false", ...env });
 const check = () => command(process.execPath, ["scripts/check-release.mjs"]);
 
+function verifyStorePackaging(readReleaseArchive) {
+  const localManifestPath = path.join(root, "manifest.json");
+  const originalManifest = fs.readFileSync(localManifestPath);
+  const production = readReleaseArchive(archive);
+  assert.ok(manifest.key, "Local builds have a fixed public key");
+  assert.equal(production.manifest.key, manifest.key, "The production ZIP preserves the local identity");
+
+  const localInstallation = path.join(temporary, "store-keeps-local");
+  fs.mkdirSync(localInstallation);
+  fs.writeFileSync(path.join(localInstallation, "manifest.json"), originalManifest);
+  fs.writeFileSync(path.join(localInstallation, "keep.txt"), "Existing local installation");
+  wxt(["zip", "--mode", "store"], {
+    LATERON_PUBLISH: "true",
+    LATERON_RELEASE_DIR: localInstallation
+  });
+
+  const store = readReleaseArchive(path.join(output, `LaterOn-${manifest.version}-store.zip`));
+  const storeBuild = JSON.parse(fs.readFileSync(path.join(output, "chrome-mv3-store/manifest.json"), "utf8"));
+  const { key, ...expectedStoreManifest } = production.manifest;
+  assert.equal(Object.hasOwn(store.manifest, "key"), false, "The store ZIP omits the local public key");
+  assert.deepEqual(store.manifest, expectedStoreManifest, "Store packaging preserves the other manifest fields");
+  assert.deepEqual(storeBuild, store.manifest, "The store build and ZIP use the same manifest");
+  assert.deepEqual(fs.readFileSync(localManifestPath), originalManifest, "Packaging does not rewrite the source manifest");
+  assert.deepEqual(fs.readFileSync(path.join(localInstallation, "manifest.json")), originalManifest);
+  assert.equal(fs.readFileSync(path.join(localInstallation, "keep.txt"), "utf8"), "Existing local installation",
+    "Store mode never deploys, even with publishing enabled");
+  assert.equal(fs.existsSync(`${localInstallation}-backups`), false);
+  assert.equal(readReleaseArchive(archive).manifest.key, manifest.key, "The production archive remains unchanged");
+  for (const packaged of [production, store]) {
+    assert.equal(Object.keys(packaged.files).some(name => name.startsWith(".local/") || /\.(pem|pub)$/i.test(name)), false,
+      "Release archives do not contain local key files");
+  }
+}
+
 async function verifyModePublishing(hook) {
   const mode = path.basename(temporary);
   const base = path.join(temporary, "模式基础目录");
@@ -56,6 +90,8 @@ async function verifyModePublishing(hook) {
     const result = wxt(["zip", "--mode", mode], fromFiles);
     assert.match(result.stdout, /Published:/);
     assert.equal(JSON.parse(fs.readFileSync(path.join(local, "manifest.json"), "utf8")).version, manifest.version);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(local, "manifest.json"), "utf8")).key, manifest.key,
+      "Other build modes preserve the local identity after store packaging");
     assert.equal(fs.existsSync(base), false, "Mode-local configuration overrides the mode configuration");
     assert.ok(fs.existsSync(modeArchive), "Mode archives have a separate filename");
     assert.ok(fs.existsSync(archive), "The production archive remains available");
@@ -306,6 +342,7 @@ async function main() {
     await verifyBuiltWorker();
     verifyArchiveChecks(readReleaseArchive);
     check();
+    verifyStorePackaging(readReleaseArchive);
     await verifyModePublishing(config.hooks["zip:extension:done"]);
 
     publish(destination);
@@ -367,7 +404,7 @@ async function main() {
     assert.deepEqual(fs.readFileSync(path.join(backups, recoveryBackup, "url-utils.js")), beforeFailure);
     assert.deepEqual(fs.readFileSync(path.join(temporary, recoveryStage, "url-utils.js")), fs.readFileSync(path.join(builtDirectory, "url-utils.js")));
 
-    console.log("PASS WXT mode-based publishing hook, built worker, final ZIP checks, backup, rollback and directory protection");
+    console.log("PASS WXT local/store packaging, mode-based publishing hook, built worker, final ZIP checks, backup, rollback and directory protection");
   } finally {
     assert.equal(path.dirname(temporary), output);
     assert.ok(path.basename(temporary).startsWith("release-tools-"));
