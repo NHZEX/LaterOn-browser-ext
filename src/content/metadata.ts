@@ -1,3 +1,15 @@
+export interface PageMetadata {
+  readonly title: string;
+  readonly titleFrom: string;
+  readonly description: string;
+  readonly image: string;
+  readonly imageFrom: string;
+  readonly favicon: string;
+  readonly source: string;
+  readonly url: string;
+  readonly videoId: string;
+}
+
 // 在网页里提取标题 / 摘要 / 封面 / 图标（会被注入到页面执行，必须自包含）。
 // ⚠️ 性能红线：读 naturalWidth/Height 会触发布局重排，图片多的页面（信息流、图库）
 // 若遍历全部图片会把主线程卡到几十秒，进而把整个批量收藏拖死。
@@ -11,9 +23,9 @@
 //   ① 从「当前网址」推出视频 id（不依赖任何 meta，永远是最新的）；
 //   ② 优先读实时 DOM（站内跳转后 YouTube 会更新它）；
 //   ③ og / 页面内嵌数据必须用视频 id 校验，确认它真属于当前这个视频才采用。
-export function extractPageMetadataForShortcut() {
-  const meta = (selector) => document.querySelector(selector)?.content?.trim() || "";
-  const absolute = (value) => {
+export function extractPageMetadataForShortcut(): PageMetadata {
+  const meta = (selector: string) => document.querySelector<HTMLMetaElement>(selector)?.content?.trim() || "";
+  const absolute = (value: string | null | undefined) => {
     if (!value) return "";
     try {
       return new URL(value, location.href).href;
@@ -21,7 +33,7 @@ export function extractPageMetadataForShortcut() {
       return "";
     }
   };
-  const squeeze = (text) => (text || "").replace(/\s+/g, " ").trim();
+  const squeeze = (text: string | null | undefined) => (text || "").replace(/\s+/g, " ").trim();
 
   const host = location.hostname.replace(/^www\./, "");
   const isYouTube = /(^|\.)youtube(-nocookie)?\.com$/.test(host) || host === "youtu.be";
@@ -34,14 +46,14 @@ export function extractPageMetadataForShortcut() {
       if (host === "youtu.be") return (url.pathname.split("/")[1] || "").trim();
       if (url.pathname === "/watch") return (url.searchParams.get("v") || "").trim();
       const matched = url.pathname.match(/^\/(?:shorts|embed|live|v)\/([^/?#]+)/);
-      return matched ? matched[1] : "";
+      return matched ? matched[1]! : "";
     } catch {
       return "";
     }
   })();
 
   // 括号配平地切出一段 JSON（会跳过字符串里的括号），用于从 <script> 里挖数据。
-  const sliceBalanced = (text, start, maxLength) => {
+  const sliceBalanced = (text: string, start: number, maxLength: number) => {
     let depth = 0;
     let inString = false;
     let escaped = false;
@@ -70,7 +82,7 @@ export function extractPageMetadataForShortcut() {
     const scripts = document.scripts;
     const limit = Math.min(scripts.length, 60);
     for (let s = 0; s < limit; s += 1) {
-      const text = scripts[s].textContent || "";
+      const text = scripts[s]!.textContent || "";
       if (!text || text.indexOf("videoDetails") === -1) continue;
       let from = 0;
       for (let round = 0; round < 4; round += 1) {
@@ -82,13 +94,13 @@ export function extractPageMetadataForShortcut() {
         const slice = sliceBalanced(text, start, 20000);
         if (!slice) continue;
         try {
-          const details = JSON.parse(slice);
+          const details: { readonly videoId?: string; readonly title?: string; readonly shortDescription?: string; readonly thumbnail?: { readonly thumbnails?: readonly { readonly url?: string }[] } } = JSON.parse(slice);
           if (details.videoId !== youtubeId) continue;
           const thumbs = (details.thumbnail && details.thumbnail.thumbnails) || [];
           return {
             title: squeeze(details.title),
             description: squeeze(details.shortDescription),
-            image: absolute(thumbs.length ? thumbs[thumbs.length - 1].url : "")
+            image: absolute(thumbs.length ? thumbs[thumbs.length - 1]!.url : "")
           };
         } catch {}
       }
@@ -135,7 +147,7 @@ export function extractPageMetadataForShortcut() {
   //   lark:url:video_cover_image_url  封面（4:3 裁切版）
   //   lark:url:video_icon_url         站点图标
   const isDouyin = /(^|\.)douyin\.com$/.test(host) || /(^|\.)iesdouyin\.com$/.test(host);
-  const lark = (name) => squeeze(meta(`meta[name="lark:url:${name}"]`));
+  const lark = (name: string) => squeeze(meta(`meta[name="lark:url:${name}"]`));
   const douyin = isDouyin
     ? {
         brand: lark("video_brand_name"),
@@ -157,9 +169,9 @@ export function extractPageMetadataForShortcut() {
   // 部分电商与设计站）的分享标签要么没有、要么指向一张平台通用的 logo，
   // 而真正的封面是用 CSS 背景图画出来的、或挂在 video 的 poster 上，
   // 所以只看 og:image 和 <img> 必然抓空。
-  const looksGenericImage = (value) => {
+  const looksGenericImage = (value: string | null | undefined) => {
     if (!value) return true;
-    const path = String(value).toLowerCase().split("?")[0].split("#")[0];
+    const path = String(value).toLowerCase().split("?")[0]!.split("#")[0]!;
     // 平台级静态资源目录（小红书的 fe-platform 就属于这类路径）
     if (/\/(?:fe-platform|fe-static|og-image-default|default-(?:cover|image|thumb|share))\//.test(path)) return true;
     // 命名上就写着 logo / 占位图 / 头像 / 雪碧图
@@ -170,10 +182,10 @@ export function extractPageMetadataForShortcut() {
   };
 
   // 从 CSS 值里抠出第一个图片地址（背景图可能是 image-set() 或多层渐变叠加）。
-  const urlFromCss = (value) => {
+  const urlFromCss = (value: string) => {
     if (!value || value === "none") return "";
     const matched = /url\((['"]?)([^'")]+)\1\)/i.exec(value);
-    const raw = matched ? matched[2].trim() : "";
+    const raw = matched ? matched[2]!.trim() : "";
     if (!raw || /^data:/i.test(raw)) return "";
     return absolute(raw);
   };
@@ -181,23 +193,25 @@ export function extractPageMetadataForShortcut() {
   // JSON-LD（schema.org 结构化数据）：新闻站、博客、商品页常把封面与摘要放这儿。
   const jsonLd = (() => {
     const out = { image: "", description: "", title: "" };
-    const pickImage = (value) => {
+    type ImageValue = string | { readonly url?: string; readonly contentUrl?: string } | readonly ImageValue[];
+    interface JsonLdEntry { readonly image?: ImageValue; readonly thumbnailUrl?: ImageValue; readonly primaryImageOfPage?: ImageValue; readonly description?: string; readonly abstract?: string; readonly headline?: string; readonly name?: string; }
+    const pickImage = (value: ImageValue | undefined): string => {
       if (!value) return "";
       if (typeof value === "string") return absolute(value);
       if (Array.isArray(value)) return pickImage(value[0]);
-      if (typeof value === "object") return absolute(value.url || value.contentUrl || "");
+      if (typeof value === "object") return absolute(("url" in value && value.url) || ("contentUrl" in value && value.contentUrl) || "");
       return "";
     };
     const nodes = document.querySelectorAll('script[type="application/ld+json"]');
     const limit = Math.min(nodes.length, 8);
     for (let i = 0; i < limit; i += 1) {
-      let data;
+      let data: JsonLdEntry | readonly JsonLdEntry[] | { readonly "@graph": readonly JsonLdEntry[] };
       try {
-        data = JSON.parse(nodes[i].textContent || "");
+        data = JSON.parse(nodes[i]!.textContent || "");
       } catch {
         continue;
       }
-      const list = Array.isArray(data) ? data : Array.isArray(data["@graph"]) ? data["@graph"] : [data];
+      const list = Array.isArray(data) ? data : "@graph" in data && Array.isArray(data["@graph"]) ? data["@graph"] : [data];
       for (const entry of list) {
         if (!entry || typeof entry !== "object") continue;
         if (!out.image) out.image = pickImage(entry.image || entry.thumbnailUrl || entry.primaryImageOfPage);
@@ -214,7 +228,7 @@ export function extractPageMetadataForShortcut() {
     const videos = document.querySelectorAll("video[poster]");
     const limit = Math.min(videos.length, 6);
     for (let i = 0; i < limit; i += 1) {
-      const url = absolute(videos[i].getAttribute("poster") || "");
+      const url = absolute(videos[i]!.getAttribute("poster") || "");
       if (url && !looksGenericImage(url)) return url;
     }
     return "";
@@ -227,13 +241,13 @@ export function extractPageMetadataForShortcut() {
     let bestArea = 0;
     let nodes;
     try {
-      nodes = document.querySelectorAll('[style*="background-image"], [style*="background:"]');
+      nodes = document.querySelectorAll<HTMLElement>('[style*="background-image"], [style*="background:"]');
     } catch {
       return "";
     }
     const limit = Math.min(nodes.length, 40);
     for (let i = 0; i < limit; i += 1) {
-      const node = nodes[i];
+      const node = nodes[i]!;
       const style = node.style || {};
       const url = urlFromCss(style.backgroundImage || style.background || "");
       if (!url) continue;
@@ -260,7 +274,7 @@ export function extractPageMetadataForShortcut() {
     }
     const limit = Math.min(nodes.length, 40);
     for (let i = 0; i < limit; i += 1) {
-      const node = nodes[i];
+      const node = nodes[i]!;
       const raw =
         node.getAttribute("data-src") ||
         node.getAttribute("data-original") ||
@@ -289,7 +303,7 @@ export function extractPageMetadataForShortcut() {
     const images = document.images;
     const count = Math.min(images.length, IMAGE_LIMIT);
     for (let i = 0; i < count; i += 1) {
-      const img = images[i];
+      const img = images[i]!;
       const naturalArea = img.naturalWidth * img.naturalHeight;
       if (img.naturalWidth >= 320 && img.naturalHeight >= 160 && naturalArea > loadedArea) {
         loadedArea = naturalArea;
@@ -323,7 +337,7 @@ export function extractPageMetadataForShortcut() {
     const limit = Math.min(imgs.length, 8);
     let fallback = "";
     for (let i = 0; i < limit; i += 1) {
-      const url = absolute(imgs[i].currentSrc || imgs[i].getAttribute("src") || "");
+      const url = absolute(imgs[i]!.currentSrc || imgs[i]!.getAttribute("src") || "");
       if (!url || /^data:/i.test(url)) continue;
       if (/PackSourceEnum_AWEME_DETAIL/.test(url) || /sc=origin_cover/.test(url)) return url;
       if (!fallback) fallback = url;
@@ -350,14 +364,14 @@ export function extractPageMetadataForShortcut() {
 
   // ② 老式的 image_src / itemprop
   if (!image) {
-    const imageSrc = absolute(document.querySelector('link[rel~="image_src"]')?.href || "");
+    const imageSrc = absolute(document.querySelector<HTMLLinkElement>('link[rel~="image_src"]')?.href || "");
     if (imageSrc && !looksGenericImage(imageSrc)) {
       image = imageSrc;
       imageFrom = "image_src";
     }
   }
   if (!image) {
-    const itemProp = absolute(document.querySelector('meta[itemprop="image"]')?.content || "");
+    const itemProp = absolute(document.querySelector<HTMLMetaElement>('meta[itemprop="image"]')?.content || "");
     if (itemProp && !looksGenericImage(itemProp)) {
       image = itemProp;
       imageFrom = "itemprop";
@@ -427,7 +441,7 @@ export function extractPageMetadataForShortcut() {
     const nodes = document.querySelectorAll("article p, main p, p");
     const count = Math.min(nodes.length, PARAGRAPH_LIMIT);
     for (let i = 0; i < count; i += 1) {
-      const text = squeeze(nodes[i].textContent);
+      const text = squeeze(nodes[i]!.textContent);
       if (text.length >= 60) {
         description = text;
         break;
@@ -471,7 +485,7 @@ export function extractPageMetadataForShortcut() {
   ]);
 
   // 这段文字是不是「站点名 / 导航词」——也就是不该当标题的东西。
-  const looksLikeSiteName = (value) => {
+  const looksLikeSiteName = (value: string) => {
     const text = squeeze(value).toLowerCase();
     if (!text) return true;
     if (text === host.toLowerCase() || text === hostLabel) return true;
@@ -486,7 +500,7 @@ export function extractPageMetadataForShortcut() {
   // <header> 要区别对待：WordPress 一类主题会把文章标题放在
   // <article><header class="entry-header"> 里，那是合法位置；
   // 只有页面级 header（不在 article / main 内）才算导航区。
-  const inJunkArea = (node) => {
+  const inJunkArea = (node: Element) => {
     if (node.closest("nav, aside, footer, form, [role='banner'], [role='navigation'], [role='contentinfo']")) return true;
     const header = node.closest("header");
     return !!header && !header.closest("article, main");
@@ -499,13 +513,13 @@ export function extractPageMetadataForShortcut() {
     for (const selector of groups) {
       let nodes;
       try {
-        nodes = document.querySelectorAll(selector);
+        nodes = document.querySelectorAll<HTMLElement>(selector);
       } catch {
         continue;
       }
       const limit = Math.min(nodes.length, 10);
       for (let i = 0; i < limit; i += 1) {
-        const node = nodes[i];
+        const node = nodes[i]!;
         if (seen.has(node)) continue;
         seen.add(node);
         if (inJunkArea(node)) continue;
@@ -532,13 +546,13 @@ export function extractPageMetadataForShortcut() {
     for (const selector of selectors) {
       let nodes;
       try {
-        nodes = document.querySelectorAll(selector);
+        nodes = document.querySelectorAll<HTMLElement>(selector);
       } catch {
         continue;
       }
       const limit = Math.min(nodes.length, 6);
       for (let i = 0; i < limit; i += 1) {
-        const node = nodes[i];
+        const node = nodes[i]!;
         if (inJunkArea(node)) continue;
         const text = squeeze(node.innerText || node.textContent || "");
         if (text.length < 2 || text.length > 180) continue;
@@ -569,7 +583,7 @@ export function extractPageMetadataForShortcut() {
     }
     const limit = Math.min(nodes.length, 12);
     for (let i = 0; i < limit; i += 1) {
-      blob += " " + String(nodes[i].textContent || "").slice(0, 4000);
+      blob += " " + String(nodes[i]!.textContent || "").slice(0, 4000);
     }
     return squeeze(blob).toLowerCase();
   })();
@@ -580,7 +594,7 @@ export function extractPageMetadataForShortcut() {
     meta('meta[name="apple-mobile-web-app-title"]'),
     document.querySelector("header img[alt], .logo img[alt], #logo img[alt]")?.getAttribute("alt") || ""
   ];
-  const stripSiteSuffix = (value) => {
+  const stripSiteSuffix = (value: string) => {
     let out = squeeze(value);
     if (!out) return out;
     const hostWords = host.split(".").map((word) => word.toLowerCase()).filter((word) => word.length >= 2);
@@ -608,8 +622,8 @@ export function extractPageMetadataForShortcut() {
     // 真标题（分隔符两侧都很长）不会被误伤成半句。
     const tailMatch = /^(.*?)\s*[|·•\-–—_/]\s*([\p{Script=Han}A-Za-z0-9]{2,10})$/u.exec(out);
     if (tailMatch && brandText) {
-      const head = tailMatch[1].trim();
-      const tail = tailMatch[2].trim();
+      const head = tailMatch[1]!.trim();
+      const tail = tailMatch[2]!.trim();
       if (head.length >= 6 && brandText.includes(tail.toLowerCase())) out = head;
     }
     return out;
@@ -618,7 +632,7 @@ export function extractPageMetadataForShortcut() {
   const headline = headlineFromDom() || headlineFromClass();
   // 抖音的文案（h1）常常很长——带一堆话题标签和 @提及，卡片上放不下，
   // 所以给它单独限长到 140 字并加省略号。先剥后缀、再截断，避免把「 - 抖音」切一半留着。
-  const clipTitle = (text, max) => (max && text.length > max ? `${text.slice(0, max).trim()}…` : text);
+  const clipTitle = (text: string, max?: number) => (max && text.length > max ? `${text.slice(0, max).trim()}…` : text);
   // 每个候选都过一遍「剥站点后缀」——og:title 之类同样常带尾巴。
   const titleCandidates = [
     { text: douyin?.title || "", from: "douyin", max: 140 },
@@ -652,7 +666,7 @@ export function extractPageMetadataForShortcut() {
   // 所以只保留那一段；万一格式变了，就退回去掉宣传语的原文；再不行就留空。
   if (douyin && description) {
     const authorInfo = /[-–—]\s*([^\-–—]{2,24}?于\d{6,8}发布在抖音[^。！!]*)/.exec(description);
-    const core = (authorInfo ? authorInfo[1] : description)
+    const core = (authorInfo ? authorInfo[1]! : description)
       .replace(/[，,]?\s*来抖音[，,]\s*记录美好生活[！!]?/g, "")
       .trim();
     description = core.length >= 8 ? (core.length > 300 ? `${core.slice(0, 300).trim()}…` : core) : "";
@@ -663,7 +677,7 @@ export function extractPageMetadataForShortcut() {
   if (isYouTube) {
     source = "YouTube";
     if (youtubeId) {
-      const belongsToCurrentVideo = (value) => !!value && value.indexOf(`/vi/${youtubeId}/`) !== -1;
+      const belongsToCurrentVideo = (value: string) => !!value && value.indexOf(`/vi/${youtubeId}/`) !== -1;
       if (!belongsToCurrentVideo(image)) {
         // 该分辨率不存在时，由展示端（收藏库 / 侧栏）逐级降到 hqdefault、mqdefault。
         image = belongsToCurrentVideo(youtubeImage)
@@ -687,7 +701,7 @@ export function extractPageMetadataForShortcut() {
     image,
     imageFrom,
     favicon:
-      absolute(document.querySelector('link[rel~="icon"]')?.href || "") ||
+      absolute(document.querySelector<HTMLLinkElement>('link[rel~="icon"]')?.href || "") ||
       (douyin?.icon || "") ||
       `${location.origin}/favicon.ico`,
     source,

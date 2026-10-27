@@ -1,7 +1,7 @@
 import type { Browser } from "wxt/browser";
 import type { StoredItem, StoredProject, CollectionState } from "../storage/contracts";
 import type { StoredSettings } from "../settings/shared";
-import type { PageMetadata } from "../content/metadata.js";
+import type { PageMetadata } from "../content/metadata";
 
 export type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 export type BackgroundItem = Mutable<StoredItem> & { url: string; contentHtml?: unknown; wordCount?: unknown; byline?: unknown };

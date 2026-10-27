@@ -4,7 +4,7 @@ import { SIDEBAR_WIDTH } from "./page";
 import type { LibraryControls } from "./useLibraryControls";
 import type { LibrarySnapshot } from "./page";
 import type { DialogService } from "../ui/dialog.js";
-import { openFolderPicker } from "../picker/ui.js";
+import { openFolderPicker } from "../picker/ui";
 import { loadDialog } from "../ui/load-dialog";
 import { bindStorageFeedback } from "../storage/page-feedback";
 import { t } from "../shared/i18n";

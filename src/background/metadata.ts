@@ -1,5 +1,5 @@
 import type { BackgroundTab, Metadata } from "./shared";
-import type { PageMetadata } from "../content/metadata.js";
+import type { PageMetadata } from "../content/metadata";
 import { usesEnglish, isWebUrl, withTimeout, safeHostname } from "./shared";
 import { unwrapSuspendedTab } from "../shared/url-utils";
 import { titleHasSiteNoise, isIconLikeImage } from "./duplicate-metadata";

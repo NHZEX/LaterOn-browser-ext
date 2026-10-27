@@ -1,11 +1,35 @@
-export async function togglePageTranslation() {
+export type TranslationResult =
+  | { readonly ok: true; readonly translatedCount: number; readonly sourceLanguage: string }
+  | { readonly ok: true; readonly removed: true }
+  | { readonly ok: false; readonly error: string };
+
+interface TranslationRun { active: boolean; cancelled: boolean; }
+interface DownloadMonitor {
+  addEventListener(type: "downloadprogress", listener: (event: { readonly loaded: number }) => void): void;
+}
+interface TranslationOptions { readonly sourceLanguage: string; readonly targetLanguage: string; }
+interface CreateOptions { readonly monitor?: (monitor: DownloadMonitor) => void; }
+// Native Chrome AI APIs used in the page's MAIN world; availability is checked at runtime.
+declare global {
+  interface Window { __laterOnTranslationRun?: TranslationRun; }
+  var Translator: {
+    availability(options: TranslationOptions): Promise<string>;
+    create(options: TranslationOptions & CreateOptions): Promise<{ translate(text: string): Promise<string>; destroy?(): void }>;
+  };
+  var LanguageDetector: {
+    availability(): Promise<string>;
+    create(options: CreateOptions): Promise<{ detect(text: string): Promise<readonly { readonly detectedLanguage: string }[]>; destroy?(): void }>;
+  };
+}
+
+export async function togglePageTranslation(): Promise<TranslationResult> {
   const translationClass = "lateron-inline-translation";
   const statusId = "lateron-translation-status";
   const stateKey = "__laterOnTranslationRun";
   const previousRun = window[stateKey];
   const existing = [...document.querySelectorAll(`.${translationClass}`)];
 
-  const status = (text, autoHide = false) => {
+  const status = (text: string, autoHide = false) => {
     let element = document.getElementById(statusId);
     if (!element) {
       element = document.createElement("div");
@@ -38,13 +62,13 @@ export async function togglePageTranslation() {
   try {
     if (!("Translator" in self)) throw new Error("当前 Chrome 不支持本机网页翻译，请升级浏览器");
 
-    const roots = [document.querySelector("article"), document.querySelector("main"), document.body].filter(Boolean);
+    const roots = [document.querySelector("article"), document.querySelector("main"), document.body].filter((candidate): candidate is HTMLElement => candidate !== null);
     const root = roots.find((candidate) => candidate.querySelectorAll("p").length >= 3) || roots[0];
     if (!root) throw new Error("没有识别到可翻译的正文");
 
     const selector = "p, h1, h2, h3, h4, blockquote, figcaption";
     const excluded = "nav, header, footer, aside, form, pre, code, script, style, noscript, [contenteditable='true']";
-    const candidates = [...root.querySelectorAll(selector)];
+    const candidates = [...root.querySelectorAll<HTMLElement>(selector)];
     const blocks = candidates.filter((element) => {
       if (element.closest(excluded) || element.closest(`.${translationClass}`) || element.querySelector(selector)) return false;
       const text = element.innerText?.replace(/\s+/g, " ").trim() || "";
@@ -111,7 +135,7 @@ export async function togglePageTranslation() {
       "white-space"
     ];
 
-    const buildTranslationElement = (block, translated) => {
+    const buildTranslationElement = (block: HTMLElement, translated: string) => {
       const element = document.createElement("div");
       element.className = translationClass;
       element.lang = "zh-CN";
@@ -130,7 +154,7 @@ export async function togglePageTranslation() {
     const CONCURRENCY = 6;
     const worker = async () => {
       while (cursor < blocks.length && !run.cancelled) {
-        const block = blocks[cursor++];
+        const block = blocks[cursor++]!;
         status(`正在翻译网页… ${Math.min(cursor, blocks.length)}/${blocks.length}`);
         const original = block.innerText.replace(/\s+/g, " ").trim();
         try {
@@ -154,7 +178,7 @@ export async function togglePageTranslation() {
     return { ok: true, translatedCount, sourceLanguage };
   } catch (error) {
     run.active = false;
-    status(error?.message || "网页翻译失败", true);
-    return { ok: false, error: error?.message || "网页翻译失败" };
+    status((error instanceof Error && error.message) || "网页翻译失败", true);
+    return { ok: false, error: (error instanceof Error && error.message) || "网页翻译失败" };
   }
 }

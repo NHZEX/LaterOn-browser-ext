@@ -12,9 +12,9 @@ const sources = {
   "translation.css": "src/styles/translation.css",
   "background.js": "src/background/index.ts",
   "content-folder-picker.js": "wxt/entrypoints/content-folder-picker.ts",
-  "content-metadata.js": "src/content/metadata.js",
-  "content-reading-position.js": "src/content/reading-position.js",
-  "content-translation.js": "src/content/translation.js",
+  "content-metadata.js": "src/content/metadata.ts",
+  "content-reading-position.js": "src/content/reading-position.ts",
+  "content-translation.js": "src/content/translation.ts",
   "library.css": "wxt/entrypoints/library/style.css"
 };
 

@@ -1,11 +1,15 @@
-import { openFolderPicker } from "../picker/ui.js";
+import type { FolderPickerOptions, PickerProject } from "../picker/types";
+
+import { openFolderPicker } from "../picker/ui";
 
 // 网页内的整屏选项目浮层：显式导入共享 UI，并接上后台收藏消息。
 // WXT 将整个入口包在函数作用域里；同一网页重复 executeScript 不会重复声明顶层变量。
-export function showFolderPickerOverlay(payload) {
+declare global { interface Window { __laterOnPickerPayloadCleanup?: () => void; } }
+
+export function showFolderPickerOverlay(payload: FolderPickerOptions & { readonly batchId?: string }): void {
   // 这个浮层可能在扩展更新后仍留在旧网页里；此时 sendMessage 会在返回 Promise
   // 之前同步抛错，所以安全包装必须同时覆盖同步 throw 与异步 reject。
-  function safeRuntimeMessage(message) {
+  function safeRuntimeMessage(message: { readonly type: string; readonly name?: string; readonly projectId?: string | null; readonly batchId?: string }): Promise<{ readonly project?: PickerProject; readonly ok: boolean; readonly error?: string } | null> {
     try { return Promise.resolve(chrome.runtime.sendMessage(message)).catch(() => null); }
     catch { return Promise.resolve(null); }
   }
@@ -38,7 +42,7 @@ export function showFolderPickerOverlay(payload) {
   });
 }
 
-export function registerFolderPicker() {
+export function registerFolderPicker(): void {
   // 同一网页再次注入前，撤掉上一个实例还在等 payload 的一次性监听。
   // 扩展重载后旧监听若继续响应，会拿着失效的 runtime 再执行一遍浮层逻辑。
   try { window.__laterOnPickerPayloadCleanup?.(); } catch {}

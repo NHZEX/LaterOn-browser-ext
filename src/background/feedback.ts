@@ -1,4 +1,4 @@
-import type { TranslationResult } from "../content/translation.js";
+import type { TranslationResult } from "../content/translation";
 import type { BackgroundTab } from "./shared";
 interface Pill { readonly text: string; readonly kind?: string; }
 import { errorMessage } from "./shared";

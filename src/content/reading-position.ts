@@ -1,17 +1,31 @@
+interface ReadingState {
+  itemId: string | null;
+  savedY: number;
+  armed: boolean;
+  saveTimer: ReturnType<typeof setTimeout> | undefined;
+  prompt: HTMLDivElement | null;
+  promptTimer: ReturnType<typeof setTimeout> | undefined;
+  generation: number;
+  disposed: boolean;
+  dispose: (() => void) | null;
+}
+interface InitMessage { readonly type?: string; readonly itemId?: string | null; readonly y?: unknown; readonly language?: string; }
+declare global { var __laterOnReadingPosition: ReadingState | undefined; }
+
 // 注入到“已收藏网页”的轻量脚本：记住 scrollY，并在再次打开时询问是否继续。
 // 重复注入是安全的；SPA 切换到另一篇收藏时由 INIT 消息更新目标。
-export function registerReadingPosition() {
+export function registerReadingPosition(): void {
   // 扩展更新 / 开发时重新加载后，旧内容脚本不会随网页一起消失，但它持有的
   // chrome.runtime 已经失效。再次注入时先彻底撤掉旧实例，不能仅凭全局标记 return。
   try { globalThis.__laterOnReadingPosition?.dispose?.(); } catch {}
 
-  const state = {
+  const state: ReadingState = {
     itemId: null,
     savedY: 0,
     armed: false,
-    saveTimer: null,
+    saveTimer: undefined,
     prompt: null,
-    promptTimer: null,
+    promptTimer: undefined,
     generation: 0,
     disposed: false,
     dispose: null
@@ -24,8 +38,8 @@ export function registerReadingPosition() {
     state.prompt = null;
   }
 
-  function isContextInvalidError(error) {
-    return /extension context invalidated|context invalidated/i.test(String(error?.message || error || ""));
+  function isContextInvalidError(error: unknown): boolean {
+    return /extension context invalidated|context invalidated/i.test(String((error instanceof Error ? error.message : error) || ""));
   }
 
   function dispose() {
@@ -47,7 +61,7 @@ export function registerReadingPosition() {
 
   // `chrome.runtime.sendMessage(...).catch(...)` 只处理 Promise 拒绝；扩展上下文失效时
   // sendMessage 本身会在返回 Promise 之前同步 throw。必须把调用也放进 try/catch。
-  function safeSendMessage(message) {
+  function safeSendMessage(message: { readonly type: string; readonly itemId: string; readonly y: number }): Promise<unknown> {
     if (state.disposed) return Promise.resolve(null);
     try {
       const pending = chrome.runtime.sendMessage(message);
@@ -63,7 +77,7 @@ export function registerReadingPosition() {
     }
   }
 
-  function safeRuntimeUrl(path) {
+  function safeRuntimeUrl(path: string): string {
     if (state.disposed) return "";
     try { return chrome.runtime.getURL(path); }
     catch { dispose(); return ""; }
@@ -85,7 +99,7 @@ export function registerReadingPosition() {
     }, 500);
   }
 
-  function userStartedReading(event) {
+  function userStartedReading(event: Event) {
     if (state.disposed) return;
     if (state.prompt && event?.composedPath?.().includes(state.prompt)) return;
     state.armed = true;
@@ -112,7 +126,7 @@ export function registerReadingPosition() {
     }, 1100);
   }
 
-  function showPrompt(language) {
+  function showPrompt(language: string | undefined) {
     if (state.disposed) return;
     removePrompt();
     const host = document.createElement("div");
@@ -141,14 +155,14 @@ export function registerReadingPosition() {
         <button class="resume" type="button">${en ? "Continue from last position" : "继续上次位置"}</button>
         <button class="close" type="button" aria-label="${en ? "Dismiss" : "关闭"}"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9m0-9-9 9"/></svg></button>
       </div>`;
-    shadow.querySelector(".resume").addEventListener("click", continueFromSavedPosition);
-    shadow.querySelector(".close").addEventListener("click", removePrompt);
+    shadow.querySelector(".resume")!.addEventListener("click", continueFromSavedPosition);
+    shadow.querySelector(".close")!.addEventListener("click", removePrompt);
     (document.documentElement || document.body).appendChild(host);
     state.prompt = host;
     state.promptTimer = setTimeout(removePrompt, 12000);
   }
 
-  function handleInit(message) {
+  function handleInit(message: InitMessage) {
     if (state.disposed) return;
     if (message?.type !== "LATERON_READING_POSITION_INIT") return;
     clearTimeout(state.saveTimer);

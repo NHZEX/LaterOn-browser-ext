@@ -3,7 +3,7 @@
 // 用 jsdom 而不是真浏览器，只是为了让这个检查能在命令行里快速反复跑。
 const { JSDOM } = require("jsdom");
 const source = require("./helpers/read-runtime.cjs")("content-folder-picker.js");
-const ui = require("./helpers/module-script.cjs")("src/picker/ui.js", "pickerUI");
+const ui = require("./helpers/module-script.cjs")("src/picker/ui.ts", "pickerUI");
 
 const dom = new JSDOM("<!doctype html><html><body><h1>某个网页</h1><p>正文</p></body></html>", {
   runScripts: "outside-only",

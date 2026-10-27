@@ -1,3 +1,5 @@
+import type { FolderPickerOptions, PickerProject } from "./types";
+
 // 收藏库（全屏页）和网页浮层（content script）共用的「选项目」面板。
 //
 // openFolderPicker(options) 两种用法共用同一套外观与交互：
@@ -12,21 +14,21 @@
 
 // 新建项目：默认走后台的 CREATE_PROJECT（content script 和扩展页都通用）；
 // 调用方也可以自己传 onCreateProject 覆盖（比如扩展页想顺带刷新本地列表）。
-async function defaultCreateProject(name) {
-  let response = null;
+async function defaultCreateProject(name: string): Promise<PickerProject | null> {
+  let response: { readonly project?: PickerProject } | null = null;
   try { response = await chrome.runtime.sendMessage({ type: "CREATE_PROJECT", name }); }
   catch { /* 扩展更新后旧网页里的浮层可能还在；上下文失效时安静失败 */ }
   return response?.project || null;
 }
 
-function safeRuntimeUrl(path) {
+function safeRuntimeUrl(path: string): string {
   try { return chrome.runtime.getURL(path); }
   catch { return ""; }
 }
 
 /** @param {import("./types").FolderPickerOptions} options
  * @returns {{ readonly close: () => void }} */
-export function openFolderPicker(options) {
+export function openFolderPicker(options: FolderPickerOptions): { readonly close: () => void } {
   const data = options || {};
   const isPopover = !!data.anchor;
   const language = data.language === "en" || (!data.language && document.documentElement.lang === "en") ? "en" : "zh-CN";
@@ -34,21 +36,21 @@ export function openFolderPicker(options) {
     projects: "Choose a project", newProject: "New project name", cancel: "Cancel", moveTitle: "Move this save to which project?",
     saveTitle: "Add to which project?", saveSingleTitle: "Add this page to which project?",
     singleSaved: "This page is already added — confirming will move it to the selected project", singleNew: "Choose a project to add this page",
-    batchSaved: (total, saved) => `${total} tabs, including ${saved} already added — confirming will move them to the selected project`,
-    batchNew: (total) => `${total} tabs — choose a project to start adding them one by one`, pages: (n) => `View the ${n} pages to be added`,
+    batchSaved: (total: number, saved: number) => `${total} tabs, including ${saved} already added — confirming will move them to the selected project`,
+    batchNew: (total: number) => `${total} tabs — choose a project to start adding them one by one`, pages: (n: number) => `View the ${n} pages to be added`,
     newMove: "Type a new project name and press Enter to move", newSave: "Type a new project name and press Enter to add", inbox: "Inbox",
-    processing: "Working…", createMove: (name) => `Create “${name}” and move`, createSave: (name) => `Create “${name}” and add`,
-    moveTo: (name) => `Move to “${name}”`, saveTo: (name) => `Add to “${name}”`, createFailed: "Couldn’t create the project. Try again.",
+    processing: "Working…", createMove: (name: string) => `Create “${name}” and move`, createSave: (name: string) => `Create “${name}” and add`,
+    moveTo: (name: string) => `Move to “${name}”`, saveTo: (name: string) => `Add to “${name}”`, createFailed: "Couldn’t create the project. Try again.",
     failed: "Something went wrong. Try again."
   } : {
     projects: "选择项目", newProject: "新建项目名称", cancel: "取消", moveTitle: "把这篇放到哪个项目？",
     saveTitle: "添加到哪个项目？", saveSingleTitle: "把这个网页添加到哪个项目？",
     singleSaved: "这个网页已经添加过——确认后会一并移进你选的项目", singleNew: "选好项目后就会添加这个网页",
-    batchSaved: (total, saved) => `共 ${total} 个标签页，其中 ${saved} 个已经添加过——确认后会一并移进你选的项目`,
-    batchNew: (total) => `共 ${total} 个标签页，选好项目后就会开始逐个添加`, pages: (n) => `查看将要添加的 ${n} 个网页`,
+    batchSaved: (total: number, saved: number) => `共 ${total} 个标签页，其中 ${saved} 个已经添加过——确认后会一并移进你选的项目`,
+    batchNew: (total: number) => `共 ${total} 个标签页，选好项目后就会开始逐个添加`, pages: (n: number) => `查看将要添加的 ${n} 个网页`,
     newMove: "输入新项目名，回车直接移入", newSave: "输入新项目名，回车直接添加进去", inbox: "等待整理",
-    processing: "正在处理…", createMove: (name) => `新建「${name}」并移入`, createSave: (name) => `新建「${name}」并添加`,
-    moveTo: (name) => `移动到「${name}」`, saveTo: (name) => `添加到「${name}」`, createFailed: "新建项目失败，请重试。",
+    processing: "正在处理…", createMove: (name: string) => `新建「${name}」并移入`, createSave: (name: string) => `新建「${name}」并添加`,
+    moveTo: (name: string) => `移动到「${name}」`, saveTo: (name: string) => `添加到「${name}」`, createFailed: "新建项目失败，请重试。",
     failed: "操作失败，请重试。"
   };
 
@@ -120,16 +122,16 @@ export function openFolderPicker(options) {
   shadow.appendChild(root);
   document.documentElement.appendChild(host);
 
-  const $ = (selector) => root.querySelector(selector);
+  const $ = <T extends HTMLElement = HTMLElement>(selector: string): T => root.querySelector<T>(selector)!;
   const panel = $(".lon-panel");
   const summaryEl = $(".lon-summary");
   const pagesLabel = $(".lon-pages-label");
   const pageList = $(".lon-page-list");
   const folderList = $(".lon-folder-list");
   const newForm = $(".lon-new");
-  const newInput = $(".lon-new-input");
-  const confirmBtn = $(".lon-primary");
-  const cancelBtn = $(".lon-ghost");
+  const newInput = $<HTMLInputElement>(".lon-new-input");
+  const confirmBtn = $<HTMLButtonElement>(".lon-primary");
+  const cancelBtn = $<HTMLButtonElement>(".lon-ghost");
 
   // 标题 / 摘要 / 页面清单：浮层（改卡片项目）和整屏弹窗（收藏网页）文案不同。
   if (isPopover) {
@@ -184,7 +186,7 @@ export function openFolderPicker(options) {
   };
 
   // 没有封面时的占位缩略图：用项目名首字做一个色块，视觉上仍是「图板缩略图」而不是文件夹。
-  function makePlaceholder(name) {
+  function makePlaceholder(name: string | undefined) {
     const span = document.createElement("span");
     span.className = "lon-folder-ph";
     span.textContent = (name || "·").trim().slice(0, 1);
@@ -193,7 +195,7 @@ export function openFolderPicker(options) {
 
   // HTTPS 页面不能加载 HTTP 封面，尤其是 127.0.0.1 这类地址不会被浏览器自动升级。
   // 先在创建 img 之前过滤掉不安全来源，避免触发 Mixed Content 请求和控制台告警。
-  function isSafeCoverSource(value) {
+  function isSafeCoverSource(value: string | undefined): value is string {
     const source = String(value || "").trim();
     if (!source) return false;
     try {
@@ -232,7 +234,7 @@ export function openFolderPicker(options) {
       }
       const name = document.createElement("span");
       name.className = "lon-folder-name";
-      name.textContent = folder.name;
+      name.textContent = folder.name ?? "";
       const count = document.createElement("strong");
       count.className = "lon-folder-count";
       count.textContent = String(folder.count || 0);
@@ -262,15 +264,15 @@ export function openFolderPicker(options) {
   // 再加上 Shadow DOM 会把事件目标改写成浮层的根宿主，
   // 网站那句「焦点在输入框里就不响应快捷键」的判断也会失效。
   // 所以这里补最后一道：浮层还开着时被意外暂停的视频，立刻恢复播放。
-  let keepPlaying = new WeakSet();
+  let keepPlaying = new WeakSet<HTMLMediaElement>();
   const rememberPlaying = () => {
-    document.querySelectorAll("video, audio").forEach((media) => {
+    document.querySelectorAll<HTMLMediaElement>("video, audio").forEach((media) => {
       if (!media.paused && !media.ended) keepPlaying.add(media);
     });
   };
-  const onMediaPause = (event) => {
+  const onMediaPause = (event: Event) => {
     const media = event.target;
-    if (closed || !media || !keepPlaying.has(media)) return;
+    if (closed || !(media instanceof HTMLMediaElement) || !keepPlaying.has(media)) return;
     if (media.ended) { keepPlaying.delete(media); return; }
     try {
       const playing = media.play?.();
@@ -279,7 +281,7 @@ export function openFolderPicker(options) {
       // 播不回去就算了，不能因为这里把浮层搞坏。
     }
   };
-  const onMediaEnded = (event) => { keepPlaying.delete(event.target); };
+  const onMediaEnded = (event: Event) => { if (event.target instanceof HTMLMediaElement) keepPlaying.delete(event.target); };
   rememberPlaying();
   window.addEventListener("pause", onMediaPause, true);
   window.addEventListener("ended", onMediaEnded, true);
@@ -308,7 +310,7 @@ export function openFolderPicker(options) {
     window.removeEventListener("resize", positionPanel);
     window.removeEventListener("pause", onMediaPause, true);
     window.removeEventListener("ended", onMediaEnded, true);
-    keepPlaying = new WeakSet();
+    keepPlaying = new WeakSet<HTMLMediaElement>();
     root.classList.remove("is-in");
     root.classList.add("is-out");
     window.setTimeout(() => host.remove(), 260);
@@ -343,16 +345,16 @@ export function openFolderPicker(options) {
       busy = false;
       confirmBtn.disabled = false;
       applyLabel();
-      summaryEl.textContent = target.error;
+      summaryEl.textContent = target.error ?? "";
       return;
     }
     // onPick 返回 { ok:false, error } 表示这次没成功（比如这一批已经被处理过），
     // 留在浮层里说明原因，让用户再操作一次；其余情况（成功 / 没返回值）直接关掉。
     let result;
     try {
-      result = data.onPick ? await data.onPick(target.projectId, selectedName()) : null;
+      result = data.onPick ? await data.onPick(target.projectId ?? null, selectedName()) : null;
     } catch (error) {
-      result = { ok: false, error: (error && error.message) || copy.failed };
+      result = { ok: false, error: (error instanceof Error && error.message) || copy.failed };
     }
     if (result && result.ok === false) {
       busy = false;
@@ -373,9 +375,9 @@ export function openFolderPicker(options) {
 
   // 键盘事件统一在捕获阶段处理：比页面自己的快捷键听得早，抢得到；
   // 用 composedPath 判断焦点是否在浮层的输入框里（Shadow DOM 里的 target 会被重定向）。
-  const typingInInput = (event) => event.composedPath().includes(newInput);
+  const typingInInput = (event: Event) => event.composedPath().includes(newInput);
 
-  function onKeydown(event) {
+  function onKeydown(event: KeyboardEvent) {
     if (closed) return;
     if (event.key === "Escape") {
       event.preventDefault();
@@ -395,14 +397,14 @@ export function openFolderPicker(options) {
     event.stopPropagation();
   }
 
-  function onKeyup(event) {
+  function onKeyup(event: KeyboardEvent) {
     if (closed || typingInInput(event)) return;
     event.stopPropagation();
   }
 
   // 浮层（贴着卡片按钮）只拦 Esc：其余按键照常放行给网页/扩展页，
   // 否则会误伤页面里正在打字的搜索框等。输入框自己的按键在下面那一层就地兜住。
-  function onPopoverKeydown(event) {
+  function onPopoverKeydown(event: KeyboardEvent) {
     if (closed) return;
     if (event.key === "Escape") {
       event.preventDefault();
@@ -412,7 +414,7 @@ export function openFolderPicker(options) {
   }
 
   // 输入框里的正常打字：事件在输入框这一层就地拦住、不再往外传。
-  const swallowTyping = (event) => event.stopPropagation();
+  const swallowTyping = (event: Event) => event.stopPropagation();
   newInput.addEventListener("keyup", swallowTyping);
   newInput.addEventListener("keypress", swallowTyping);
   newInput.addEventListener("input", () => { if (!busy) applyLabel(); });

@@ -1,5 +1,5 @@
 import type { BackgroundItem } from "./shared";
-import type { PageMetadata } from "../content/metadata.js";
+import type { PageMetadata } from "../content/metadata";
 // 判断一条已有收藏的文案是不是「没意义的占位值」——空、或者只是站点通用名
 // （例如在 YouTube 首页级别的页面收藏到的标题就是 "YouTube"）。
 function isPlaceholderText(value: string | undefined, source?: string): boolean {

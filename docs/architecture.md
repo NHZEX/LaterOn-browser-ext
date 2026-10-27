@@ -10,7 +10,7 @@
 | MV3 后台与同步监听注册 | [WXT 入口](../wxt/entrypoints/background.ts) → [后台注册](../src/background/index.ts) |
 | 收藏抓取、项目选择与保存 | [保存流程](../src/background/save-workflow.ts)、[单条保存](../src/background/collection.ts)、[项目选择](../src/background/project-picker.ts) |
 | 收藏库、侧栏、设置页 | 各页的 [library](../wxt/entrypoints/library/main.ts)、[sidepanel](../wxt/entrypoints/sidepanel/main.ts)、[settings](../wxt/entrypoints/settings/main.ts) Vue 入口；页面业务位于 `src/library/`、`src/sidepanel/` |
-| 独立项目选择页 | [页面入口](../wxt/entrypoints/save-project-picker/main.ts) → [选择器](../src/picker/main.js)，使用共享 DOM UI |
+| 独立项目选择页 | [页面入口](../wxt/entrypoints/save-project-picker/main.ts) → [选择器](../src/picker/main.ts)，使用共享 DOM UI |
 | 页面数据命令与共享队列 | [客户端](../src/storage/client.ts)、[协调器](../src/storage/coordinator.ts)、[契约](../src/storage/contracts.ts) |
 | 备份导出、预览、恢复与清空 | [后台协议](../src/backup/background.ts)、[纯数据核心](../src/backup/core.ts)；语义见 [备份说明](backup-format.md) |
 | URL 身份、标签复用与共享规则 | [URL](../src/shared/url-utils.ts)、[标签导航](../src/tabs/navigation.ts)、[筛选](../src/collection/filter.ts)、[排序](../src/shared/collection-sort.ts)、[编辑](../src/collection/item-edit.ts)、[阅读状态](../src/collection/item-state.ts) |

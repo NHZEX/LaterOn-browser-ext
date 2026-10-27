@@ -1,17 +1,19 @@
-import { openFolderPicker } from "./ui.js";
+import type { FolderPickerOptions, PickerProject } from "./types";
+import type { StoredSettings } from "../settings/shared";
+import { openFolderPicker } from "./ui";
 
 // A protected suspended page cannot host the web overlay. Use LaterOn's own tab.
-export async function startProjectPicker() {
+export async function startProjectPicker(): Promise<void> {
   const batchId = new URL(location.href).searchParams.get("batch");
-  const status = document.querySelector("#pickerStatus");
-  const closeButton = document.querySelector("#closePicker");
+  const status = document.querySelector<HTMLElement>("#pickerStatus")!;
+  const closeButton = document.querySelector<HTMLButtonElement>("#closePicker")!;
   const close = async () => {
     const tab = await chrome.tabs.getCurrent();
     if (tab?.id) await chrome.tabs.remove(tab.id);
   };
   closeButton.addEventListener("click", () => close().catch(() => {}));
-  const message = (type, extra = {}) => chrome.runtime.sendMessage({ type, batchId, ...extra });
-  const settings = await chrome.storage.local.get("laterOnSettings").catch(() => ({}));
+  const message = (type: string, extra: { readonly name?: string; readonly projectId?: string | null } = {}) => chrome.runtime.sendMessage<object, { readonly ok: boolean; readonly payload?: FolderPickerOptions; readonly project?: PickerProject; readonly error?: string }>({ type, batchId, ...extra });
+  const settings = await chrome.storage.local.get<{ readonly laterOnSettings?: StoredSettings }>("laterOnSettings").catch((): { readonly laterOnSettings?: StoredSettings } => ({}));
   const en = settings.laterOnSettings?.language === "en";
   document.documentElement.lang = en ? "en" : "zh-CN";
   document.title = en ? "Choose a project · LaterOn" : "选择项目 · LaterOn";
