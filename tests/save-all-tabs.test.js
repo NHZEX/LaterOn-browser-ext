@@ -17,7 +17,7 @@ const { URL } = require("url");
 
 const SOURCE = sourcePath("background-test-api.js");
 const src = require("./helpers/read-runtime.cjs")("background-test-api.js");
-const { EXTRACT_TIMEOUT_MS: TIMEOUT_MS } = require("./helpers/load-module.cjs")("src/background/metadata.js");
+const { EXTRACT_TIMEOUT_MS: TIMEOUT_MS } = require("./helpers/load-module.cjs")("src/background/metadata.ts");
 
 const PENDING_KEY = "laterOnPendingBatch";
 const LAST_PROJECT_KEY = "laterOnLastProjectId";

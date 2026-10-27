@@ -1,21 +1,24 @@
+import type { BackgroundTab, ResolvedProject, BatchOptions, BackgroundItem } from "./shared";
+import type { BackgroundSnapshot } from "./shared";
+import { errorMessage } from "./shared";
 import { unwrapSuspendedTab, normalize as normalizeUrl } from "../shared/url-utils";
-import { usesEnglish, isWebUrl, STORAGE_KEY, safeHostname, SETTINGS_KEY, LAST_PROJECT_KEY, PENDING_KEY, withTimeout, PROJECTS_KEY } from "./shared.js";
-import { recordDiag } from "./diagnostics.js";
-import { extractTabMetadata } from "./metadata.js";
-import { saveItem, resolveProject } from "./collection.js";
-import { pillTitle, showActionFeedback, showTabNotice, showActionError, reportFailure, showPagePills, showSystemNotice, notifyTab } from "./feedback.js";
+import { usesEnglish, isWebUrl, STORAGE_KEY, safeHostname, SETTINGS_KEY, LAST_PROJECT_KEY, PENDING_KEY, withTimeout, PROJECTS_KEY } from "./shared";
+import { recordDiag } from "./diagnostics";
+import { extractTabMetadata } from "./metadata";
+import { saveItem, resolveProject } from "./collection";
+import { pillTitle, showActionFeedback, showTabNotice, showActionError, reportFailure, showPagePills, showSystemNotice, notifyTab } from "./feedback";
 import { enqueue as queueItemWrite } from "../storage/coordinator";
-import { cancelPendingBatch, showPickerOverlay, claimPendingBatch } from "./project-picker.js";
-import { mergeDuplicateMetadata, isIncomplete } from "./duplicate-metadata.js";
+import { cancelPendingBatch, showPickerOverlay, claimPendingBatch } from "./project-picker";
+import { mergeDuplicateMetadata, isIncomplete } from "./duplicate-metadata";
 
-async function quickSave(tab, source = "shortcut") {
+async function quickSave(tab: BackgroundTab, source = "shortcut") {
   tab = unwrapSuspendedTab(tab);
   const en = await usesEnglish();
   if (!tab?.id || !isWebUrl(tab.url)) return { ok: false, error: en ? "The current page can’t be added" : "当前页面无法添加" };
   // 设置里打开了「收藏单篇前先选项目」：跟整窗收藏走同一套流程——
   // 只在当前网页里弹出选项目浮层，用户选好之后再真正开始收藏。
   if (await shouldAskFolderForSingle()) {
-    const storedItems = (await chrome.storage.local.get(STORAGE_KEY))[STORAGE_KEY] || [];
+    const storedItems = (await chrome.storage.local.get<BackgroundSnapshot>(STORAGE_KEY))[STORAGE_KEY] || [];
     const knownUrls = new Set(storedItems.map((entry) => normalizeUrl(entry.url)));
     const savedCount = knownUrls.has(normalizeUrl(tab.url || "")) ? 1 : 0;
     await recordDiag({
@@ -67,8 +70,8 @@ async function quickSave(tab, source = "shortcut") {
 // 若在设置里关掉了「先选项目」，则直接用上次用过的项目开始收藏。
 async function saveAllTabsInWindow(source = "shortcut") {
   // 每一步都记一笔：万一中途卡住或失败，去设置页就能看出停在哪一步。
-  const stage = (patch) => recordDiag({ lastTrigger: source, lastStageAt: Date.now(), ...patch });
-  let activeTab = null;
+  const stage = (patch: Parameters<typeof recordDiag>[0]) => recordDiag({ lastTrigger: source, lastStageAt: Date.now(), ...patch });
+  let activeTab: BackgroundTab | null | undefined = null;
 
   try {
     await stage({ lastStage: "开始", lastRunAt: Date.now() });
@@ -94,8 +97,8 @@ async function saveAllTabsInWindow(source = "shortcut") {
     }
 
     activeTab = activeTab || targets[0];
-    const settings = (await chrome.storage.local.get(SETTINGS_KEY))[SETTINGS_KEY] || {};
-    const savedProject = (await chrome.storage.local.get(LAST_PROJECT_KEY))[LAST_PROJECT_KEY] || "";
+    const settings = (await chrome.storage.local.get<BackgroundSnapshot>(SETTINGS_KEY))[SETTINGS_KEY] || {};
+    const savedProject = (await chrome.storage.local.get<BackgroundSnapshot>(LAST_PROJECT_KEY))[LAST_PROJECT_KEY] || "";
     // 上次用过的项目可能已经被删掉了：先校验一次，
     // 免得拿一个不存在的 id 去收藏、或在浮层里默认选中一个已经没了的项目。
     const remembered = await resolveProject(savedProject);
@@ -103,9 +106,9 @@ async function saveAllTabsInWindow(source = "shortcut") {
     // 这一批里有多少个网页已经收藏过？
     // 用来在浮层里提前说清楚：「已收藏的会被一起搬过来」，免得用户以为重复的会被跳过、
     // 回头还得手动整理一遍。（按网址去重后统计，同一篇在多个标签页里只算一个。）
-    const storedItems = (await chrome.storage.local.get(STORAGE_KEY))[STORAGE_KEY] || [];
+    const storedItems = (await chrome.storage.local.get<BackgroundSnapshot>(STORAGE_KEY))[STORAGE_KEY] || [];
     const knownUrls = new Set(storedItems.map((entry) => normalizeUrl(entry.url)));
-    const batchUrls = new Set(targets.map((tab) => normalizeUrl(tab.url)));
+    const batchUrls = new Set(targets.map((tab) => normalizeUrl(tab.url!)));
     let savedCount = 0;
     for (const url of batchUrls) if (knownUrls.has(url)) savedCount += 1;
 
@@ -127,7 +130,7 @@ async function saveAllTabsInWindow(source = "shortcut") {
   } catch (error) {
     await recordDiag({
       lastStage: "失败",
-      lastError: String(error?.message || error),
+      lastError: String(errorMessage(error)),
       lastErrorAt: Date.now()
     }).catch(() => {});
     await reportFailure(error, activeTab);
@@ -138,17 +141,17 @@ async function saveAllTabsInWindow(source = "shortcut") {
 // 设置里「收藏单篇前先选项目」有没有打开。
 // 默认关：旧设置里没有主动开启标记时直接收进「等待整理」。
 async function shouldAskFolderForSingle() {
-  const settings = (await chrome.storage.local.get(SETTINGS_KEY))[SETTINGS_KEY] || {};
+  const settings = (await chrome.storage.local.get<BackgroundSnapshot>(SETTINGS_KEY))[SETTINGS_KEY] || {};
   return settings.askFolderOnSingle === true && settings.askFolderOnSingleOptIn === true;
 }
 
 // 把这一批标签页暂存起来，弹出「选项目」浮层，等用户选好再真正收藏。
 // 单篇收藏和整窗收藏共用这一段，所以两条路径的体验完全一致：
 // 都是先选项目 → 再抓取收藏 → 已收藏过的会被搬进所选项目。
-async function askFolderThenSave({ tabs, source = "shortcut", activeTab = null, savedCount = 0, remembered = null }) {
+async function askFolderThenSave({ tabs, source = "shortcut", activeTab = null, savedCount = 0, remembered = null }: { readonly tabs: readonly BackgroundTab[]; readonly source?: string; readonly activeTab?: BackgroundTab | null; readonly savedCount?: number; readonly remembered?: ResolvedProject | null }) {
   const targets = tabs || [];
   const batchId = crypto.randomUUID();
-  const last = remembered || (await resolveProject((await chrome.storage.local.get(LAST_PROJECT_KEY))[LAST_PROJECT_KEY] || ""));
+  const last = remembered || (await resolveProject((await chrome.storage.local.get<BackgroundSnapshot>(LAST_PROJECT_KEY))[LAST_PROJECT_KEY] || ""));
 
   // 先把这一批标签页暂存起来，等用户在浮层里选好项目（或新建一个）再真正开始。
   await queueItemWrite(() => chrome.storage.session.set({
@@ -189,7 +192,7 @@ async function askFolderThenSave({ tabs, source = "shortcut", activeTab = null, 
   // 普通网页继续使用页内浮层，不创建独立窗口。
   // 首次注入可能正撞上页面跳转，短暂等一下再重试一次；共享 UI 会先移除旧宿主，
   // 因此即使第一次稍后恢复，页面上最终也只会保留一个浮层。
-  const pickerPayload = { tabs: targets, projectId: last.id, savedCount, batchId };
+  const pickerPayload = { tabs: targets.map(tab => ({ ...tab, url: tab.url! })), projectId: last.id ?? undefined, savedCount, batchId };
   let shown = await showPickerOverlay(activeTab, pickerPayload);
   if (!shown && activeTab?.id && isWebUrl(activeTab.url)) {
     await new Promise((resolve) => setTimeout(resolve, 180));
@@ -226,10 +229,10 @@ async function askFolderThenSave({ tabs, source = "shortcut", activeTab = null, 
 //  2. 顺序处理可以「完成一篇就立刻通知一篇」，进度马上看得见，感知上快得多；
 //  3. 某一篇卡住（未加载完、被冻结）只影响它自己，不会拖住后面的标签。
 // 与单篇收藏一样抓取标题 / 摘要 / 封面 / 图标；不抓取正文；已收藏过的网址自动去重。
-export async function runBatchSave({ tabs, source = "shortcut", notifyTabId = null, notifySuspended = false, projectId = null, projectName = "" }) {
+export async function runBatchSave({ tabs, source = "shortcut", notifyTabId = null, notifySuspended = false, projectId = null, projectName = "" }: BatchOptions) {
   const en = await usesEnglish();
   // 每一步都记一笔：万一中途卡住或失败，去设置页就能看出停在哪一步。
-  const stage = (patch) => recordDiag({ lastTrigger: source, lastStageAt: Date.now(), ...patch });
+  const stage = (patch: Parameters<typeof recordDiag>[0]) => recordDiag({ lastTrigger: source, lastStageAt: Date.now(), ...patch });
   // 通知统一发到「按下快捷键那一刻的活动标签页」——因为选择项目的小窗口会抢走焦点，
   // 此时「当前活动标签页」已经变成那个弹窗了。
   // 这一批要存进哪个项目（用于提示文案）。
@@ -238,7 +241,7 @@ export async function runBatchSave({ tabs, source = "shortcut", notifyTabId = nu
   // 跟以前「一键收藏」一样只弹一条结果，不再多出「开始收藏」「全部完成」两条。
   const single = (tabs || []).length === 1;
   // 原冻结页即使已关闭或选择页抢走焦点，也必须收到结果；整窗只发最终系统通知。
-  const notify = (text, kind = "", result = single) => {
+  const notify = (text: string, kind = "", result = single) => {
     if (notifySuspended) return result ? showSystemNotice(text) : Promise.resolve();
     return notifyTab(notifyTabId, text, kind, result);
   };
@@ -258,7 +261,7 @@ export async function runBatchSave({ tabs, source = "shortcut", notifyTabId = nu
 
     // 用上一条新增记录定位插入处，保持标签顺序，同时保留期间的新收藏。
     const base = Date.now();
-    let previousAddedId = null;
+    let previousAddedId: string | null = null;
     let added = 0;
     let duplicated = 0;
     let movedCount = 0;
@@ -269,7 +272,7 @@ export async function runBatchSave({ tabs, source = "shortcut", notifyTabId = nu
     if (!single) await notify(en ? `Adding ${targets.length} tabs → ${folderLabel}` : `开始添加 ${targets.length} 个标签页 → ${folderLabel}`);
 
     for (let i = 0; i < targets.length; i += 1) {
-      const tab = targets[i];
+      const tab = targets[i]!;
       await stage({
         lastStage: "逐个添加中",
         lastProgress: `${i + 1}/${targets.length}`,
@@ -291,11 +294,11 @@ export async function runBatchSave({ tabs, source = "shortcut", notifyTabId = nu
       }
 
       const saved = await queueItemWrite(async () => {
-        const stored = await chrome.storage.local.get([STORAGE_KEY, PROJECTS_KEY]);
+        const stored = await chrome.storage.local.get<BackgroundSnapshot>([STORAGE_KEY, PROJECTS_KEY]);
         const items = stored[STORAGE_KEY] || [];
         const targetProjectId = (stored[PROJECTS_KEY] || []).some((project) => project.id === projectId && !project.archived)
           ? projectId : null;
-        const key = normalizeUrl(meta.url);
+        const key = normalizeUrl(meta.url!);
         const existing = items.find((entry) => normalizeUrl(entry.url) === key);
         if (existing) {
           const refreshed = mergeDuplicateMetadata(existing, meta);
@@ -305,7 +308,7 @@ export async function runBatchSave({ tabs, source = "shortcut", notifyTabId = nu
           if (refreshed || moved) await chrome.storage.local.set({ [STORAGE_KEY]: items });
           return { record: existing, duplicated: true, refreshed, moved };
         }
-        const record = {
+        const record: BackgroundItem = {
           id: crypto.randomUUID(),
           title: meta.title || meta.url,
           description: meta.description || "暂无摘要",
@@ -313,7 +316,7 @@ export async function runBatchSave({ tabs, source = "shortcut", notifyTabId = nu
           favicon: meta.favicon || "",
           source: meta.source || safeHostname(meta.url),
           projectId: targetProjectId,
-          url: meta.url,
+          url: meta.url!,
           savedAt: base - i,
           status: "unread"
         };
@@ -389,18 +392,18 @@ export async function runBatchSave({ tabs, source = "shortcut", notifyTabId = nu
     // 任何一步抛错都要留下痕迹，避免再次出现「按了没反应、也不知道为什么」。
     await recordDiag({
       lastStage: "失败",
-      lastError: String(error?.message || error),
+      lastError: String(errorMessage(error)),
       lastErrorAt: Date.now()
     }).catch(() => {});
     await showActionError();
-    const message = String(error?.message || error);
+    const message = String(errorMessage(error));
     await notify(en ? `Failed: ${pillTitle(message)}` : `操作失败：${pillTitle(message)}`, "", true);
     return { ok: false, added: 0, duplicated: 0 };
   }
 }
 
 // 确认收藏：先回执（好让选项目的小窗口立刻关闭），再在后台继续一篇一篇地收藏。
-async function confirmBatchSave(projectId, onAccepted, batchId) {
+async function confirmBatchSave(projectId: string | null | undefined, onAccepted: ((response: { readonly ok: true; readonly tabCount: number }) => void) | undefined, batchId?: string) {
   const claimed = await claimPendingBatch(projectId, batchId);
   if (!claimed) return { ok: false, error: (await usesEnglish()) ? "This batch has already been processed" : "这一批标签页已经处理过了" };
   if (typeof onAccepted === "function") onAccepted({ ok: true, tabCount: claimed.tabs.length });

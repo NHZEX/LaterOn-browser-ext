@@ -1,6 +1,8 @@
+import type { BackgroundItem } from "./shared";
+import type { BackgroundSnapshot } from "./shared";
 import { enqueue as queueItemWrite } from "../storage/coordinator";
-import { STORAGE_KEY, ORDER_KEY, SETTINGS_KEY, COVERS_KEY } from "./shared.js";
-import { resetActionAppearance } from "./feedback.js";
+import { STORAGE_KEY, ORDER_KEY, SETTINGS_KEY, COVERS_KEY } from "./shared";
+import { resetActionAppearance } from "./feedback";
 
 // ── 自动清除过期的「已读」收藏 ────────────────────────────────
 // 从「标为已读的那一天」起算，超过设定天数（默认 30 天，30–180 天可调）就自动删掉，
@@ -11,14 +13,14 @@ const CLEAN_MIN_DAYS = 30;
 const CLEAN_MAX_DAYS = 180;
 const CLEAN_DEFAULT_DAYS = 30;
 
-function normalizeCleanDays(value) {
+function normalizeCleanDays(value: unknown): number {
   const days = Number(value);
   if (!Number.isFinite(days)) return CLEAN_DEFAULT_DAYS;
   return Math.min(CLEAN_MAX_DAYS, Math.max(CLEAN_MIN_DAYS, Math.round(days)));
 }
 
 // 兼容老数据：1.40 之前没有 status 字段，只有 read 布尔。
-function isDoneItem(item) {
+function isDoneItem(item: BackgroundItem | null | undefined): boolean {
   if (!item) return false;
   if (item.status) return item.status === "done";
   return item.read === true;
@@ -30,7 +32,7 @@ export async function purgeExpiredItems() {
 
 async function purgeExpiredItemsNow() {
   try {
-    const stored = await chrome.storage.local.get([STORAGE_KEY, ORDER_KEY, SETTINGS_KEY, COVERS_KEY]);
+    const stored = await chrome.storage.local.get<BackgroundSnapshot>([STORAGE_KEY, ORDER_KEY, SETTINGS_KEY, COVERS_KEY]);
     const settings = stored[SETTINGS_KEY] || {};
     // 缺少开关的旧设置仍沿用已开启的行为。
     if (settings.autoCleanEnabled === false) return 0;
@@ -45,18 +47,18 @@ async function purgeExpiredItemsNow() {
     if (!expiredIds.size) return 0;
     const kept = items.filter((item) => !expiredIds.has(item.id));
     const orders = stored[ORDER_KEY] || {};
-    const nextOrders = {};
+    const nextOrders: Record<string, readonly string[]> = {};
     for (const [scope, list] of Object.entries(orders)) {
       nextOrders[scope] = Array.isArray(list) ? list.filter((id) => !expiredIds.has(id)) : list;
     }
     // 过期收藏删掉了，它们自己上传的封面也要跟着删，别在存储里占地方。
     const covers = stored[COVERS_KEY] || {};
-    const nextCovers = {};
+    const nextCovers: Record<string, string> = {};
     for (const [id, data] of Object.entries(covers)) {
       if (!expiredIds.has(id)) nextCovers[id] = data;
     }
     // 设置页不走收藏写队列：提交前重读策略，放弃已关闭或期限已改变的清理。
-    const latest = (await chrome.storage.local.get(SETTINGS_KEY))[SETTINGS_KEY] || {};
+    const latest = (await chrome.storage.local.get<BackgroundSnapshot>(SETTINGS_KEY))[SETTINGS_KEY] || {};
     if (latest.autoCleanEnabled === false || normalizeCleanDays(latest.autoCleanDays) !== days) return 0;
     await chrome.storage.local.set({ [STORAGE_KEY]: kept, [ORDER_KEY]: nextOrders, [COVERS_KEY]: nextCovers });
     return expiredIds.size;
@@ -67,7 +69,7 @@ async function purgeExpiredItemsNow() {
 
 export async function ensureLegacyCleanup() {
   const flagKey = "laterOnCleanupV165";
-  const stored = await chrome.storage.local.get(flagKey);
+  const stored = await chrome.storage.local.get<BackgroundSnapshot>(flagKey);
   if (stored[flagKey]) return;
   await cleanupLegacyContent();
   // “最近在看”已撤下；升级时顺手删除曾经保存的 id 列表，不留下无用数据。
@@ -79,7 +81,7 @@ export async function ensureLegacyCleanup() {
 // contentHtml / wordCount / byline 字段从已有收藏上移除，释放本地空间。
 async function cleanupLegacyContent() {
   return queueItemWrite(async () => {
-    const result = await chrome.storage.local.get(STORAGE_KEY);
+    const result = await chrome.storage.local.get<BackgroundSnapshot>(STORAGE_KEY);
     const items = result[STORAGE_KEY] || [];
     let changed = false;
     const cleaned = items.map((item) => {

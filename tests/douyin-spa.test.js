@@ -30,7 +30,7 @@ function check(label, condition, detail = "") {
 }
 
 // Execute the real native metadata module and its imports.
-const REAL_SOURCE = require("./helpers/module-script.cjs")("src/background/metadata.js") + "\nObject.assign(globalThis, backgroundModule);";
+const REAL_SOURCE = require("./helpers/module-script.cjs")("src/background/metadata.ts") + "\nObject.assign(globalThis, backgroundModule);";
 
 // ── 假页面状态 ────────────────────────────────────────────────────
 // panelId 代表「标题面板此刻显示的哪条视频」，它滞后于网址。

@@ -244,7 +244,7 @@ async function partDialog() {
 // ═══════════════════════════════════════════════════════════
 function partMerge() {
   console.log("\n── ② 重复收藏时保护用户自定义的封面 ──");
-  const { mergeDuplicateMetadata: merge } = require("./helpers/load-module.cjs")("src/background/duplicate-metadata.js");
+  const { mergeDuplicateMetadata: merge } = require("./helpers/load-module.cjs")("src/background/duplicate-metadata.ts");
 
   check("取到了后台真实的合并函数", typeof merge === "function");
 

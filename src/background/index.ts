@@ -1,21 +1,32 @@
-import { saveAllTabsInWindow, quickSave, confirmBatchSave } from "./save-workflow.js";
+import type { BackgroundTab, SaveInput } from "./shared";
+import { errorMessage } from "./shared";
+import { saveAllTabsInWindow, quickSave, confirmBatchSave } from "./save-workflow";
 import { unwrapSuspendedTab } from "../shared/url-utils";
-import { isWebUrl, usesEnglish } from "./shared.js";
-import { registerFeedback, showLibraryCommandNotice, showActionError, toggleTranslation, reportFailure } from "./feedback.js";
-import { MENU_SAVE_ALL, MENU_SAVE_PAGE } from "./browser-setup.js";
-import { saveItem } from "./collection.js";
-import { openLibrary } from "./navigation.js";
-import { cancelPendingBatch, getPendingPickerPayload, createProject } from "./project-picker.js";
-import { extractTabMetadataById } from "./metadata.js";
-import { recordDiag } from "./diagnostics.js";
+import { isWebUrl, usesEnglish } from "./shared";
+import { registerFeedback, showLibraryCommandNotice, showActionError, toggleTranslation, reportFailure } from "./feedback";
+import { MENU_SAVE_ALL, MENU_SAVE_PAGE } from "./browser-setup";
+import { saveItem } from "./collection";
+import { openLibrary, type LibraryContext } from "./navigation";
+import { cancelPendingBatch, getPendingPickerPayload, createProject } from "./project-picker";
+import { extractTabMetadataById } from "./metadata";
+import { recordDiag } from "./diagnostics";
 import { registerMessages } from "../storage/coordinator";
-import { registerBackup } from "../backup/background.js";
-import { registerReadingPosition } from "./reading-position.js";
-import { registerOmnibox } from "./omnibox.js";
-import { registerBrowserSetup } from "./browser-setup.js";
-import { registerMaintenance } from "./maintenance.js";
+import { registerBackup } from "../backup/background";
+import { registerReadingPosition } from "./reading-position";
+import { registerOmnibox } from "./omnibox";
+import { registerBrowserSetup } from "./browser-setup";
+import { registerMaintenance } from "./maintenance";
 
-export async function handleCommand(command, commandTab) {
+type BackgroundMessage =
+  | { readonly type: "SAVE_ITEM"; readonly item: SaveInput }
+  | { readonly type: "OPEN_LIBRARY"; readonly context?: LibraryContext }
+  | { readonly type: "CONFIRM_BATCH_SAVE"; readonly projectId?: string | null; readonly batchId?: string }
+  | { readonly type: "CANCEL_BATCH_SAVE" | "GET_PENDING_PICKER"; readonly batchId?: string }
+  | { readonly type: "CREATE_PROJECT"; readonly name: string; readonly epoch?: string }
+  | { readonly type: "EXTRACT_METADATA"; readonly tabId?: number }
+  | { readonly type: "QUICK_SAVE_TAB"; readonly tabId?: number; readonly source?: string };
+
+export async function handleCommand(command: string, commandTab?: BackgroundTab) {
   // 「收藏当前窗口所有标签页」不依赖当前激活页是否为网页，单独处理。
   if (command === "save-all-tabs") {
     await saveAllTabsInWindow();
@@ -25,7 +36,7 @@ export async function handleCommand(command, commandTab) {
   const rawTab = commandTab?.id
     ? commandTab
     : (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
-  const tab = unwrapSuspendedTab(rawTab);
+  const tab = rawTab ? unwrapSuspendedTab(rawTab) : rawTab;
 
   if (!tab?.id || !isWebUrl(tab.url) || (command === "toggle-translation" && tab.suspended)) {
     // 在 LaterOn 全屏收藏库里按 Alt+1 时，不能只在工具栏图标上挂一个「!」：
@@ -39,7 +50,7 @@ export async function handleCommand(command, commandTab) {
   if (command === "quick-save") {
     await quickSave(tab);
   } else if (command === "toggle-translation") {
-    await toggleTranslation(tab);
+    await toggleTranslation({ ...tab, id: tab.id });
   }
 }
 
@@ -64,7 +75,7 @@ export function registerBackground() {
     }
   });
 
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  chrome.runtime.onMessage.addListener((message: BackgroundMessage, _sender, sendResponse) => {
     if (message.type === "SAVE_ITEM") {
       saveItem(message.item)
         .then(sendResponse)
@@ -80,7 +91,7 @@ export function registerBackground() {
     // 「选择项目」窗口点了确认：先回执让它马上关闭，再在后台继续收藏。
     if (message.type === "CONFIRM_BATCH_SAVE") {
       let replied = false;
-      const reply = (payload) => {
+      const reply = (payload: object) => {
         if (replied) return;
         replied = true;
         try {
@@ -91,7 +102,7 @@ export function registerBackground() {
       };
       confirmBatchSave(message.projectId || null, reply, message.batchId)
         .then((result) => reply(result && result.ok === false ? result : { ok: true }))
-        .catch((error) => reply({ ok: false, error: String(error?.message || error) }));
+        .catch((error) => reply({ ok: false, error: String(errorMessage(error)) }));
       return true;
     }
     if (message.type === "CANCEL_BATCH_SAVE") {
@@ -137,22 +148,22 @@ export function registerBackground() {
     // 设置里打开「收藏单篇前先选项目」时，点按钮同样会先弹浮层，而不是直接收藏。
     if (message.type === "QUICK_SAVE_TAB") {
       (async () => {
-        let tab = null;
+        let tab: BackgroundTab | null | undefined = null;
         try {
           const rawTab = message.tabId
             ? await chrome.tabs.get(message.tabId).catch(() => null)
             : (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
-          tab = unwrapSuspendedTab(rawTab);
+          tab = rawTab ? unwrapSuspendedTab(rawTab) : rawTab;
           if (!tab?.id || !isWebUrl(tab.url)) {
             sendResponse({ ok: false, error: (await usesEnglish()) ? "The current page can’t be added" : "当前页面无法添加" });
             return;
           }
           const result = await quickSave(tab, message.source || "panel");
           // result.pending 为真 = 已经弹出选项目浮层，真正的收藏要等用户确认。
-          sendResponse({ ok: true, ...(result || {}) });
+          sendResponse(result || { ok: true });
         } catch (error) {
           if (tab?.suspended) await reportFailure(error, tab);
-          sendResponse({ ok: false, error: String(error?.message || error) });
+          sendResponse({ ok: false, error: String(errorMessage(error)) });
         }
       })();
       return true;

@@ -1,6 +1,6 @@
 # 本地备份与导入
 
-格式与校验以 [备份核心](../src/backup/core.ts) 为准，预览 / 提交协议见 [后台实现](../src/backup/background.js)，整体写入边界见 [架构](architecture.md#数据边界)。本文解释备份行为，不复制实现清单。
+格式与校验以 [备份核心](../src/backup/core.ts) 为准，预览 / 提交协议见 [后台实现](../src/backup/background.ts)，整体写入边界见 [架构](architecture.md#数据边界)。本文解释备份行为，不复制实现清单。
 
 ## 文件格式
 

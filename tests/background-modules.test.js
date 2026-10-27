@@ -7,7 +7,7 @@ const ts = require("typescript");
 const { buildSync } = require("esbuild");
 
 const ROOT = path.resolve(__dirname, "..");
-const { metafile } = buildSync({ entryPoints: [path.join(ROOT, "wxt/entrypoints/background.js")],
+const { metafile } = buildSync({ entryPoints: [path.join(ROOT, "wxt/entrypoints/background.ts")],
   bundle: true, write: false, metafile: true, platform: "browser" });
 const sources = Object.keys(metafile.inputs).filter(file => file.startsWith("src/") || file.startsWith("wxt/"));
 assert.ok(!sources.some(file => file.startsWith("src/content/")), "网页注入实现不进入后台模块图");

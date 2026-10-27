@@ -1,6 +1,8 @@
-import { usesEnglish, isWebUrl, withTimeout, safeHostname } from "./shared.js";
+import type { BackgroundTab, Metadata } from "./shared";
+import type { PageMetadata } from "../content/metadata.js";
+import { usesEnglish, isWebUrl, withTimeout, safeHostname } from "./shared";
 import { unwrapSuspendedTab } from "../shared/url-utils";
-import { titleHasSiteNoise, isIconLikeImage } from "./duplicate-metadata.js";
+import { titleHasSiteNoise, isIconLikeImage } from "./duplicate-metadata";
 
 // 读取单个标签页的标题 / 摘要 / 封面 / 图标。
 // 顺序处理时每个标签最多等 3 秒（比原来并发时给得更宽松，尽量把封面/摘要抓全）；
@@ -9,10 +11,10 @@ export const EXTRACT_TIMEOUT_MS = 3000;
 
 // 供弹窗 / 侧栏调用：读取指定标签页的标题 / 摘要 / 封面 / 图标。
 // 失败时返回 ok:false，调用方自己退回「标签页基础信息」。
-async function extractTabMetadataById(tabId) {
+async function extractTabMetadataById(tabId: number | undefined) {
   const en = await usesEnglish();
   if (!tabId) return { ok: false, error: en ? "Missing tab" : "缺少标签页" };
-  let tab = null;
+  let tab: BackgroundTab | null = null;
   try {
     tab = await chrome.tabs.get(tabId);
   } catch {
@@ -37,9 +39,9 @@ async function extractTabMetadataById(tabId) {
 const DOUYIN_SETTLE_MS = 1500;
 const DOUYIN_POLL_MS = 100;
 
-function isDouyinUrl(url) {
+function isDouyinUrl(url: string | undefined): boolean {
   try {
-    const host = new URL(url).hostname;
+    const host = new URL(url ?? "").hostname;
     return /(^|\.)douyin\.com$/.test(host) || /(^|\.)iesdouyin\.com$/.test(host);
   } catch {
     return false;
@@ -49,7 +51,7 @@ function isDouyinUrl(url) {
 // 从网址里取当前视频 id。详情页是 /video/<id> 或 /note/<id>；
 // 首页推荐流用 modal_id 参数承载「正在看哪一条」。
 // 先验域名：否则任何网站的 /video/<数字> 都会被当成抖音视频 id（那样很危险）。
-function douyinVideoIdFromUrl(url) {
+function douyinVideoIdFromUrl(url: string | undefined): string {
   if (!isDouyinUrl(url)) return "";
   const text = String(url || "");
   const matched =
@@ -57,14 +59,14 @@ function douyinVideoIdFromUrl(url) {
     /\/note\/(\d{10,})/.exec(text) ||
     /[?&]modal_id=(\d{10,})/.exec(text) ||
     /[?&]vid=(\d{10,})/.exec(text);
-  return matched ? matched[1] : "";
+  return matched?.[1] || "";
 }
 
 // 注入到页面里执行（必须自包含）：只读两个 id，判断「标题面板是否已经切到当前这条视频」。
 // 面板上的 data-e2e-aweme-id 就是它对应的视频 id，拿它跟「网址里的 id / lark 元数据里的 id」
 // 一比，就知道画面上的标题到底属于哪一条。
 function probeDouyinFreshness() {
-  const idOf = (value) => (String(value || "").match(/(\d{10,})/) || [])[1] || "";
+  const idOf = (value: string | null) => (String(value || "").match(/(\d{10,})/) || [])[1] || "";
   const panel = document.querySelector('[data-e2e="detail-video-info"]');
   const iframe = document.querySelector('meta[name="lark:url:video_iframe_url"]');
   return {
@@ -80,7 +82,7 @@ function probeDouyinFreshness() {
 
 // 等「标题面板」切到当前网址所指向的那条视频。deadline 由调用方给，
 // 这样「等待」和「等完再复核」共用同一份时间预算，不会叠加成好几秒。
-async function settleDouyinDom(tab, deadline = Date.now() + DOUYIN_SETTLE_MS) {
+async function settleDouyinDom(tab: BackgroundTab, deadline = Date.now() + DOUYIN_SETTLE_MS): Promise<void> {
   if (!isDouyinUrl(tab?.url)) return;
   if (!tab?.id || tab.discarded || tab.status === "unloaded") return;
 
@@ -90,7 +92,7 @@ async function settleDouyinDom(tab, deadline = Date.now() + DOUYIN_SETTLE_MS) {
     let probe;
     try {
       const out = await withTimeout(
-        chrome.scripting.executeScript({ target: { tabId: tab.id }, func: probeDouyinFreshness }),
+        chrome.scripting.executeScript({ target: { tabId: tab.id! }, func: probeDouyinFreshness }),
         900,
         null
       );
@@ -117,17 +119,17 @@ async function settleDouyinDom(tab, deadline = Date.now() + DOUYIN_SETTLE_MS) {
 // 所以当「页面里抓到的明显是站点通用值」时，由 background 重新请求一次网址补救。
 const SERVER_META_TIMEOUT_MS = 8000;
 
-async function refetchMetaFromServer(url) {
+async function refetchMetaFromServer(url: string | undefined) {
   if (!/^https?:\/\//i.test(url || "")) return null;
   try {
-    const response = await withTimeout(fetch(url, { credentials: "omit" }), SERVER_META_TIMEOUT_MS, null);
+    const response = await withTimeout(fetch(url!, { credentials: "omit" }), SERVER_META_TIMEOUT_MS, null);
     if (!response || !response.ok) return null;
     if (!/text\/html/i.test(response.headers.get("content-type") || "")) return null;
     // og 标签都在文档头部，前 200KB 足够。
     const html = (await withTimeout(response.text(), SERVER_META_TIMEOUT_MS, "")) || "";
     const head = html.slice(0, 200000);
 
-    const decode = (text) =>
+    const decode = (text: string | undefined) =>
       (text || "")
         .replace(/&amp;/g, "&")
         .replace(/&lt;/g, "<")
@@ -138,7 +140,7 @@ async function refetchMetaFromServer(url) {
         .trim();
 
     // og 标签的属性顺序不固定（content 可能写在 property 前面），两种写法都试。
-    const metaTag = (name) => {
+    const metaTag = (name: string) => {
       const forward = new RegExp(
         `<meta[^>]+(?:property|name)=["']${name}["'][^>]*?content=["']([^"']*)["']`,
         "i"
@@ -152,7 +154,7 @@ async function refetchMetaFromServer(url) {
     const pageTitle = decode(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(head)?.[1]);
 
     // 相对地址（/img/cover.jpg）补全成绝对地址。
-    const absolute = (value) => {
+    const absolute = (value: string) => {
       if (!value) return "";
       try {
         return new URL(value, url).href;
@@ -177,7 +179,7 @@ async function refetchMetaFromServer(url) {
 // 标题是标签页/文档标题兜底、或标题里混着站点名（首页 og:title 停在列表页的痕迹）、
 // 或封面缺失/是站点图标时，重新请求一次网址，用服务器 HTML 里的 og 标签补齐。
 // 原地修改并返回 result。
-async function applyServerMetaRescue(result) {
+async function applyServerMetaRescue(result: Metadata): Promise<Metadata> {
   const titleIsWeak =
     ["tab", "page-title", "none", "page", "meta-title"].includes(result.titleFrom) ||
     (result.titleFrom !== "dom-headline" && titleHasSiteNoise(result.title, result.source));
@@ -205,7 +207,7 @@ async function applyServerMetaRescue(result) {
   return result;
 }
 
-async function extractTabMetadata(tab) {
+async function extractTabMetadata(tab: BackgroundTab): Promise<Metadata> {
   tab = unwrapSuspendedTab(tab);
   const fallback = {
     title: tab.title || tab.url,
@@ -256,11 +258,11 @@ async function extractTabMetadata(tab) {
 
 // 往页面注入一次提取脚本，拿回原始结果（注入失败或超时都返回 null）。
 // 体积较大的网页执行代码保留在 content-metadata.js，仅在实际使用时注入目标网页。
-async function readTabMetadata(tab) {
+async function readTabMetadata(tab: BackgroundTab): Promise<PageMetadata | null> {
   try {
     const injection = await withTimeout(
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
+      chrome.scripting.executeScript<[], PageMetadata>({
+        target: { tabId: tab.id! },
         files: ["content-metadata.js"]
       }),
       EXTRACT_TIMEOUT_MS,

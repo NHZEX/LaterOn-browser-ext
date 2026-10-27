@@ -1,11 +1,15 @@
-import { usesEnglish, isWebUrl } from "./shared.js";
-import { recordDiag } from "./diagnostics.js";
+import type { TranslationResult } from "../content/translation.js";
+import type { BackgroundTab } from "./shared";
+interface Pill { readonly text: string; readonly kind?: string; }
+import { errorMessage } from "./shared";
+import { usesEnglish, isWebUrl } from "./shared";
+import { recordDiag } from "./diagnostics";
 import { unwrapSuspendedTab } from "../shared/url-utils";
 
 // translation.css 只需给每个标签页注入一次，避免反复收藏时堆叠重复样式表。
-const injectedCssTabs = new Set();
+const injectedCssTabs = new Set<number>();
 
-async function ensureTranslationCss(tabId) {
+async function ensureTranslationCss(tabId: number | undefined): Promise<void> {
   if (!tabId || injectedCssTabs.has(tabId)) return;
   try {
     await chrome.scripting.insertCSS({ target: { tabId }, files: ["translation.css"] });
@@ -18,7 +22,7 @@ async function ensureTranslationCss(tabId) {
 // ── 工具栏图标反馈 ──────────────────────────────────────────
 // 品牌图标保持干净，不再常驻显示“当前网页已收藏”的 ✓；只有用户主动收藏时的
 // 进度或错误会短暂出现，结束后恢复无角标的默认状态。
-let actionFeedbackTimer = null;
+let actionFeedbackTimer: ReturnType<typeof setTimeout> | undefined;
 
 let actionFeedbackUntil = 0;
 
@@ -30,7 +34,7 @@ async function resetActionAppearance() {
   await chrome.action?.setTitle?.({ title: baseTitle });
 }
 
-async function showActionFeedback(text, color, duration) {
+async function showActionFeedback(text: string, color: string, duration: number): Promise<void> {
   actionFeedbackUntil = Date.now() + duration;
   clearTimeout(actionFeedbackTimer);
   await chrome.action?.setBadgeText?.({ text });
@@ -41,10 +45,10 @@ async function showActionFeedback(text, color, duration) {
   }, duration);
 }
 
-async function toggleTranslation(tab) {
+async function toggleTranslation(tab: BackgroundTab & { readonly id: number }): Promise<void> {
   // 体积较大的网页执行代码保留在 content-translation.js，仅在实际使用时注入目标网页。
   await ensureTranslationCss(tab.id);
-  const injection = await chrome.scripting.executeScript({
+  const injection = await chrome.scripting.executeScript<[], TranslationResult>({
     target: { tabId: tab.id },
     world: "MAIN",
     files: ["content-translation.js"]
@@ -58,7 +62,7 @@ async function showActionError() {
 
 // 给全屏收藏库发送页内提示。runtime.sendMessage 能到达扩展自己的页面，
 // 消息带 tabId，避免同时开着多个收藏库标签时每一页都弹一次。
-async function showLibraryCommandNotice(tab, command) {
+async function showLibraryCommandNotice(tab: BackgroundTab | null | undefined, command: string): Promise<boolean> {
   if (!tab?.id) return false;
   const libraryUrl = chrome.runtime.getURL("library.html");
   if (!String(tab.url || "").startsWith(libraryUrl)) return false;
@@ -80,9 +84,9 @@ async function showLibraryCommandNotice(tab, command) {
 
 // 统一处理失败：记录原因（设置页可查）+ 角标提示 + 页内或系统通知，
 // 避免出现「按了完全没反应、也不知道哪里错了」的情况。
-async function reportFailure(error, targetTab = null) {
+async function reportFailure(error: unknown, targetTab: BackgroundTab | null = null): Promise<void> {
   const en = await usesEnglish();
-  const message = String(error?.message || error || (en ? "Unknown error" : "未知错误"));
+  const message = String(errorMessage(error) || (en ? "Unknown error" : "未知错误"));
   await recordDiag({ lastError: message, lastErrorAt: Date.now() });
   await showActionError();
   try {
@@ -94,7 +98,7 @@ async function reportFailure(error, targetTab = null) {
 }
 
 // 冻结页属于其他扩展，不能注入药丸；通知失败也不能改变已经完成的收藏结果。
-async function showSystemNotice(text) {
+async function showSystemNotice(text: string): Promise<void> {
   try {
     await chrome.notifications?.create?.("lateron-save-result", {
       type: "basic", title: "LaterOn", message: text,
@@ -105,8 +109,8 @@ async function showSystemNotice(text) {
   }
 }
 
-async function showTabNotice(tab, text, kind = "", allowSystem = true) {
-  if (unwrapSuspendedTab(tab)?.suspended) {
+async function showTabNotice(tab: BackgroundTab | null | undefined, text: string, kind = "", allowSystem = true): Promise<void> {
+  if ((tab && unwrapSuspendedTab(tab))?.suspended) {
     if (allowSystem) await showSystemNotice(text);
     return;
   }
@@ -117,7 +121,7 @@ async function showTabNotice(tab, text, kind = "", allowSystem = true) {
 // messages 支持两种写法：纯文本，或 { text, kind }。
 // kind="skip" 显示为灰色的次要提示；kind="move" 显示为橙色的「已搬家」提示。
 // 逐条收藏时会一次弹一条，这里限制同屏最多 6 条，超出就让最早的先退场。
-async function showPagePills(tabId, messages) {
+async function showPagePills(tabId: number | undefined, messages: readonly (string | Pill)[]): Promise<void> {
   const list = (messages || [])
     .map((item) => (typeof item === "string" ? { text: item, kind: "" } : item))
     .filter((item) => item && item.text);
@@ -131,7 +135,7 @@ async function showPagePills(tabId, messages) {
   await ensureTranslationCss(tabId);
   await chrome.scripting.executeScript({
     target: { tabId },
-    func: (items, extra, overflowText) => {
+    func: (items: readonly Pill[], extra: number, overflowText: string) => {
       const hostId = "lateron-pill-stack";
       let host = document.getElementById(hostId);
       if (!host) {
@@ -147,7 +151,7 @@ async function showPagePills(tabId, messages) {
         if (item.kind) pill.classList.add(`is-${item.kind}`);
         pill.textContent = item.text;
         host.appendChild(pill);
-        while (host.childElementCount > MAX_STACK) host.firstElementChild.remove();
+        while (host.childElementCount > MAX_STACK) host.firstElementChild!.remove();
         const hide = () => {
           pill.classList.add("is-out");
           window.setTimeout(() => {
@@ -165,24 +169,24 @@ async function showPagePills(tabId, messages) {
 }
 
 // 把一条标题压缩成适合放进药丸的单行短文本。
-function pillTitle(text) {
+function pillTitle(text: string | undefined): string {
   const clean = (text || "").replace(/\s+/g, " ").trim();
   return clean.length > 44 ? `${clean.slice(0, 44)}…` : clean;
 }
 
 // 把通知发到指定标签页；标签已关闭或不是普通网页时，退回「当前活动标签页」。
-function notifyTab(tabId, text, kind = "", allowSystem = true) {
+function notifyTab(tabId: number | null | undefined, text: string, kind = "", allowSystem = true): Promise<void> {
   if (tabId == null) return notifyOnActiveTab(text, kind, allowSystem);
   return chrome.tabs
     .get(tabId)
-    .then((tab) => (tab?.id != null && (isWebUrl(tab.url) || unwrapSuspendedTab(tab)?.suspended)
+    .then((tab) => (tab?.id != null && (isWebUrl(tab.url) || (tab && unwrapSuspendedTab(tab))?.suspended)
       ? showTabNotice(tab, text, kind, allowSystem) : notifyOnActiveTab(text, kind, allowSystem)))
     .catch(() => notifyOnActiveTab(text, kind, allowSystem));
 }
 
 // 在当前窗口的「活动标签页」上弹一条药丸通知。
 // 若当前停在 Chrome 内部页面（新标签页 / 设置页等）无法注入，则只保留角标提示。
-async function notifyOnActiveTab(text, kind = "", allowSystem = true) {
+async function notifyOnActiveTab(text: string, kind = "", allowSystem = true): Promise<void> {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     await showTabNotice(tab, text, kind, allowSystem);

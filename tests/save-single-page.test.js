@@ -16,7 +16,7 @@ const { URL } = require("url");
 
 const SOURCE = sourcePath("background-test-api.js");
 const src = require("./helpers/read-runtime.cjs")("background-test-api.js");
-const PICKER_TIMEOUT_MS = require("./helpers/load-module.cjs")("src/background/project-picker.js").PICKER_INJECT_TIMEOUT_MS;
+const PICKER_TIMEOUT_MS = require("./helpers/load-module.cjs")("src/background/project-picker.ts").PICKER_INJECT_TIMEOUT_MS;
 
 const PENDING_KEY = "laterOnPendingBatch";
 const LAST_PROJECT_KEY = "laterOnLastProjectId";

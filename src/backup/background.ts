@@ -1,28 +1,39 @@
+import type { BackgroundSnapshot } from "../background/shared";
+import type { ImportToken } from "./client";
+import { isRecord } from "../storage/contracts";
+
+interface BackupRequest {
+  readonly payload?: unknown;
+  readonly mode?: unknown;
+  readonly token?: Partial<ImportToken>;
+  readonly includeImages?: unknown;
+}
+
 import * as core from "./core";
 import * as store from "../storage/coordinator";
 import { normalize } from "../shared/url-utils";
 
 export function registerBackup() {
-  const snapshot = () => chrome.storage.local.get(store.KEYS);
-  const fingerprint = async (value) => {
+  const snapshot = () => chrome.storage.local.get<BackgroundSnapshot>([...store.KEYS]);
+  const fingerprint = async (value: unknown) => {
     const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)));
     return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
   };
-  const validate = ({ payload, mode }) => {
-    if (!["merge", "replace"].includes(mode)) throw new Error("INVALID_IMPORT_MODE");
+  const validate = ({ payload, mode }: BackupRequest) => {
+    if (mode !== "merge" && mode !== "replace") throw new Error("INVALID_IMPORT_MODE");
     if (new TextEncoder().encode(JSON.stringify(payload)).length > core.MAX_BYTES) throw new Error("BACKUP_TOO_LARGE");
     return core.parse(payload);
   };
-  const plan = (current, incoming, mode) => mode === "replace"
+  const plan = (current: core.BackupData, incoming: core.BackupData, mode: unknown) => mode === "replace"
     ? { data: incoming, added: incoming.items.length, duplicates: 0, addedProjects: incoming.projects.length }
     : core.merge(current, incoming, normalize, () => crypto.randomUUID());
 
-  async function exportBackup({ includeImages }) {
+  async function exportBackup({ includeImages }: BackupRequest) {
     return store.enqueue(async () => ({ ok: true, payload: core.create(await snapshot(), chrome.runtime.getManifest().version,
       new Date().toISOString(), { includeImages: includeImages === true }) }));
   }
 
-  async function preview({ payload, mode }) {
+  async function preview({ payload, mode }: BackupRequest) {
     const incoming = validate({ payload, mode });
     return store.enqueue(async () => {
       const base = await snapshot();
@@ -32,12 +43,12 @@ export function registerBackup() {
       // MV3 can stop the worker while the user is reading the confirmation.
       const token = { revision: await fingerprint(base), createdAt: Date.now() };
       return { ok: true, token, incoming: core.counts(incoming), current: core.counts(current),
-        added: result.added, duplicates: result.duplicates, addedProjects: result.addedProjects, exportedAt: payload.exportedAt };
+        added: result.added, duplicates: result.duplicates, addedProjects: result.addedProjects, exportedAt: isRecord(payload) ? payload.exportedAt : undefined };
     });
   }
 
-  async function apply({ token, payload, mode }) {
-    if (!token || !/^[a-f0-9]{64}$/.test(token.revision) || !Number.isFinite(token.createdAt)
+  async function apply({ token, payload, mode }: BackupRequest) {
+    if (!token || typeof token.revision !== "string" || token.createdAt === undefined || !/^[a-f0-9]{64}$/.test(token.revision) || !Number.isFinite(token.createdAt)
       || token.createdAt > Date.now() || token.createdAt < Date.now() - 10 * 60 * 1000) throw new Error("IMPORT_PREVIEW_EXPIRED");
     const incoming = validate({ payload, mode });
     return store.enqueue(async () => {
@@ -55,7 +66,7 @@ export function registerBackup() {
 
   async function wipe() {
     return store.enqueue(async () => {
-      const stored = await chrome.storage.local.get("laterOnProjects");
+      const stored = await chrome.storage.local.get<BackgroundSnapshot>("laterOnProjects");
       const projects = (stored.laterOnProjects || []).map(({ coverPick, ...project }) => project);
       await chrome.storage.local.set({ laterOnItems: [], laterOnCovers: {}, laterOnOrder: {}, laterOnReadingPositions: {},
         laterOnProjects: projects, laterOnCurrentItem: null, [store.EPOCH]: crypto.randomUUID() });
@@ -63,9 +74,11 @@ export function registerBackup() {
     });
   }
 
-  const handlers = { BACKUP_EXPORT: exportBackup, BACKUP_PREVIEW: preview, BACKUP_APPLY: apply, COLLECTION_WIPE: wipe };
+  const handlers = new Map<string, (request: BackupRequest) => Promise<object>>([
+    ["BACKUP_EXPORT", exportBackup], ["BACKUP_PREVIEW", preview], ["BACKUP_APPLY", apply], ["COLLECTION_WIPE", wipe]
+  ]);
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
-    const handler = Object.prototype.hasOwnProperty.call(handlers, message?.type) && handlers[message.type];
+    const handler = handlers.get(message?.type);
     if (!handler) return;
     if (sender?.tab && !String(sender.url || "").startsWith(chrome.runtime.getURL(""))) {
       respond({ ok: false, error: "INVALID_SENDER" });

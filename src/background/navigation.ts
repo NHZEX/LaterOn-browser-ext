@@ -1,4 +1,11 @@
-async function openLibrary(context = null) {
+import type { Browser } from "wxt/browser";
+export interface LibraryContext {
+  readonly source?: string;
+  readonly projectId?: string;
+  readonly filter?: string;
+  readonly focusItemId?: string;
+}
+async function openLibrary(context: LibraryContext | null = null): Promise<void> {
   const baseUrl = chrome.runtime.getURL("library.html");
   const target = new URL(baseUrl);
   // 只有从侧栏明确点「展开全屏」时才携带现场；工具栏、快捷键等普通入口
@@ -16,7 +23,7 @@ async function openLibrary(context = null) {
     return candidate === baseUrl || candidate.startsWith(`${baseUrl}?`) || candidate.startsWith(`${baseUrl}#`);
   });
   if (existing?.id) {
-    const patch = { active: true };
+    const patch: Browser.tabs.UpdateProperties = { active: true };
     // 已经打开的收藏库也要接住侧栏当前现场；更新 URL 会让它重新初始化，
     // 比在两个页面之间额外维护一条临时消息链更可靠。
     if ((existing.url || existing.pendingUrl) !== url) patch.url = url;

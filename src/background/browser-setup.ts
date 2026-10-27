@@ -1,4 +1,6 @@
-import { SETTINGS_KEY } from "./shared.js";
+import type { Browser } from "wxt/browser";
+import type { BackgroundSnapshot } from "./shared";
+import { SETTINGS_KEY } from "./shared";
 
 // ── 右键菜单：不依赖快捷键的备用入口 ────────────────────────
 // 快捷键只在「扩展首次安装」时由 Chrome 绑定，且可能被系统占用；
@@ -12,12 +14,12 @@ function setupContextMenus() {
   // 避免两个回调交错后创建出 duplicate id。每次 create 都消费 lastError，
   // 防止 Chrome 把竞态错误冒泡成「Unchecked runtime.lastError」。
   contextMenuRefresh = contextMenuRefresh.catch(() => {}).then(async () => {
-    const stored = await chrome.storage.local.get(SETTINGS_KEY).catch(() => ({}));
+    const stored = await chrome.storage.local.get<BackgroundSnapshot>(SETTINGS_KEY).catch((): BackgroundSnapshot => ({}));
     const language = stored[SETTINGS_KEY]?.language === "en" ? "en" : "zh-CN";
     const titles = language === "en"
       ? { page: "Add this page to LaterOn", all: "Add all tabs in this window to LaterOn" }
       : { page: "添加此页面到 LaterOn", all: "添加本窗口所有标签页到 LaterOn" };
-    await new Promise((resolve) => {
+    await new Promise<void>((resolve) => {
       try {
         chrome.contextMenus.removeAll(() => {
           void chrome.runtime.lastError;
@@ -27,7 +29,7 @@ function setupContextMenus() {
         resolve();
       }
     });
-    const create = (options) => {
+    const create = (options: Browser.contextMenus.CreateProperties) => {
       try {
         chrome.contextMenus.create(options, () => { void chrome.runtime.lastError; });
       } catch {

@@ -1,3 +1,5 @@
+import type { Browser } from "wxt/browser";
+import type { BackgroundSnapshot } from "./shared";
 import { normalize as normalizeUrl } from "../shared/url-utils";
 import { enqueue } from "../storage/coordinator";
 
@@ -8,14 +10,14 @@ export function registerReadingPosition() {
   const POSITIONS_KEY = "laterOnReadingPositions";
   const SETTINGS_KEY = "laterOnSettings";
 
-  const isWebUrl = (url) => /^https?:\/\//i.test(String(url || ""));
+  const isWebUrl = (url: string | undefined) => /^https?:\/\//i.test(String(url || ""));
 
-  async function setupTab(tabId, suppliedTab) {
+  async function setupTab(tabId: number, suppliedTab?: Browser.tabs.Tab): Promise<boolean> {
     try {
       const tab = suppliedTab?.id === tabId ? suppliedTab : await chrome.tabs.get(tabId);
       if (!tab?.id || !isWebUrl(tab.url)) return false;
-      const stored = await chrome.storage.local.get([ITEMS_KEY, POSITIONS_KEY, SETTINGS_KEY]);
-      const item = (stored[ITEMS_KEY] || []).find((entry) => normalizeUrl(entry.url) === normalizeUrl(tab.url));
+      const stored = await chrome.storage.local.get<BackgroundSnapshot>([ITEMS_KEY, POSITIONS_KEY, SETTINGS_KEY]);
+      const item = (stored[ITEMS_KEY] || []).find((entry) => normalizeUrl(entry.url) === normalizeUrl(tab.url ?? ""));
       if (!item) {
         await chrome.tabs.sendMessage(tab.id, { type: "LATERON_READING_POSITION_INIT", itemId: null }).catch(() => {});
         return false;
@@ -40,10 +42,10 @@ export function registerReadingPosition() {
     if (tab?.id) await setupTab(tab.id, tab);
   }
 
-  function savePosition(itemId, rawY) {
+  function savePosition(itemId: string, rawY: unknown): Promise<boolean> {
     const y = Math.max(0, Math.round(Number(rawY) || 0));
     return enqueue(async () => {
-      const stored = await chrome.storage.local.get([ITEMS_KEY, POSITIONS_KEY]);
+      const stored = await chrome.storage.local.get<BackgroundSnapshot>([ITEMS_KEY, POSITIONS_KEY]);
       if (!(stored[ITEMS_KEY] || []).some((item) => item.id === itemId)) return false;
       const positions = { ...(stored[POSITIONS_KEY] || {}) };
       if (Math.abs(Number(positions[itemId] || 0) - y) < 8) return true;
@@ -56,7 +58,7 @@ export function registerReadingPosition() {
   async function cleanOrphanedPositions() {
     return enqueue(async () => {
       // Re-read inside the shared queue: an onChanged event can predate an import.
-      const stored = await chrome.storage.local.get([ITEMS_KEY, POSITIONS_KEY]);
+      const stored = await chrome.storage.local.get<BackgroundSnapshot>([ITEMS_KEY, POSITIONS_KEY]);
       const known = new Set((stored[ITEMS_KEY] || []).map((item) => item.id));
       const positions = stored[POSITIONS_KEY] || {};
       const next = Object.fromEntries(Object.entries(positions).filter(([id]) => known.has(id)));

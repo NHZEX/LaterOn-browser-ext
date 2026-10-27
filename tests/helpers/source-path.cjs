@@ -10,7 +10,7 @@ const sources = {
   "sidepanel.css": "wxt/entrypoints/sidepanel/style.css",
   "theme-vars.css": "src/styles/theme-vars.css",
   "translation.css": "src/styles/translation.css",
-  "background.js": "src/background/index.js",
+  "background.js": "src/background/index.ts",
   "content-folder-picker.js": "wxt/entrypoints/content-folder-picker.ts",
   "content-metadata.js": "src/content/metadata.js",
   "content-reading-position.js": "src/content/reading-position.js",

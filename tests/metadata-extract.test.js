@@ -196,7 +196,7 @@ console.log("\n=== 七、封面降级链（maxresdefault 不存在时逐级降�
 console.log("\n=== 九、重复收藏时会不会修好坏掉的旧记录 ===");
 {
   const { mergeDuplicateMetadata, isPlaceholderText, titleHasSiteNoise } =
-    require("./helpers/load-module.cjs")("src/background/duplicate-metadata.js");
+    require("./helpers/load-module.cjs")("src/background/duplicate-metadata.ts");
 
   const staleYouTube = {
     title: "YouTube",
@@ -566,7 +566,7 @@ console.log("\n=== 十七、标题抓取（og 缺失 / 陈旧 / 写成平台名�
 
 console.log("\n=== 十八、判断「标题其实没抓到 / 抓得不干净」的规则 ===");
 {
-  const { isPlaceholderText, titleHasSiteNoise } = require("./helpers/load-module.cjs")("src/background/duplicate-metadata.js");
+  const { isPlaceholderText, titleHasSiteNoise } = require("./helpers/load-module.cjs")("src/background/duplicate-metadata.ts");
 
   const cases = [
     ["https://example.com/page", "example.com", true, "标题被存成了网址"],
@@ -609,7 +609,7 @@ console.log("\n=== 十八、判断「标题其实没抓到 / 抓得不干净」�
 
 console.log("\n=== 十九、重复收藏时自动把「带尾巴的旧标题」修干净 ===");
 {
-  const { mergeDuplicateMetadata } = require("./helpers/load-module.cjs")("src/background/duplicate-metadata.js");
+  const { mergeDuplicateMetadata } = require("./helpers/load-module.cjs")("src/background/duplicate-metadata.ts");
 
   const refresh = (oldTitle, newTitle, url = "https://www.xiaohongshu.com/explore/abc", source = "xiaohongshu.com") => {
     const existing = { url, title: oldTitle, source, image: "cover.png", description: "已有摘要" };

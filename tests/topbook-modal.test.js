@@ -38,7 +38,7 @@ function check(label, condition, detail = "") {
   }
 }
 
-const BACKGROUND_SOURCE = require("./helpers/module-script.cjs")("src/background/metadata.js") + "\nObject.assign(globalThis, backgroundModule);";
+const BACKGROUND_SOURCE = require("./helpers/module-script.cjs")("src/background/metadata.ts") + "\nObject.assign(globalThis, backgroundModule);";
 
 const ARTICLE_TITLE = "AI 沟通技巧系列 ② 构建启发式 AI #人工智能 #双向费曼 # AI沟通";
 const ARTICLE_COVER = "https://cdn.labs.topbook.cc/topbook/img/pic-2014-3.jpg?imageView2/1/w/500/h/400/q/85";
@@ -85,7 +85,7 @@ function makeBareSandbox(extra = {}) {
   vm.runInContext(require("./helpers/read-runtime.cjs")("url-utils.js"), sandbox);
   sandbox.unwrapSuspendedTab = sandbox.LaterOnUrl.unwrapSuspendedTab;
   vm.runInContext(BACKGROUND_SOURCE, sandbox);
-  vm.runInContext(require("./helpers/module-script.cjs")("src/background/duplicate-metadata.js") + "\nObject.assign(globalThis, backgroundModule);", sandbox);
+  vm.runInContext(require("./helpers/module-script.cjs")("src/background/duplicate-metadata.ts") + "\nObject.assign(globalThis, backgroundModule);", sandbox);
   return sandbox;
 }
 
