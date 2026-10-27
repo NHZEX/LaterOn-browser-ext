@@ -1,3 +1,4 @@
+import { errorText } from "../shared/errors";
 import type { FolderPickerOptions, PickerProject } from "./types";
 
 // 收藏库（全屏页）和网页浮层（content script）共用的「选项目」面板。
@@ -354,7 +355,7 @@ export function openFolderPicker(options: FolderPickerOptions): { readonly close
     try {
       result = data.onPick ? await data.onPick(target.projectId ?? null, selectedName()) : null;
     } catch (error) {
-      result = { ok: false, error: (error instanceof Error && error.message) || copy.failed };
+      result = { ok: false, error: errorText(error) || copy.failed };
     }
     if (result && result.ok === false) {
       busy = false;

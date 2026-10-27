@@ -1,3 +1,35 @@
+import { errorText } from "../shared/errors";
+import type { PromptOptions, PromptValues } from "./types";
+
+export interface DialogOptions {
+  readonly tone?: "question" | "danger" | "info" | "success";
+  readonly title?: string;
+  readonly message?: string;
+  readonly confirmText?: string;
+  readonly cancelText?: string;
+  readonly cancelable?: boolean;
+  readonly hint?: string;
+}
+export interface DialogService {
+  confirm(input: string | DialogOptions): Promise<boolean>;
+  alert(input: string | DialogOptions): Promise<boolean>;
+  prompt(input: Omit<PromptOptions, "fields" | "cover" | "confirmText"> & DialogOptions & (
+    { readonly fields: PromptOptions["fields"]; readonly cover?: PromptOptions["cover"] }
+    | { readonly fields?: PromptOptions["fields"]; readonly cover: NonNullable<PromptOptions["cover"]> }
+  )): Promise<{ readonly ok: boolean; readonly values: PromptValues | null } | false>;
+  close(): void;
+  dispose(): void;
+  isOpen(): boolean;
+}
+
+type DialogResult = boolean | { readonly ok: boolean; readonly values: PromptValues | null };
+type DialogInput = DialogOptions & { readonly fields?: PromptOptions["fields"] | null; readonly cover?: PromptOptions["cover"] | null };
+type DialogConfig = Required<DialogOptions> & Pick<DialogInput, "fields" | "cover"> & { readonly onClose?: (value: DialogResult) => void };
+type CoverConfig = NonNullable<PromptOptions["cover"]>;
+type CoverCandidate = NonNullable<CoverConfig["candidates"]>[number];
+type FieldInput = { readonly name: string; readonly el: HTMLInputElement | HTMLTextAreaElement };
+type MutableValues = Record<string, string | readonly string[] | null | undefined>;
+
 // 共享的自定义弹窗：取代浏览器原生 confirm / alert，视觉与「选项目」浮层一致。
 // 页面通过构建依赖加载共享弹窗样式，并从本模块导入 dialog，然后：
 //   const ok = await dialog.confirm({ title: "删除项目？", message: "…", tone: "danger", confirmText: "删除" });
@@ -33,7 +65,7 @@
 // 也支持字符串简写：dialog.confirm("确定删除吗？")
 // 交互：回车确认（多行输入框里 ⌘/Ctrl + 回车）、Esc 取消、点遮罩取消；
 // 同一时刻只显示一个弹窗（自动排队，不会互相叠加）。
-import { t } from "../shared/i18n-runtime.js";
+import { t } from "../shared/i18n-runtime";
 const ICONS = {
   question: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.3 9.3a2.9 2.9 0 0 1 5.6 1c0 1.9-2.9 2.3-2.9 4.2M12 17.2h.01"/></svg>',
   danger: '<svg viewBox="0 0 24 24"><path d="M10.3 3.9 2.5 17.4A2 2 0 0 0 4.2 20.4h15.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9.4v4.4M12 17h.01"/></svg>',
@@ -48,8 +80,8 @@ const CLOSE_MS = 240;
 const COVER_MAX_EDGE = 720;
 const COVER_QUALITY = 0.72;
 const COVER_MAX_BYTES = 20 * 1024 * 1024;   // 超过 20MB 的原图直接拒绝，免得卡住页面
-function compressImage(file) {
-  return new Promise((resolve, reject) => {
+function compressImage(file: Blob): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error(t("imageReadFailed")));
     reader.onload = () => {
@@ -70,42 +102,42 @@ function compressImage(file) {
         context.drawImage(image, 0, 0, width, height);
         resolve(canvas.toDataURL("image/jpeg", COVER_QUALITY));
       };
-      image.src = reader.result;
+      image.src = String(reader.result);
     };
     reader.readAsDataURL(file);
   });
 }
 
-let host = null;
-let panel = null;
-let iconEl = null;
-let titleEl = null;
-let messageEl = null;
-let fieldsEl = null;
-let coverEl = null;
+let host: HTMLDivElement | null = null;
+let panel: HTMLDivElement;
+let iconEl: HTMLSpanElement;
+let titleEl: HTMLHeadingElement;
+let messageEl: HTMLParagraphElement;
+let fieldsEl: HTMLDivElement;
+let coverEl: HTMLDivElement;
 let coverValue = "";       // 封面区当前的值：data URL（上传了）或 ""（没封面/已移除）
-let picksEl = null;        // 封面组合区（只有调用方给了备选封面才显示）
-let pickStrip = null;
-let pickNoteEl = null;
-let pickIds = [];          // 已挑的封面（收藏 id，按顺序 = 拼图顺序）
-let pickCandidates = [];    // 备选封面：{ id, src, title }
+let picksEl: HTMLDivElement;        // 封面组合区（只有调用方给了备选封面才显示）
+let pickStrip: HTMLDivElement | null = null;
+let pickNoteEl: HTMLParagraphElement | null = null;
+let pickIds: string[] = [];          // 已挑的封面（收藏 id，按顺序 = 拼图顺序）
+let pickCandidates: readonly CoverCandidate[] = [];    // 备选封面：{ id, src, title }
 let pickLimit = 3;
 let pickBaseNote = "";
 let pickMuted = false;     // 上面那张自定义封面正生效 → 下面的组合暂时不参与
 let pickNoteTimer = 0;
-let pickDragId = null;     // 正在拖的封面 id（为空 = 没在拖）
+let pickDragId: string | null = null;     // 正在拖的封面 id（为空 = 没在拖）
 let pickDropIndex = 0;
-let pickLine = null;       // 插入位置的指示线
-let fieldInputs = [];
-let hintEl = null;
-let okBtn = null;
-let cancelBtn = null;
+let pickLine: HTMLDivElement | null = null;       // 插入位置的指示线
+let fieldInputs: FieldInput[] = [];
+let hintEl: HTMLParagraphElement;
+let okBtn: HTMLButtonElement;
+let cancelBtn: HTMLButtonElement;
 
-let current = null;   // 当前弹窗的配置
-let settle = null;    // 当前弹窗的收尾回调（为空表示没有弹窗在显示）
+let current: DialogConfig | null = null;   // 当前弹窗的配置
+let settle: ((value: DialogResult) => void) | null = null;    // 当前弹窗的收尾回调（为空表示没有弹窗在显示）
 let chain = Promise.resolve();
 let generation = 0;
-let finishClosing = null;
+let finishClosing: (() => void) | null = null;
 let closeTimer = 0;
 
 function build() {
@@ -138,18 +170,18 @@ function build() {
   ].join("");
   mount.append(host);
 
-  panel = host.querySelector(".lod-panel");
-  iconEl = host.querySelector(".lod-icon");
-  titleEl = host.querySelector(".lod-title");
-  messageEl = host.querySelector(".lod-message");
-  fieldsEl = host.querySelector(".lod-fields");
-  coverEl = host.querySelector(".lod-cover");
-  picksEl = host.querySelector(".lod-picks");
-  hintEl = host.querySelector(".lod-hint");
-  okBtn = host.querySelector(".lod-ok");
-  cancelBtn = host.querySelector(".lod-cancel");
+  panel = host.querySelector<HTMLDivElement>(".lod-panel")!;
+  iconEl = host.querySelector<HTMLSpanElement>(".lod-icon")!;
+  titleEl = host.querySelector<HTMLHeadingElement>(".lod-title")!;
+  messageEl = host.querySelector<HTMLParagraphElement>(".lod-message")!;
+  fieldsEl = host.querySelector<HTMLDivElement>(".lod-fields")!;
+  coverEl = host.querySelector<HTMLDivElement>(".lod-cover")!;
+  picksEl = host.querySelector<HTMLDivElement>(".lod-picks")!;
+  hintEl = host.querySelector<HTMLParagraphElement>(".lod-hint")!;
+  okBtn = host.querySelector<HTMLButtonElement>(".lod-ok")!;
+  cancelBtn = host.querySelector<HTMLButtonElement>(".lod-cancel")!;
 
-  host.querySelector(".lod-backdrop").addEventListener("click", () => {
+  host.querySelector(".lod-backdrop")!.addEventListener("click", () => {
     if (current?.cancelable) settleWith(false);
   });
   cancelBtn.addEventListener("click", () => settleWith(false));
@@ -157,7 +189,7 @@ function build() {
   host.addEventListener("keydown", onKeydown, true);
 }
 
-function onKeydown(event) {
+function onKeydown(event: KeyboardEvent) {
   if (!settle) return;
   if (event.key === "Escape") {
     if (!current?.cancelable) return;
@@ -167,15 +199,15 @@ function onKeydown(event) {
     return;
   }
   const focusables = [...fieldInputs.map((entry) => entry.el), ...pickButtons(), cancelBtn, okBtn]
-    .filter((element) => element && !element.hidden);
+    .filter((element) => !!element && !element.hidden);
   if (event.key === "Tab") {
     if (!focusables.length) return;
-    const index = focusables.indexOf(document.activeElement);
+    const index = focusables.findIndex(element => element === document.activeElement);
     const next = event.shiftKey
       ? (index <= 0 ? focusables.length - 1 : index - 1)
       : (index === -1 || index === focusables.length - 1 ? 0 : index + 1);
     event.preventDefault();
-    focusables[next].focus();
+    focusables[next]!.focus();
     return;
   }
   if (event.key === "Enter") {
@@ -191,7 +223,7 @@ function onKeydown(event) {
 }
 
 // 表单模式：按配置渲染一行行输入框（单行用 input，多行用 textarea）。
-function renderFields(fields) {
+function renderFields(fields: PromptOptions["fields"] | null | undefined) {
   fieldInputs = [];
   fieldsEl.replaceChildren();
   if (!fields?.length) { fieldsEl.hidden = true; return; }
@@ -203,13 +235,13 @@ function renderFields(fields) {
     label.className = "lod-field-label";
     label.textContent = field.label || "";
     const control = document.createElement(field.multiline ? "textarea" : "input");
-    if (!field.multiline) control.type = "text";
+    if (control instanceof HTMLInputElement) control.type = "text";
     control.className = field.multiline ? "lod-textarea" : "lod-input";
     control.dataset.field = field.name || "";
     control.value = String(field.value ?? "");
     if (field.placeholder) control.placeholder = field.placeholder;
     if (field.maxLength) control.maxLength = field.maxLength;
-    if (field.multiline) control.rows = field.rows || 4;
+    if (control instanceof HTMLTextAreaElement) control.rows = field.rows || 4;
     wrap.append(label, control);
     fieldsEl.append(wrap);
     fieldInputs.push({ name: field.name, el: control });
@@ -222,7 +254,7 @@ function renderFields(fields) {
 // 不是用户自己传的那张 —— 这种封面没有「移除」的概念，所以移除按钮先禁用，
 // 等用户真的上传了一张自己的图，才让它变得可点。
 // 再传 candidates + picks（图板专用）就会多出「封面组合」一块，见 setupPicks。
-function renderCover(config) {
+function renderCover(config: CoverConfig | null | undefined) {
   coverEl.replaceChildren();
   resetPicks();
   coverValue = config?.value || "";
@@ -301,7 +333,7 @@ function renderCover(config) {
       paint();
       note.textContent = t("coverReady");
     } catch (error) {
-      note.textContent = error?.message || t("imageProcessFailed");
+      note.textContent = errorText(error) || t("imageProcessFailed");
     } finally {
       pickBtn.disabled = false;
       pickBtn.textContent = t("uploadImage");
@@ -327,7 +359,7 @@ function renderCover(config) {
 // 再拖动缩略图决定顺序，结果是一个有序的 id 数组（空数组 = 恢复「按内容自动拼」）。
 // 拖动和项目列表一样不改 DOM：只挪一条绝对定位的指示线，松手落地才重排。
 function pickButtons() {
-  return pickStrip ? [...pickStrip.querySelectorAll(".lod-pick")] : [];
+  return pickStrip ? [...pickStrip.querySelectorAll<HTMLButtonElement>(".lod-pick")] : [];
 }
 
 function resetPicks() {
@@ -346,7 +378,7 @@ function resetPicks() {
   picksEl.classList.remove("is-muted");
 }
 
-function setupPicks(config) {
+function setupPicks(config: CoverConfig) {
   const candidates = (Array.isArray(config?.candidates) ? config.candidates : [])
     .filter((one) => one && one.id && one.src);
   if (!candidates.length) return;
@@ -368,9 +400,9 @@ function setupPicks(config) {
   strip.className = "lod-pick-strip";
   // 格子每次重画，strip 本身不换 —— 所以监听挂在这里，一次就够。
   strip.addEventListener("dragstart", (event) => {
-    const cell = event.target.closest?.(".lod-pick.is-on");
+    const cell = event.target instanceof Element ? event.target.closest<HTMLButtonElement>(".lod-pick.is-on") : null;
     if (!cell) { event.preventDefault(); return; }
-    pickDragId = cell.dataset.pick;
+    pickDragId = cell.dataset.pick!;
     pickDropIndex = pickIds.indexOf(pickDragId);
     cell.classList.add("is-dragging");
     if (event.dataTransfer) {
@@ -399,7 +431,7 @@ function setupPicks(config) {
   picksEl.hidden = false;
 }
 
-function pickCell(candidate, order) {
+function pickCell(candidate: CoverCandidate, order: number) {
   const cell = document.createElement("button");
   cell.type = "button";
   cell.className = order >= 0 ? "lod-pick is-on" : "lod-pick";
@@ -423,7 +455,7 @@ function pickCell(candidate, order) {
     cell.append(badge, close);
     cell.addEventListener("click", (event) => {
       // 点身体不做事（怕手滑删掉刚排好的），只有这个 × 才取消。
-      if (event.target.closest?.(".lod-pick-x")) removePick(candidate.id);
+      if (event.target instanceof Element && event.target.closest(".lod-pick-x")) removePick(candidate.id);
     });
   } else {
     cell.title = t("pickAddTitle", { name });
@@ -434,12 +466,12 @@ function pickCell(candidate, order) {
 
 function renderPickStrip() {
   if (!pickStrip) return;
-  const chosen = pickIds.map((id) => pickCandidates.find((one) => one.id === id)).filter(Boolean);
+  const chosen = pickIds.map((id) => pickCandidates.find((one) => one.id === id)).filter((one): one is CoverCandidate => !!one);
   const rest = pickCandidates.filter((one) => !pickIds.includes(one.id));
   pickStrip.replaceChildren();
   pickLine = null;
-  chosen.forEach((one, index) => pickStrip.append(pickCell(one, index)));
-  rest.forEach((one) => pickStrip.append(pickCell(one, -1)));
+  chosen.forEach((one, index) => pickStrip!.append(pickCell(one, index)));
+  rest.forEach((one) => pickStrip!.append(pickCell(one, -1)));
   paintPickNote();
 }
 
@@ -454,7 +486,7 @@ function paintPickNote() {
   pickNoteEl.classList.remove("is-warn");
 }
 
-function flashPickNote(message) {
+function flashPickNote(message: string) {
   if (!pickNoteEl) return;
   pickNoteEl.textContent = message;
   pickNoteEl.classList.add("is-warn");
@@ -462,21 +494,21 @@ function flashPickNote(message) {
   pickNoteTimer = window.setTimeout(() => { pickNoteTimer = 0; paintPickNote(); }, 1800);
 }
 
-function addPick(id) {
+function addPick(id: string) {
   if (pickIds.includes(id)) return;
   if (pickIds.length >= pickLimit) { flashPickNote(t("coverPickLimitError", { n: pickLimit })); return; }
   pickIds = [...pickIds, id];
   renderPickStrip();
 }
 
-function removePick(id) {
+function removePick(id: string) {
   pickIds = pickIds.filter((one) => one !== id);
   renderPickStrip();
 }
 
 // 指示线画在「要插进去的那道缝」上：绝对定位，不参与排版，
 // 所以挪它不会让任何缩略图跟着动，也就不会把下一次判定带歪。
-function movePickLine(clientX) {
+function movePickLine(clientX: number) {
   if (!pickDragId || !pickStrip) return;
   const rest = pickIds.filter((one) => one !== pickDragId);
   let index = rest.length;
@@ -522,18 +554,18 @@ function commitPickDrop() {
 }
 
 // 把表单里的当前内容收成一个 { 字段名: 值 } 对象。
-function readFields() {
-  const values = {};
+function readFields(): MutableValues {
+  const values: MutableValues = {};
   for (const entry of fieldInputs) values[entry.name] = entry.el.value;
   return values;
 }
 
-function show(config, done) {
+function show(config: DialogConfig, done: (value: DialogResult) => void) {
   build();
   current = config;
   settle = done;
 
-  host.dataset.tone = config.tone === "danger" ? "danger" : "default";
+  host!.dataset.tone = config.tone === "danger" ? "danger" : "default";
   renderFields(config.fields);
   renderCover(config.cover);
   iconEl.innerHTML = ICONS[config.tone] || ICONS.question;
@@ -550,11 +582,11 @@ function show(config, done) {
   hintEl.textContent = config.hint || fallback;
   hintEl.hidden = !hintEl.textContent;
 
-  host.hidden = false;
-  host.classList.remove("is-out", "is-in");
+  host!.hidden = false;
+  host!.classList.remove("is-out", "is-in");
   const openedHost = host;
   const version = generation;
-  const animate = () => { if (version === generation && host === openedHost && settle) host.classList.add("is-in"); };
+  const animate = () => { if (version === generation && host === openedHost && settle) host!.classList.add("is-in"); };
   if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(animate);
   else window.setTimeout(animate, 16);
   // 有输入框时把光标放进第一个框并全选，方便直接改写；没有输入框才聚焦面板本体。
@@ -567,12 +599,12 @@ function show(config, done) {
   }
 }
 
-function settleWith(result, immediately = false) {
+function settleWith(result: boolean, immediately = false) {
   if (!settle) return;
   const done = settle;
   const resolved = current;
   // 表单模式不返回布尔值，而是 { ok, values } —— 调用方要拿到用户填的内容。
-  let values = null;
+  let values: MutableValues | null = null;
   if (resolved?.fields || resolved?.cover) values = result === true ? readFields() : null;
   // 封面不在输入框里，单独塞进结果：值是 data URL 或 ""（移除封面）。
   if (values && resolved?.cover) values[resolved.cover.name || "cover"] = coverValue;
@@ -588,13 +620,13 @@ function settleWith(result, immediately = false) {
     : result;
   settle = null;
   current = null;
-  host.classList.remove("is-in");
-  host.classList.add("is-out");
+  host!.classList.remove("is-in");
+  host!.classList.add("is-out");
   finishClosing = () => {
     window.clearTimeout(closeTimer);
     finishClosing = null;
-    host.hidden = true;
-    host.classList.remove("is-out");
+    host!.hidden = true;
+    host!.classList.remove("is-out");
     done(value);
     if (resolved?.onClose) resolved.onClose(value);
   };
@@ -602,7 +634,7 @@ function settleWith(result, immediately = false) {
   else closeTimer = window.setTimeout(finishClosing, CLOSE_MS);
 }
 
-function normalize(input, defaults) {
+function normalize(input: string | DialogInput, defaults: Partial<DialogConfig>): DialogConfig {
   const base = typeof input === "string" ? { message: input } : { ...(input || {}) };
   return {
     tone: "question",
@@ -619,12 +651,12 @@ function normalize(input, defaults) {
   };
 }
 
-function open(config) {
+function open(config: DialogConfig): Promise<DialogResult> {
   const version = generation;
   const previous = chain;
   let release = () => {};
-  chain = new Promise((resolve) => { release = resolve; });
-  return previous.then(() => new Promise((resolve) => {
+  chain = new Promise<void>((resolve) => { release = resolve; });
+  return previous.then(() => new Promise<DialogResult>((resolve) => {
     if (version !== generation) { release(); resolve(false); return; }
     try {
       show(config, (value) => {
@@ -639,14 +671,14 @@ function open(config) {
   }));
 }
 
-export const dialog = {
-  confirm: (input) => open(normalize(input, { tone: "question" })),
-  alert: (input) => open(normalize(input, { tone: "info", cancelable: false, confirmText: t("gotIt") })),
+export const dialog: DialogService = {
+  confirm: (input) => open(normalize(input, { tone: "question" })).then(result => result === true),
+  alert: (input) => open(normalize(input, { tone: "info", cancelable: false, confirmText: t("gotIt") })).then(result => result === true),
   // 带输入框的弹窗。返回 { ok, values }：ok 表示点了确认，values 是 { 字段名: 内容 }。
   prompt: (input) => open(normalize(input, {
     tone: "info",
     confirmText: t("save")
-  })),
+  })).then(result => typeof result === "object" ? result : false),
   close: () => settleWith(false),
   // 页面卸载取消已显示和仍排队的请求；普通 close 仍保留逐个关闭的语义。
   dispose: () => {

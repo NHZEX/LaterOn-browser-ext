@@ -1,4 +1,4 @@
-import type { DialogService } from "./dialog.js";
+import type { DialogService } from "./dialog";
 import dialogStyleUrl from "../styles/dialog.css?url&no-inline";
 
 let pending: Promise<DialogService> | undefined;
@@ -18,7 +18,7 @@ function loadStyle(): Promise<void> {
 }
 
 export function loadDialog(needsStyle = true): Promise<DialogService> {
-  pending ??= Promise.all([needsStyle ? loadStyle() : Promise.resolve(), import("./dialog.js").then(module => module.dialog)])
+  pending ??= Promise.all([needsStyle ? loadStyle() : Promise.resolve(), import("./dialog").then(module => module.dialog)])
     .then(([, dialog]) => dialog)
     .catch(error => { pending = undefined; throw error; });
   return pending;

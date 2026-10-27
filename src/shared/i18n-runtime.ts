@@ -1,8 +1,14 @@
+import type { Browser } from "wxt/browser";
+import type { TranslationValues } from "./i18n";
+import type { StoredSettings } from "../settings/shared";
+type Language = "zh-CN" | "en";
+type Preferences = { readonly laterOnSettings?: StoredSettings };
+
 // Lightweight bilingual UI layer. Chinese remains the default for existing users;
 // changing the language is stored with the other LaterOn preferences and picked up
 // by every extension page on its next render.
 const KEY = "laterOnSettings";
-export const dictionaries = {
+export const dictionaries: Readonly<Record<Language, Readonly<Record<string, string>>>> = {
   "zh-CN": {
     unread: "未读", read: "已读", all: "全部", allProjects: "全部内容", allProjectsOverview: "全部项目", inbox: "等待整理",
     noInbox: "还没有要整理的", projects: "项目", settings: "设置", slogan: "有价值的网页，留给 LaterOn。", search: "搜索网页",
@@ -298,45 +304,47 @@ export const dictionaries = {
     movedToPosition: "Moved “{name}” to position {n}", movedIntoProject: "Moved into “{name}”", newProjectHint: "You’ll enter the new project as soon as it is created.",
   }
 };
-let language = "zh-CN";
+let language: Language = "zh-CN";
 let revision = 0;
-function format(value, vars) { return String(value).replace(/\{(\w+)\}/g, (_, k) => vars?.[k] ?? `{${k}}`); }
-export function t(key, vars) { return format((dictionaries[language] || dictionaries["zh-CN"])[key] || dictionaries["zh-CN"][key] || key, vars); }
-function updateLanguage(next) {
+function format(value: string, vars?: TranslationValues): string { return String(value).replace(/\{(\w+)\}/g, (_, k: string) => String(vars?.[k] ?? `{${k}}`)); }
+export function t(key: string, vars?: TranslationValues): string { return format((dictionaries[language] || dictionaries["zh-CN"])[key] || dictionaries["zh-CN"][key] || key, vars); }
+function updateLanguage(next: unknown): void {
   language = next === "en" ? "en" : "zh-CN";
   revision++;
   applyStatic();
   window.dispatchEvent(new CustomEvent("lateron-language-change", { detail: language }));
 }
-export async function getLanguage() {
+export async function getLanguage(): Promise<Language> {
   const started = revision;
   try {
-    const result = await chrome.storage.local.get(KEY);
+    const result = await chrome.storage.local.get<Preferences>(KEY);
     if (started === revision) language = result[KEY]?.language === "en" ? "en" : "zh-CN";
   } catch { /* Existing users retain the default when preferences are unavailable. */ }
   return language;
 }
-export async function setLanguage(next) {
+export async function setLanguage(next: Language): Promise<Language> {
   updateLanguage(next);
   const selected = language;
   try {
-    const result = await chrome.storage.local.get(KEY);
+    const result = await chrome.storage.local.get<Preferences>(KEY);
     await chrome.storage.local.set({ [KEY]: { ...(result[KEY] || {}), language: selected } });
   } catch { /* The current page can still use the selected language. */ }
   return selected;
 }
-export function applyStatic() {
+export function applyStatic(): void {
   document.documentElement.lang = language;
-  document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = t(el.dataset.i18n); });
-  document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => { el.placeholder = t(el.dataset.i18nPlaceholder); });
-  document.querySelectorAll("[data-i18n-title]").forEach((el) => { el.title = t(el.dataset.i18nTitle); });
-  document.querySelectorAll("[data-i18n-aria-label]").forEach((el) => { el.setAttribute("aria-label", t(el.dataset.i18nAriaLabel)); });
+  document.querySelectorAll<HTMLElement>("[data-i18n]").forEach((el) => { el.textContent = t(el.dataset.i18n!); });
+  document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("[data-i18n-placeholder]").forEach((el) => { el.placeholder = t(el.dataset.i18nPlaceholder!); });
+  document.querySelectorAll<HTMLElement>("[data-i18n-title]").forEach((el) => { el.title = t(el.dataset.i18nTitle!); });
+  document.querySelectorAll<HTMLElement>("[data-i18n-aria-label]").forEach((el) => { el.setAttribute("aria-label", t(el.dataset.i18nAriaLabel!)); });
 }
 // 复用首轮读取 Promise，避免同一页面重复唤醒 storage；侧栏无需等待它才画缓存。
 export const ready = getLanguage().then(applyStatic);
 // Settings changes from another extension page share the same module-owned state.
-const languageChanged = (changes, area) => {
-  if (area === "local" && changes[KEY]) updateLanguage(changes[KEY].newValue?.language);
+const languageChanged = (changes: Readonly<Record<string, Browser.storage.StorageChange>>, area: string) => {
+  if (area !== "local" || !changes[KEY]) return;
+  const value: unknown = changes[KEY].newValue;
+  updateLanguage(value && typeof value === "object" && "language" in value ? value.language : undefined);
 };
 globalThis.chrome?.storage?.onChanged?.addListener(languageChanged);
 window.addEventListener("pagehide", () => globalThis.chrome?.storage?.onChanged?.removeListener?.(languageChanged), { once: true });

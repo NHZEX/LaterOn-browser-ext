@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import type { LibraryControls } from "../../../src/library/useLibraryControls";
 import { t } from "../../../src/shared/i18n";
 import type { Translate } from "../../../src/shared/i18n";
-import { initOnboarding } from "../../../src/ui/onboarding.js";
+import { initOnboarding } from "../../../src/ui/onboarding";
 import LibraryHeader from "./LibraryHeader.vue";
 import CollectionToolbar from "./CollectionToolbar.vue";
 import ProjectNavigation from "./ProjectNavigation.vue";

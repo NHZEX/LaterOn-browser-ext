@@ -1,26 +1,37 @@
+import type { StoredSettings } from "../settings/shared";
+
+export interface BootApi {
+  readonly t0: number;
+  stage(label: string): void;
+  timings(): { readonly total: number; readonly marks: readonly (readonly [string, number])[] };
+  done(): void;
+  reveal(): void;
+}
+declare global { var LaterOnBoot: BootApi | undefined; }
+
 // 启动阶段的小助手：页面文档一进来就把「正在打开…」的骨架屏守在那里，
 // 让任何情况下都不是一块白屏；顺带把各阶段耗时记下来，方便排查「打开慢」到底慢在哪一步。
 // 必须放在 <head> 里最先加载（早于 body 解析），这样计时从页面一开始就算起。
-export function startBoot() {
+export function startBoot(): void {
   // 本脚本使用 defer，让 HTML 里的骨架能先被解析、先画出来。计时仍从导航
   // 开始算（performance.now() 的 0 点），不能从脚本终于执行时才开始算。
-  const t0 = (window.performance && performance.now) ? 0 : Date.now();
-  const elapsed = () => Math.round((((window.performance && performance.now) ? performance.now() : Date.now()) - t0));
-  const marks = [];
+  const t0 = (window.performance && typeof performance.now === "function") ? 0 : Date.now();
+  const elapsed = () => Math.round((((window.performance && typeof performance.now === "function") ? performance.now() : Date.now()) - t0));
+  const marks: [string, number][] = [];
   let revealed = false;
   let english = false;
 
   // This script paints before the regular i18n layer. Read only the saved
   // language so a slow first load does not leave English users with Chinese UI.
   try {
-    chrome.storage.local.get("laterOnSettings").then((stored) => {
+    chrome.storage.local.get<{ readonly laterOnSettings?: StoredSettings }>("laterOnSettings").then((stored) => {
       english = stored?.laterOnSettings?.language === "en";
       const opening = textOf("bootTipText");
       if (english && opening) opening.textContent = "Opening your saves…";
     });
   } catch {}
 
-  function textOf(id) {
+  function textOf(id: string) {
     return document.getElementById(id);
   }
 
@@ -28,7 +39,7 @@ export function startBoot() {
   // <head> 里的样式表是 media="print"（先不生效），这样它们不阻塞首屏渲染：
   // 浏览器可以先把内联样式支撑的骨架屏画出来。这里等它们一下载好就切换成生效。
   function activateStyles() {
-    const links = document.querySelectorAll("link[data-boot-style]");
+    const links = document.querySelectorAll<HTMLLinkElement>("link[data-boot-style]");
     for (const link of links) {
       if (link.media === "all") continue;
       // link.sheet 有值 = 这份样式表已经下载并解析好了。

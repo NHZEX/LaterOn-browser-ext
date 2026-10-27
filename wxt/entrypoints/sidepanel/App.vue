@@ -3,7 +3,7 @@ import { onBeforeUnmount, onMounted, ref } from "vue";
 import type { SidepanelControls } from "../../../src/sidepanel/useSidepanelControls";
 import { t, ready } from "../../../src/shared/i18n";
 import type { Translate } from "../../../src/shared/i18n";
-import { initOnboarding } from "../../../src/ui/onboarding.js";
+import { initOnboarding } from "../../../src/ui/onboarding";
 import { usePanelPage } from "../../../src/sidepanel/usePanelPage";
 import { usePanelActions } from "../../../src/sidepanel/usePanelActions";
 import PanelControls from "./PanelControls.vue";

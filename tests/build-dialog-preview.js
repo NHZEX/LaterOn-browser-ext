@@ -12,7 +12,7 @@ const read = (name) => fs.readFileSync(sourcePath(name), "utf8");
 const themeVars = read("theme-vars.css");
 const dialogCss = read("dialog.css");
 const { buildSync } = require("esbuild");
-const dialogJs = buildSync({ stdin: { contents: 'import { dialog } from "./src/ui/dialog.js"; window.dialogPreview = dialog;',
+const dialogJs = buildSync({ stdin: { contents: 'import { dialog } from "./src/ui/dialog.ts"; window.dialogPreview = dialog;',
   resolveDir: ROOT }, bundle: true, write: false, format: "iife", platform: "browser" }).outputFiles[0].text;
 const iconData = fs.readFileSync(sourcePath("icon128.png")).toString("base64");
 

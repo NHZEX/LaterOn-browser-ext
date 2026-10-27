@@ -1,5 +1,5 @@
 import { t } from "../shared/i18n";
-import type { DialogService } from "../ui/dialog.js";
+import type { DialogService } from "../ui/dialog";
 
 // The unlisted transport must not bundle a second language state or eager dialog.
 export function bindStorageFeedback(loadDialog: () => Promise<Pick<DialogService, "alert" | "close" | "dispose">>): () => void {

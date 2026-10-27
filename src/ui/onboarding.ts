@@ -1,4 +1,4 @@
-import { t, ready } from "../shared/i18n-runtime.js";
+import { t, ready } from "../shared/i18n-runtime";
 
 const SEEN_KEY = "laterOnOnboardingSeen";
 
@@ -9,24 +9,24 @@ function shouldForceOpen() {
   catch { return false; }
 }
 
-export async function markSeen() {
+export async function markSeen(): Promise<void> {
   try { await chrome.storage.local.set({ [SEEN_KEY]: true }); } catch {}
 }
 
-export function openOnboarding() {
+export function openOnboarding(): () => void {
   disposeCurrent();
   let step = 0;
   let closing = false;
   let alive = true;
   const previousFocus = document.activeElement;
   const events = new AbortController();
-  const timers = new Set();
-  const frames = new Set();
-  const later = (callback, delay) => {
+  const timers = new Set<number>();
+  const frames = new Set<number>();
+  const later = (callback: () => void, delay: number) => {
     const id = window.setTimeout(() => { timers.delete(id); if (alive) callback(); }, delay);
     timers.add(id);
   };
-  const frame = callback => {
+  const frame = (callback: () => void) => {
     const id = window.requestAnimationFrame(() => { frames.delete(id); if (alive) callback(); });
     frames.add(id);
   };
@@ -64,21 +64,21 @@ export function openOnboarding() {
     events.abort();
     const restore = root.contains(document.activeElement);
     root.remove();
-    if (restore && previousFocus?.isConnected) previousFocus.focus?.({ preventScroll: true });
+    if (restore && previousFocus?.isConnected && (previousFocus instanceof HTMLElement || previousFocus instanceof SVGElement)) previousFocus.focus?.({ preventScroll: true });
   };
   disposeCurrent = dispose;
-  const card = root.querySelector(".lon-guide-card");
-  const page = root.querySelector(".lon-guide-page");
+  const card = root.querySelector<HTMLElement>(".lon-guide-card")!;
+  const page = root.querySelector<HTMLElement>(".lon-guide-page")!;
   let transitioning = false;
   const render = () => {
-    const current = steps[step];
-    root.querySelector(".lon-guide-icon").textContent = current.icon;
-    root.querySelector("h2").textContent = t(current.title);
-    root.querySelector(".lon-guide-body").textContent = t(current.body);
-    root.querySelector(".lon-guide-hint").textContent = t(current.hint);
-    root.querySelector(".lon-guide-skip").textContent = t("guideSkip");
-    root.querySelector(".lon-guide-next").textContent = step === steps.length - 1 ? t("guideFinish") : t("guideNext");
-    root.querySelector(".lon-guide-progress").replaceChildren(...steps.map((_, index) => {
+    const current = steps[step]!;
+    root.querySelector<HTMLElement>(".lon-guide-icon")!.textContent = current.icon;
+    root.querySelector<HTMLElement>("h2")!.textContent = t(current.title);
+    root.querySelector<HTMLElement>(".lon-guide-body")!.textContent = t(current.body);
+    root.querySelector<HTMLElement>(".lon-guide-hint")!.textContent = t(current.hint);
+    root.querySelector<HTMLElement>(".lon-guide-skip")!.textContent = t("guideSkip");
+    root.querySelector<HTMLElement>(".lon-guide-next")!.textContent = step === steps.length - 1 ? t("guideFinish") : t("guideNext");
+    root.querySelector<HTMLElement>(".lon-guide-progress")!.replaceChildren(...steps.map((_, index) => {
       const dot = document.createElement("span");
       dot.className = index === step ? "active" : "";
       return dot;
@@ -94,8 +94,8 @@ export function openOnboarding() {
     root.classList.add("is-leaving");
     later(dispose, 180);
   };
-  root.querySelector(".lon-guide-skip").addEventListener("click", close, { signal: events.signal });
-  root.querySelector(".lon-guide-next").addEventListener("click", () => {
+  root.querySelector<HTMLElement>(".lon-guide-skip")!.addEventListener("click", close, { signal: events.signal });
+  root.querySelector<HTMLElement>(".lon-guide-next")!.addEventListener("click", () => {
     if (transitioning || closing) return;
     if (step >= steps.length - 1) { close(); return; }
     transitioning = true;
@@ -113,7 +113,7 @@ export function openOnboarding() {
   }, { signal: events.signal });
   root.addEventListener("keydown", (event) => {
     if (event.key === "Escape") close();
-    if (event.key === "Enter") { event.preventDefault(); root.querySelector(".lon-guide-next").click(); }
+    if (event.key === "Enter") { event.preventDefault(); root.querySelector<HTMLElement>(".lon-guide-next")!.click(); }
   }, { signal: events.signal });
   window.addEventListener("lateron-language-change", render, { signal: events.signal });
   render();
@@ -123,15 +123,15 @@ export function openOnboarding() {
 }
 
 // Entry-owned lifecycle: disposing during preferences/seen reads cannot open a late guide.
-export function initOnboarding() {
+export function initOnboarding(): () => void {
   let alive = true;
-  let timer;
-  let disposeGuide;
+  let timer: number | undefined;
+  let disposeGuide: (() => void) | undefined;
   const start = async () => {
     await ready;
     if (!alive) return;
     let seen = false;
-    try { seen = !!(await chrome.storage.local.get(SEEN_KEY))[SEEN_KEY]; } catch {}
+    try { seen = !!(await chrome.storage.local.get<Record<typeof SEEN_KEY, boolean>>(SEEN_KEY))[SEEN_KEY]; } catch {}
     if (!alive || (seen && !shouldForceOpen())) return;
     timer = window.setTimeout(() => { if (alive) disposeGuide = openOnboarding(); }, 220);
   };

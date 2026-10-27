@@ -14,7 +14,7 @@
 | 页面数据命令与共享队列 | [客户端](../src/storage/client.ts)、[协调器](../src/storage/coordinator.ts)、[契约](../src/storage/contracts.ts) |
 | 备份导出、预览、恢复与清空 | [后台协议](../src/backup/background.ts)、[纯数据核心](../src/backup/core.ts)；语义见 [备份说明](backup-format.md) |
 | URL 身份、标签复用与共享规则 | [URL](../src/shared/url-utils.ts)、[标签导航](../src/tabs/navigation.ts)、[筛选](../src/collection/filter.ts)、[排序](../src/shared/collection-sort.ts)、[编辑](../src/collection/item-edit.ts)、[阅读状态](../src/collection/item-state.ts) |
-| 公共界面 | [国际化](../src/shared/i18n.ts)、[弹窗加载](../src/ui/load-dialog.ts)、[弹窗](../src/ui/dialog.js)、[引导](../src/ui/onboarding.js) |
+| 公共界面 | [国际化](../src/shared/i18n.ts)、[弹窗加载](../src/ui/load-dialog.ts)、[弹窗](../src/ui/dialog.ts)、[引导](../src/ui/onboarding.ts) |
 
 ## 数据边界
 
@@ -33,11 +33,13 @@
 | 页面采用 Vue + TypeScript，领域规则用普通函数模块 | 组件管理界面，composable 连接状态与业务；Reka UI 按实际交互需要使用，简单按钮和输入保留原生元素，复用现有样式 |
 | 运行脚本和样式通过 WXT 入口或资源依赖构建 | 仓库根目录不能直接作为扩展加载；旧复制清单和辅助复制脚本已删除，业务源码不放进 public |
 | 网页脚本按需注入，保持现有 `content-*.js` 地址 | [元数据](../wxt/entrypoints/content-metadata.ts)、[阅读位置](../wxt/entrypoints/content-reading-position.ts)、[翻译](../wxt/entrypoints/content-translation.ts)、[项目浮层](../wxt/entrypoints/content-folder-picker.ts) 为 unlisted 入口，不自动匹配网页，也不进入后台冷启动依赖图 |
-| 侧栏启动独立于主页面 | [boot 入口](../wxt/entrypoints/boot.ts) → [启动逻辑](../src/sidepanel/boot.js)，保留骨架、慢打开提示和十二秒兜底；[侧栏 HTML](../wxt/entrypoints/sidepanel/index.html) 的首屏样式非阻塞加载，主脚本失败也能执行启动兜底 |
+| 侧栏启动独立于主页面 | [boot 入口](../wxt/entrypoints/boot.ts) → [启动逻辑](../src/sidepanel/boot.ts)，保留骨架、慢打开提示和十二秒兜底；[侧栏 HTML](../wxt/entrypoints/sidepanel/index.html) 的首屏样式非阻塞加载，主脚本失败也能执行启动兜底 |
 | 弹窗脚本与样式按需加载且失败可重试 | 保持首屏轻量；构建生成资源 URL，不能重新写死退休的根级样式路径；`translation.css` 另用稳定独立入口供后台注入 |
-| 保留必要的经典脚本桥接 | 原生构建已经覆盖资源归属，但不等于全量 ESM 或 TypeScript 改写；移除桥接前须核对消费者与首屏时序 |
+| 保留必要的经典脚本桥接 | 经典脚本消费者与首屏时序仍依赖这些接口；移除桥接前须核对消费者与加载顺序 |
 
 仍在使用的桥接由 `wxt/entrypoints/` 中的 `theme.ts`、`storage-client.ts`、`tab-navigation.ts`、`url-utils.ts`、`item-edit.ts`、`item-state.ts`、`collection-filter.ts` 提供；`boot.ts` 保留小型启动接口。共享模块实现只有一份，桥接只负责暴露接口及页面适配。
+
+`src/` 与 `wxt/entrypoints/` 的运行代码已全部使用 TypeScript（包括 Vue SFC）；原 JS 模块的配套 API 声明已合入 `.ts` 实现，`src/browser.d.ts` 只声明浏览器原生环境。构建配置、开发脚本与测试仍按各自工具保留 JS / MJS / CJS；包内输出的 `.js` 是构建产物。
 
 静态图标、占位图和本地化清单由 `wxt/public/` 原样交付；根目录 LICENSE 是法律声明的唯一来源，WXT 配置单项声明其交付。实际安装资源以最终构建 / ZIP 为准。
 

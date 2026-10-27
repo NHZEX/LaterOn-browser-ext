@@ -3,5 +3,5 @@ import type { Browser } from "wxt/browser";
 // Chrome MV3 exposes the native API globally, including callback overloads.
 // Keep its types separate from WXT's leading-slash asset URL helpers.
 declare global {
-  const chrome: typeof Browser;
+  var chrome: typeof Browser;
 }

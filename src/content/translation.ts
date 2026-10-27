@@ -1,3 +1,4 @@
+import { errorText } from "../shared/errors";
 export type TranslationResult =
   | { readonly ok: true; readonly translatedCount: number; readonly sourceLanguage: string }
   | { readonly ok: true; readonly removed: true }
@@ -178,7 +179,7 @@ export async function togglePageTranslation(): Promise<TranslationResult> {
     return { ok: true, translatedCount, sourceLanguage };
   } catch (error) {
     run.active = false;
-    status((error instanceof Error && error.message) || "网页翻译失败", true);
-    return { ok: false, error: (error instanceof Error && error.message) || "网页翻译失败" };
+    status(errorText(error) || "网页翻译失败", true);
+    return { ok: false, error: errorText(error) || "网页翻译失败" };
   }
 }

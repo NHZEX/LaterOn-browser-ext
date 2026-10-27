@@ -72,6 +72,14 @@ module.exports = async function verifyContentScripts(directory, {
     assert.equal(window.document.querySelectorAll('[aria-label="中文译文"]').length, 0, "Cancelled work cannot restore translations");
     assert.equal(destroyed, 2);
 
+    // Browser/API boundaries may reject with a cross-realm Error or a plain message object.
+    for (const failure of [new Error("Native translation failure"), { message: "Model download failed" }]) {
+      window.Translator = { availability: async () => { throw failure; } };
+      const rejected = plain(await window.eval(translation));
+      assert.deepEqual(rejected, { ok: false, error: failure.message });
+      assert.equal(window.document.querySelector("#lateron-translation-status").textContent, failure.message);
+    }
+
     delete window.Translator;
     const unavailable = plain(await window.eval(translation));
     assert.equal(unavailable.ok, false);

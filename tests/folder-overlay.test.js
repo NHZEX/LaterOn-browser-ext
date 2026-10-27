@@ -267,6 +267,23 @@ const PAGES = [
   await tick(300);
   anchor.remove();
 
+  for (const failure of [new Error("Project save failed"), { message: "Project write rejected" }]) {
+    let attempts = 0;
+    window.__pickerUI.openFolderPicker({ folders: FOLDERS, selected: "work", onPick: async () => {
+      if (attempts++ === 0) throw failure;
+      return { ok: true };
+    } });
+    const failedHost = document.getElementById("lateron-folder-picker");
+    const failedShadow = failedHost.shadowRoot;
+    failedShadow.querySelector(".lon-primary").click();
+    await tick();
+    check("跨上下文或普通错误对象的消息保留在选择器中", failedShadow.querySelector(".lon-summary").textContent === failure.message);
+    check("保存失败后确认按钮允许重试", !failedShadow.querySelector(".lon-primary").disabled);
+    failedShadow.querySelector(".lon-primary").click();
+    await tick(300);
+    check("重试成功后关闭选择器", !failedHost.isConnected && attempts === 2);
+  }
+
   console.log(failures === 0 ? "\n全部检查通过 🎉" : `\n有 ${failures} 项失败`);
   if (failures) process.exitCode = 1;
 })().catch((error) => {

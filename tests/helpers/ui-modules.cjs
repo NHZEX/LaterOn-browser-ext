@@ -4,9 +4,9 @@ const { buildSync } = require("esbuild");
 const { resolve } = require("node:path");
 const { outputFiles } = buildSync({
   stdin: { resolveDir: resolve(__dirname, "../.."), loader: "ts", contents: `
-    import * as i18n from "./src/shared/i18n-runtime.js";
-    import { dialog } from "./src/ui/dialog.js";
-    import * as onboarding from "./src/ui/onboarding.js";
+    import * as i18n from "./src/shared/i18n-runtime.ts";
+    import { dialog } from "./src/ui/dialog.ts";
+    import * as onboarding from "./src/ui/onboarding.ts";
     import { bindStorageFeedback } from "./src/storage/page-feedback";
     const settingsListeners = new Set();
     const changes = globalThis.chrome?.storage?.onChanged;

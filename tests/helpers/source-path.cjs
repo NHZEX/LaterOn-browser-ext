@@ -4,7 +4,7 @@ const { resolve } = require("node:path");
 
 const root = resolve(__dirname, "../..");
 const sources = {
-  "boot.js": "src/sidepanel/boot.js",
+  "boot.js": "src/sidepanel/boot.ts",
   "dialog.css": "src/styles/dialog.css",
   "onboarding.css": "src/styles/onboarding.css",
   "sidepanel.css": "wxt/entrypoints/sidepanel/style.css",

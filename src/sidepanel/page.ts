@@ -16,7 +16,3 @@ export interface PageMetadata {
   readonly favicon: string;
 }
 export interface BootSegments { page: number; cache: number; paint: number; data: number; migrate: number; other?: number; bytes?: number; error?: string }
-
-declare global {
-  var LaterOnBoot: { readonly t0: number; stage(message: string): void; done(): void } | undefined;
-}

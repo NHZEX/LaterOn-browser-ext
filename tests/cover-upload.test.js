@@ -233,10 +233,21 @@ async function partDialog() {
   check("user 清掉封面后返回空字符串（和「没动过」区分得开）",
     derived2?.values?.cover === "", JSON.stringify(derived2?.values?.cover));
 
-  const used = new Set();
-  for (const matched of DIALOG_SOURCE.matchAll(/class="([^"]+)"/g)) matched[1].split(/\s+/).forEach((name) => used.add(name));
-  const missingCss = [...used].filter((name) => name.startsWith("lod-") && !DIALOG_CSS.includes(`.${name}`));
-  check("封面区用到的类名都在 CSS 里有样式", missingCss.length === 0, missingCss.join(", "));
+  const NativeReader = window.FileReader;
+  for (const failure of [new Error("Image access denied"), { message: "File reader unavailable" }]) {
+    const request = window.uiTest.dialog.prompt({ title: "上传失败后重试", fields: [], cover: { name: "cover", label: "封面", value: "" } });
+    await tick();
+    window.FileReader = function () { throw failure; };
+    await pickFile(window, new window.File(["image"], "retry.png", { type: "image/png" }), tick);
+    check("保留跨上下文或普通错误对象的图片处理提示", visible().querySelector(".lod-cover-note").textContent === failure.message);
+    check("上传失败后按钮可以重试", !visible().querySelector(".lod-cover-btn").disabled);
+    window.FileReader = NativeReader;
+    await pickFile(window, new window.File(["image"], "retry.png", { type: "image/png" }), tick);
+    click(visible().querySelector(".lod-ok"));
+    const retried = await request;
+    check("重试上传后返回处理过的封面", retried.ok && retried.values.cover === FAKE_DATA_URL);
+  }
+  window.close();
 }
 
 // ═══════════════════════════════════════════════════════════

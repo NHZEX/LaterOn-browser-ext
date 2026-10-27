@@ -1,3 +1,4 @@
+import { errorText } from "../shared/errors";
 interface ReadingState {
   itemId: string | null;
   savedY: number;
@@ -39,7 +40,7 @@ export function registerReadingPosition(): void {
   }
 
   function isContextInvalidError(error: unknown): boolean {
-    return /extension context invalidated|context invalidated/i.test(String((error instanceof Error ? error.message : error) || ""));
+    return /extension context invalidated|context invalidated/i.test(String((errorText(error) || error) || ""));
   }
 
   function dispose() {
