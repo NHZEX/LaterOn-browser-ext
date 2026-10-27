@@ -105,7 +105,8 @@ async function verifyBuiltWorker(directory = builtDirectory) {
   };
   const context = vm.createContext({ chrome, URL, TextEncoder, crypto: webcrypto, console, setTimeout, clearTimeout, setInterval, clearInterval });
   for (const name of ["background-runtime.js", "reading-position-background.js", "modules/backup/background.js",
-    "storage-coordinator.js", "backup-core.js", "collection-picker.js"]) {
+    "storage-coordinator.js", "backup-core.js", "collection-picker.js",
+    "picker-ui.js", "save-project-picker.js", "save-project-picker.css"]) {
     assert.equal(fs.existsSync(path.join(directory, name)), false, `${name} has retired from the package`);
   }
   context.importScripts = () => { throw Error("Native background must not load classic dependencies"); };
@@ -141,6 +142,7 @@ async function verifyBuiltWorker(directory = builtDirectory) {
   await assert.rejects(page.LaterOnStorage.run("mutateItems", { operation: "delete", ids: [saved.id] }), /STALE_COLLECTION/);
   assert.equal(store.laterOnItems.length, 1);
   await verifyBuiltNavigation(directory);
+  await require("./helpers/verify-picker-page.cjs")(directory);
   verifyBuiltCollectionRules(directory);
   await verifyBuiltSettings(directory);
   await require("./helpers/verify-library-page.cjs")(directory);

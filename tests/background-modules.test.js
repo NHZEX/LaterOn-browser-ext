@@ -44,8 +44,8 @@ for (const [file, name] of [["content-metadata.js", "extractPageMetadataForShort
   assert.ok(!definitions.has(name), `${name} 的实现应留在网页脚本中`);
   assert.ok(fs.statSync(sourcePath(file)).size > 0, `${file} 注入资源存在`);
 }
-assert.ok(injected.some(files => files[0] === "picker-ui.js" && files[1] === "content-folder-picker.js"),
-  "项目选择器应先加载共享 UI 再加载入口");
+assert.ok(injected.some(files => files.length === 1 && files[0] === "content-folder-picker.js"),
+  "项目选择器通过一个自包含入口按需注入");
 
 // 源码字节数只作记录；依赖边界由 AST 检查，功能正确性由真实后台和页面回归验证。
 console.log("PASS background 原生模块依赖图和按需注入边界", sources.length, "modules");

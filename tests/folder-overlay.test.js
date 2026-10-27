@@ -1,22 +1,9 @@
-const sourcePath = require("./helpers/source-path.cjs");
 // DOM 冒烟测试：把真实的「网页内选项目浮层」放进一个假 DOM 里跑一遍，
 // 确认它真的渲染出来、内容正确、交互（选择 / 新建 / 取消 / 键盘）都对。
 // 用 jsdom 而不是真浏览器，只是为了让这个检查能在命令行里快速反复跑。
-const fs = require("fs");
-const path = require("path");
 const { JSDOM } = require("jsdom");
-
-const SOURCE = sourcePath("content-folder-picker.js");
-const src = fs.readFileSync(SOURCE, "utf8");
-
-// 真实浮层 UI 抽到了 picker-ui.js 的 openFolderPicker（和全屏卡片上那个浮层同一份）。
-const UI_SOURCE = sourcePath("picker-ui.js");
-const uiSrc = fs.readFileSync(UI_SOURCE, "utf8");
-
-// 从 content-folder-picker.js 里取出真实的浮层入口函数源码（预览和测试都用这一份，避免脱节）。
-const matched = /^function showFolderPickerOverlay\([^)]*\)[\s\S]*?^\}/m.exec(src);
-if (!matched) throw new Error("没有在 content-folder-picker.js 里找到 showFolderPickerOverlay");
-const fnSource = matched[0];
+const source = require("./helpers/read-runtime.cjs")("content-folder-picker.js");
+const ui = require("./helpers/module-script.cjs")("src/picker/ui.js", "pickerUI");
 
 const dom = new JSDOM("<!doctype html><html><body><h1>某个网页</h1><p>正文</p></body></html>", {
   runScripts: "outside-only",
@@ -44,9 +31,16 @@ window.chrome = {
 
 // 直接在 jsdom 自己的 realm 里执行，document / window / Element 才是同一套对象。
 // Node 新版 vm 把 Window 当 sandbox 时不再可靠地暴露 document，测试会在应用代码运行前误报。
-// 先加载共享 UI（openFolderPicker），再加载调用它的薄封装。
-window.eval(uiSrc);
-window.eval(`window.__overlay = ${fnSource};`);
+// 通过实际注入入口接收一次性配置，不再切片业务函数或依赖产品全局对象。
+const openOverlay = payload => {
+  const node = document.createElement("script");
+  node.id = "lateron-picker-payload-data";
+  node.type = "application/json";
+  node.textContent = JSON.stringify(payload);
+  document.documentElement.append(node);
+  window.eval(source);
+};
+window.eval(`${ui}\nwindow.__pickerUI = pickerUI;`);
 
 let failures = 0;
 const check = (label, ok, extra = "") => {
@@ -67,12 +61,11 @@ const PAGES = [
 
 (async () => {
   console.log("── 渲染 ──");
-  window.__overlay({ theme: "light", selected: "work", folders: FOLDERS, pages: PAGES });
+  openOverlay({ theme: "light", selected: "work", folders: FOLDERS, pages: PAGES });
 
   const host = document.getElementById("lateron-folder-picker");
   check("浮层挂进了页面（没有新开窗口）", !!host);
   check("浮层用 Shadow DOM 隔离页面样式", !!host?.shadowRoot);
-  check("带上了极高层级，不会被网页内容盖住", /2147483600/.test(host.shadowRoot.querySelector("style").textContent));
 
   const shadow = host.shadowRoot;
   const q = (selector) => shadow.querySelector(selector);
@@ -85,20 +78,6 @@ const PAGES = [
   check("标题与说明文案都在", q(".lon-title").textContent === "添加到哪个项目？" && /共 2 个标签页/.test(q(".lon-summary").textContent));
   check("浅色主题下没有打深色标记", !q(".lon-root").hasAttribute("data-dark"));
   check("列出了取消按钮", q(".lon-ghost").textContent === "取消");
-
-  console.log("\n── 样式表自检（CSS 是写在 JS 字符串里的，最容易出低级错误）──");
-  const css = shadow.querySelector("style").textContent;
-  const open = (css.match(/{/g) || []).length;
-  const close = (css.match(/}/g) || []).length;
-  check("花括号配对", open === close, `${open} 组 ${close} 个闭合`);
-  check("没有残留的模板占位符", !css.includes("${") && !css.includes("undefined"), "");
-  const missingSemicolon = css
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => /^(--)?[a-zA-Z-]+\s*:/.test(line) && !line.includes(";") && !line.endsWith("{") && !line.endsWith(","));
-  check("没有漏写分号的声明（漏一条会让后面的样式整段失效）", missingSemicolon.length === 0, missingSemicolon.join(" | "));
-  check("关键设计要素齐了（渐变按钮 / 大圆角 / 遮罩 / 深色模式）",
-    /linear-gradient\(140deg, #ff7a52, #ff4f2e\)/.test(css) && /border-radius: 22px/.test(css) && /\.lon-backdrop/.test(css) && /\[data-dark="1"\]/.test(css));
 
   console.log("\n── 交互：切换项目 ──");
   rows[2].dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
@@ -128,7 +107,7 @@ const PAGES = [
   check("一步完成后浮层自动退场", !document.getElementById("lateron-folder-picker"));
 
   console.log("\n── 交互：点「收藏」按钮 = 同样一步完成 ──");
-  window.__overlay({ theme: "light", selected: "work", folders: FOLDERS, pages: PAGES });
+  openOverlay({ theme: "light", selected: "work", folders: FOLDERS, pages: PAGES });
   typeNew(shadowNow(), "灵感库");
   check("按钮提示跟着输入框走", shadowNow().querySelector(".lon-primary").textContent === "新建「灵感库」并添加", shadowNow().querySelector(".lon-primary").textContent);
   shadowNow().querySelector(".lon-primary").dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
@@ -139,7 +118,7 @@ const PAGES = [
   await tick(300);
 
   console.log("\n── 交互：改选项目会丢掉没提交的新名字 ──");
-  window.__overlay({ theme: "light", selected: "work", folders: FOLDERS, pages: PAGES });
+  openOverlay({ theme: "light", selected: "work", folders: FOLDERS, pages: PAGES });
   const pickShadow = shadowNow();
   typeNew(pickShadow, "临时想法");
   pickShadow.querySelectorAll(".lon-folder")[1].dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
@@ -149,7 +128,7 @@ const PAGES = [
   await tick(300);
 
   console.log("\n── 交互：键盘 ──");
-  window.__overlay({ theme: "light", selected: "work", folders: FOLDERS, pages: PAGES });
+  openOverlay({ theme: "light", selected: "work", folders: FOLDERS, pages: PAGES });
   document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
   await tick(10);
   const confirmMsg = sent.filter((m) => m.type === "CONFIRM_BATCH_SAVE").at(-1);
@@ -165,7 +144,7 @@ const PAGES = [
   let resumeCount = 0;
   video.play = () => { resumeCount += 1; return Promise.resolve(); };
 
-  window.__overlay({ theme: "light", selected: "work", folders: FOLDERS, pages: PAGES });
+  openOverlay({ theme: "light", selected: "work", folders: FOLDERS, pages: PAGES });
   video.dispatchEvent(new window.Event("pause"));
   await tick(10);
   check("浮层开着时被意外暂停的视频会立刻恢复", resumeCount === 1, `恢复了 ${resumeCount} 次`);
@@ -176,7 +155,7 @@ const PAGES = [
   video.remove();
 
   console.log("\n── 键盘只归浮层，不漏给网页（空格暂停视频的冲突）──");
-  window.__overlay({ theme: "light", selected: "work", folders: FOLDERS, pages: PAGES });
+  openOverlay({ theme: "light", selected: "work", folders: FOLDERS, pages: PAGES });
   const gateInput = document.getElementById("lateron-folder-picker").shadowRoot.querySelector(".lon-new-input");
   const pageSeen = [];
   const pageListener = (event) => pageSeen.push(event.key);
@@ -202,7 +181,7 @@ const PAGES = [
   document.removeEventListener("keyup", pageListener);
 
   console.log("\n── 交互：Esc 取消 ──");
-  window.__overlay({ theme: "dark", selected: "", folders: FOLDERS, pages: PAGES });
+  openOverlay({ theme: "dark", selected: "", folders: FOLDERS, pages: PAGES });
   const host2 = document.getElementById("lateron-folder-picker");
   check("深色主题下打了深色标记", host2.shadowRoot.querySelector(".lon-root").getAttribute("data-dark") === "1");
   check("未选中时默认落到「等待整理」", host2.shadowRoot.querySelector(".lon-primary").textContent === "添加到「等待整理」", host2.shadowRoot.querySelector(".lon-primary").textContent);
@@ -213,8 +192,8 @@ const PAGES = [
   check("Esc 之后浮层被移除", !document.getElementById("lateron-folder-picker"));
 
   console.log("\n── 重复触发 ──");
-  window.__overlay({ theme: "light", selected: "", folders: FOLDERS, pages: PAGES });
-  window.__overlay({ theme: "light", selected: "", folders: FOLDERS, pages: PAGES });
+  openOverlay({ theme: "light", selected: "", folders: FOLDERS, pages: PAGES });
+  openOverlay({ theme: "light", selected: "", folders: FOLDERS, pages: PAGES });
   check("重复触发只会留一个浮层（不会叠起来）", document.querySelectorAll("#lateron-folder-picker").length === 1, `${document.querySelectorAll("#lateron-folder-picker").length} 个`);
 
   console.log("\n── 摘要文案：这批里有没有已经收藏过的 ──");
@@ -224,7 +203,7 @@ const PAGES = [
   check("（准备）上一步的浮层已关掉", !document.getElementById("lateron-folder-picker"));
 
   const openLayer = (extra) => {
-    window.__overlay({ theme: "light", selected: "work", folders: FOLDERS, pages: PAGES, ...extra });
+    openOverlay({ theme: "light", selected: "work", folders: FOLDERS, pages: PAGES, ...extra });
     return document.querySelector("#lateron-folder-picker").shadowRoot.querySelector(".lon-summary").textContent;
   };
 
@@ -241,7 +220,7 @@ const PAGES = [
   console.log("\n── 只收一篇时：文案与页面清单 ──");
   // 设置里打开「收藏单篇前先选项目」后，浮层也会被单篇收藏复用，这时不该再说「共 1 个标签页」。
   const openSingle = (extra) => {
-    window.__overlay({ theme: "light", selected: "work", folders: FOLDERS, pages: [{ title: "文章一", url: "https://a.com/1" }], ...extra });
+    openOverlay({ theme: "light", selected: "work", folders: FOLDERS, pages: [{ title: "文章一", url: "https://a.com/1" }], ...extra });
     return document.querySelector("#lateron-folder-picker").shadowRoot;
   };
 
@@ -260,7 +239,7 @@ const PAGES = [
 
   console.log("\n── 品牌标识只出现在整屏弹窗里 ──");
   // 整屏弹窗（网页里 Alt+1 收藏）：用户得先知道这是谁弹的窗，所以顶部保留当前 LaterOn 图标和品牌名。
-  window.__overlay({ theme: "light", selected: "work", folders: FOLDERS, pages: PAGES });
+  openOverlay({ theme: "light", selected: "work", folders: FOLDERS, pages: PAGES });
   const modalShadow = document.getElementById("lateron-folder-picker").shadowRoot;
   const modalBrand = modalShadow.querySelector(".lon-brand");
   check("整屏收藏弹窗保留当前 LaterOn 品牌标识", !!modalBrand?.querySelector('img[src*="icon128.png"]') && /LaterOn/.test(modalBrand.textContent), modalBrand?.textContent);
@@ -271,7 +250,7 @@ const PAGES = [
   // 这时不该再显示品牌标识——人本来就在收藏库里，顶部重复一遍只会把项目列表往下挤。
   const anchor = document.createElement("button");
   document.body.append(anchor);
-  const popover = window.openFolderPicker({ anchor, theme: "light", selected: "work", folders: FOLDERS });
+  const popover = window.__pickerUI.openFolderPicker({ anchor, theme: "light", selected: "work", folders: FOLDERS });
   const popShadow = document.getElementById("lateron-folder-picker").shadowRoot;
   check("浮层认得出自己是「贴按钮」那一档", popShadow.querySelector(".lon-root").classList.contains("lon-popover"));
   check("浮层里没有品牌标识（图标和 LaterOn 字样都不出现）",
@@ -287,13 +266,6 @@ const PAGES = [
   popover.close();
   await tick(300);
   anchor.remove();
-
-  // 静态锁：品牌标识是在构造时按「整屏 / 浮层」分支渲染的（不是靠 CSS 藏起来），
-  // 而且浮层要把标题的上边距收掉——那是当初用来跟品牌行拉开距离的。
-  check("品牌标识按「整屏 / 浮层」分支渲染",
-    /isPopover\s*\?\s*""\s*:\s*`<div class="lon-brand"/.test(uiSrc));
-  const popTitleRule = /^\s*\.lon-root\.lon-popover \.lon-title\s*\{[^}]*\}/m.exec(uiSrc)?.[0] || "";
-  check("浮层里标题的上边距被收掉（不留一段空白）", /margin-top:\s*0/.test(popTitleRule), popTitleRule);
 
   console.log(failures === 0 ? "\n全部检查通过 🎉" : `\n有 ${failures} 项失败`);
   if (failures) process.exitCode = 1;

@@ -7,6 +7,7 @@ const root = resolve(__dirname, "../..");
 const sources = {
   ...runtime,
   "background.js": "src/background/index.js",
+  "content-folder-picker.js": "wxt/entrypoints/content-folder-picker.ts",
   "library.css": "wxt/entrypoints/library/style.css"
 };
 

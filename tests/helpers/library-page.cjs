@@ -53,3 +53,8 @@ module.exports = function builtPage(directory, name = "library") {
   if (!pages.has(name)) { ensureBuilt(); pages.set(name, readPage(built, name)); }
   return pages.get(name);
 };
+
+module.exports.script = function builtScript(name, directory) {
+  if (!directory) ensureBuilt();
+  return fs.readFileSync(path.join(directory || built, name), "utf8");
+};

@@ -1,5 +1,7 @@
+import { openFolderPicker } from "./ui.js";
+
 // A protected suspended page cannot host the web overlay. Use LaterOn's own tab.
-(async function () {
+export async function startProjectPicker() {
   const batchId = new URL(location.href).searchParams.get("batch");
   const status = document.querySelector("#pickerStatus");
   const closeButton = document.querySelector("#closePicker");
@@ -17,7 +19,7 @@
   try {
     const response = await message("GET_PENDING_PICKER");
     if (!response?.ok) throw new Error("BATCH_EXPIRED");
-    window.openFolderPicker({
+    openFolderPicker({
       ...response.payload,
       onCreateProject: async (name) => {
         const result = await message("CREATE_PROJECT", { name });
@@ -39,4 +41,4 @@
     status.textContent = en ? "This collection request has expired or is unavailable. Start again from the page you want to add." : "这次收藏请求已过期或无法读取，请回到要收藏的页面重新发起。";
     closeButton.hidden = false;
   }
-})();
+}

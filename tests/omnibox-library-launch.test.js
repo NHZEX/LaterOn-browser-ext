@@ -45,7 +45,6 @@ window.chrome = {
 window.scrollTo = () => {};
 window.eval(read("i18n.js"));
 window.eval(read("dialog.js"));
-window.eval(read("picker-ui.js"));
 require('./helpers/item-mutation')(window);
 window.eval(require("./helpers/read-runtime.cjs")("library-page.js"));
 

@@ -38,4 +38,6 @@ pnpm test:browser
 
 CI 在 Windows / Ubuntu 上复用打包后的目录运行 `pnpm exec playwright test`，不自动重试。JSDOM 不负责布局、像素绘制或扩展权限；这些浏览器检查也不代表已验证原生侧栏外壳、系统通知展示或 Edge 全部行为。
 
+F3a 的 `picker.spec.cjs` 增加四个中英文 / 深浅主题场景，通过真实后台收藏消息验证单文件网页浮层、站点 CSS 隔离、重复打开、新建项目、旧批次拒绝、持久化及取消；独立 WXT 选择页验证主题、确认后关闭与过期提示。独立页的 JSDOM 行为验证由 `tests/helpers/verify-picker-page.cjs` 复用于 production 和自定义构建，浮层重复注入测试执行实际 WXT bundle，覆盖配置先到 / 后到、旧监听释放和失效 runtime。F3a 后本地完整 Node 回归 79/79 文件、Chromium 35/35 场景通过。
+
 采用的工具能力见 [Playwright 扩展测试](https://playwright.dev/docs/chrome-extensions)、[测试隔离](https://playwright.dev/docs/browser-contexts)及 [fake-timers](https://github.com/sinonjs/fake-timers)。其余存量测试仍按 [ITER-021](../../docs/roadmap.md#测试改进的迭代方式iter-021) 渐进改造。

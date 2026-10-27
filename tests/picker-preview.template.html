@@ -71,7 +71,7 @@
     <div class="preview-tip">这是真实实现的预览：点灰色遮罩、按 Esc 或点「取消」都能关掉浮层，再回右上角切换浅色 / 深色</div>
 
     <script>
-      // ① 先准备一个「假的扩展环境」：下面的 background.js 会用到这些浏览器接口。
+      // ① 先准备一个「假的扩展环境」：下面的项目选择注入入口会用到这些浏览器接口。
       //    只是为了让真实代码跑起来做预览，不涉及任何真实数据。
       let newFolderSeq = 0;
       window.chrome = {
@@ -124,13 +124,16 @@
       };
 
       function openOverlay(theme) {
-        // 先把上一次的浮层清掉（去掉退场动画，直接移除），再按指定主题重新弹出。
-        document.getElementById("lateron-folder-picker")?.remove();
-        if (typeof window.showFolderPickerOverlay !== "function") {
+        if (typeof window.previewInjectPicker !== "function") {
           document.querySelector(".preview-tip").textContent = "浮层实现没能加载：请重新运行 node tests/build-preview.js 生成预览页。";
           return;
         }
-        window.showFolderPickerOverlay({ theme, selected: "work", savedCount: SAMPLE.savedCount, folders: SAMPLE.folders, pages: SAMPLE.pages });
+        const node = document.createElement("script");
+        node.id = "lateron-picker-payload-data";
+        node.type = "application/json";
+        node.textContent = JSON.stringify({ theme, selected: "work", savedCount: SAMPLE.savedCount, folders: SAMPLE.folders, pages: SAMPLE.pages });
+        document.documentElement.append(node);
+        window.previewInjectPicker();
       }
 
       document.querySelectorAll(".preview-bar button").forEach((button) => {

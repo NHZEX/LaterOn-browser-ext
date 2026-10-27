@@ -112,12 +112,12 @@ pnpm install --frozen-lockfile
 | `wxt/public/` | 原样发布的图标、封面占位图与语言文件 |
 | `src/background/` | 按职责拆分的后台模块，由 WXT 直接编译依赖 |
 | `src/content/` | 按需注入网页的独立脚本 |
-| `src/picker/`、`src/ui/`、`src/styles/` | 项目选择页、公共界面脚本和共享样式 |
+| `src/picker/`、`src/ui/`、`src/styles/` | 共享项目选择模块、公共界面脚本和共享样式 |
 | `src/library/`、`src/sidepanel/`、其他 `src/` 子目录 | 页面职责模块、共享规则及存储 / 备份等领域逻辑 |
 | `scripts/`、`tests/`、`docs/` | 构建发布、回归测试与项目文档 |
 | `.output/`、`.wxt/` | 忽略的构建 / 验证产物与 WXT 生成文件 |
 
-后台已通过 WXT 原生模块构建，退出 `background-runtime.js`、后台 `importScripts` 及全局桥接；网页注入脚本及页面的包内地址保持稳定。`scripts/runtime-files.json` 仍记录 18 个注入脚本、界面脚本、共享样式及 LICENSE 的「包内路径 → 源码位置」，由 `scripts/build-assets.mjs` 交给 WXT 复制；静态资源使用 WXT public。两个辅助文件将在剩余页面与公共设施原生化后退役，迁移范围见 [目录整理方案](docs/plans/023-source-layout-and-wxt-native.md)。
+后台和项目选择页已通过 WXT 原生模块构建，共享项目选择器由收藏库、独立选择页与网页浮层显式导入；网页浮层以单文件按需注入，保留 `content-folder-picker.js` 和 `save-project-picker.html` 地址。`scripts/runtime-files.json` 仍记录 13 个其他注入脚本、界面脚本、共享样式及 LICENSE 的「包内路径 → 源码位置」，由 `scripts/build-assets.mjs` 交给 WXT 复制；静态资源使用 WXT public。两个辅助文件将在剩余公共设施原生化后退役，迁移范围见 [目录整理方案](docs/plans/023-source-layout-and-wxt-native.md)。
 
 
 | 命令 | 用途 |

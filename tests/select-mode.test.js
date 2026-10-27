@@ -10,7 +10,6 @@ const LIBRARY_HTML = require("./helpers/read-runtime.cjs")("library.html");
 const LIBRARY_SOURCE = require("./helpers/read-runtime.cjs")("library-page.js");
 const I18N_SOURCE = read("i18n.js");
 const DIALOG_SOURCE = read("dialog.js");
-const PICKER_SOURCE = read("picker-ui.js");
 const TAB_NAVIGATION_SOURCE = read("tab-navigation.js");
 
 let failures = 0;
@@ -97,7 +96,6 @@ const ITEMS = ["a", "b", "c"].map((key, index) => ({
 
   window.eval(I18N_SOURCE);
   window.eval(DIALOG_SOURCE);
-  window.eval(PICKER_SOURCE);
   window.eval(TAB_NAVIGATION_SOURCE);
   require('./helpers/item-mutation')(window);
   window.eval(LIBRARY_SOURCE);

@@ -3,7 +3,8 @@ import { projectPickerFolders, typingTarget } from "./shared";
 import { SIDEBAR_WIDTH } from "./page";
 import type { LibraryControls } from "./useLibraryControls";
 import type { LibrarySnapshot } from "./page";
-import type { LibraryCommands, ItemPickerRequest } from "./useLibraryCommands";
+import type { LibraryCommands } from "./useLibraryCommands";
+import { openFolderPicker } from "../picker/ui.js";
 import { t } from "../shared/i18n";
 
 type CommandBoundary = Parameters<LibraryCommands["bind"]>[0];
@@ -11,28 +12,16 @@ export type LibraryDialog = Pick<CommandBoundary, "prompt" | "confirm"> & {
   readonly close: () => void;
   readonly alert: (config: { tone: "danger"; title: string; message: string }) => Promise<unknown>;
 };
-interface FolderPickerOptions {
-  readonly anchor: HTMLElement;
-  readonly selected: string;
-  readonly titleText?: string;
-  readonly theme: string;
-  readonly language: string;
-  readonly folders: ReturnType<typeof projectPickerFolders>;
-  readonly onPick: ItemPickerRequest["onPick"];
-  readonly onCreateProject: (name: string) => ReturnType<ItemPickerRequest["onCreateProject"]> | null;
-}
-declare global { interface Window { openFolderPicker: (options: FolderPickerOptions) => { readonly close: () => void } } }
-
 export function bindPageAdapters(controls: LibraryControls): { mount: () => void; dispose: () => void } {
   const { commands, bulk, projects, collection } = controls;
   commands.bind({ storage: globalThis.LaterOnStorage, translate: t, toast: controls.notice.show, navigate: controls.project,
     accept: controls.storage.accept,
     prompt: config => globalThis.LaterOnDialog!.prompt(config), confirm: config => globalThis.LaterOnDialog!.confirm(config),
     closeDialog: () => globalThis.LaterOnDialog?.close(),
-    pick: request => window.openFolderPicker({ ...request, theme: controls.preferences.value.theme || "system",
+    pick: request => openFolderPicker({ ...request, theme: controls.preferences.value.theme || "system",
       language: document.documentElement.lang, folders: projectPickerFolders(collection.value, t) }) });
   bulk.bind({ translate: t, toast: controls.notice.show, mutate: commands.mutate, confirm: commands.confirm,
-    pick: request => window.openFolderPicker({ ...request, theme: controls.preferences.value.theme || "system",
+    pick: request => openFolderPicker({ ...request, theme: controls.preferences.value.theme || "system",
       language: document.documentElement.lang, folders: projectPickerFolders(collection.value, t),
       onPick: (id, name) => request.onPick(id || "", name),
       onCreateProject: name => request.current() ? projects.createFromPicker(name) : null }),

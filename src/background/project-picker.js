@@ -50,8 +50,8 @@ async function showPickerOverlay(tab, payload) {
       withTimeout(
         chrome.scripting.executeScript({
           target: { tabId: tab.id },
-          // picker-ui.js 先注入（提供 window.openFolderPicker），content-folder-picker.js 再调用它。
-          files: ["picker-ui.js", "content-folder-picker.js"]
+          // 共享面板与消息适配由 WXT 打包为一个按需入口，不依赖网页全局桥接。
+          files: ["content-folder-picker.js"]
         }),
         PICKER_INJECT_TIMEOUT_MS,
         null

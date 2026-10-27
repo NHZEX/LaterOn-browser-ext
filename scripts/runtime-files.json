@@ -1,6 +1,5 @@
 {
   "LICENSE": "LICENSE",
-  "content-folder-picker.js": "src/content/folder-picker.js",
   "content-metadata.js": "src/content/metadata.js",
   "content-reading-position.js": "src/content/reading-position.js",
   "content-translation.js": "src/content/translation.js",
@@ -8,10 +7,6 @@
   "dialog.js": "src/ui/dialog.js",
   "i18n.js": "src/shared/i18n-runtime.js",
   "onboarding.js": "src/ui/onboarding.js",
-  "picker-ui.js": "src/picker/ui.js",
-  "save-project-picker.html": "src/picker/index.html",
-  "save-project-picker.js": "src/picker/main.js",
-  "save-project-picker.css": "src/picker/style.css",
   "dialog.css": "src/styles/dialog.css",
   "onboarding.css": "src/styles/onboarding.css",
   "sidepanel.css": "wxt/entrypoints/sidepanel/style.css",

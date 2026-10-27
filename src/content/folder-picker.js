@@ -1,17 +1,8 @@
-// 注入到网页里执行的「选项目浮层」——整屏模态用法。
-// 真正的面板 UI / 交互在 picker-ui.js 的 openFolderPicker 里（和全屏卡片上那个浮层是同一份）。
-// 本文件只负责把后台传来的 payload 翻译成 openFolderPicker 的调用，并接上收藏流程的消息。
-//
-// ⚠️ 必须自包含地被注入：不依赖任何外部变量，只靠 window.openFolderPicker
-//    （由先于本文件注入的 picker-ui.js 提供）。
-// 整个入口包在函数作用域里：chrome.scripting.executeScript 可能在同一网页反复注入本文件，
-// 顶层 const / let 会留在同一个脚本世界里，第二次声明就会直接抛 SyntaxError。
-(() => {
-// 同一网页再次注入前，撤掉上一个实例还在等 payload 的一次性监听。
-// 扩展重载后旧监听若继续响应，会拿着失效的 runtime 再执行一遍浮层逻辑。
-try { window.__laterOnPickerPayloadCleanup?.(); } catch {}
+import { openFolderPicker } from "../picker/ui.js";
 
-function showFolderPickerOverlay(payload) {
+// 网页内的整屏选项目浮层：显式导入共享 UI，并接上后台收藏消息。
+// WXT 将整个入口包在函数作用域里；同一网页重复 executeScript 不会重复声明顶层变量。
+export function showFolderPickerOverlay(payload) {
   // 这个浮层可能在扩展更新后仍留在旧网页里；此时 sendMessage 会在返回 Promise
   // 之前同步抛错，所以安全包装必须同时覆盖同步 throw 与异步 reject。
   function safeRuntimeMessage(message) {
@@ -28,12 +19,7 @@ function showFolderPickerOverlay(payload) {
   const savedCount = Number(data.savedCount) || 0;
   const selected = typeof data.selected === "string" ? data.selected : "";
 
-  if (typeof window.openFolderPicker !== "function") {
-    // picker-ui.js 没先于本文件注入：收藏流程没法继续，安静退出；后台会重试网页内浮层。
-    return;
-  }
-
-  window.openFolderPicker({
+  openFolderPicker({
     theme,
     language: data.language || "zh-CN",
     folders,
@@ -51,6 +37,11 @@ function showFolderPickerOverlay(payload) {
     onCancel: () => safeRuntimeMessage({ type: "CANCEL_BATCH_SAVE", batchId: data.batchId })
   });
 }
+
+export function registerFolderPicker() {
+  // 同一网页再次注入前，撤掉上一个实例还在等 payload 的一次性监听。
+  // 扩展重载后旧监听若继续响应，会拿着失效的 runtime 再执行一遍浮层逻辑。
+  try { window.__laterOnPickerPayloadCleanup?.(); } catch {}
 
   // 后台把配置放进一个一次性 JSON 节点再执行本文件：从这里读出 payload。
   // 配置和本文件可能并行注入，所以既检查现有节点，也监听后台发出的就绪事件。
@@ -71,9 +62,7 @@ function showFolderPickerOverlay(payload) {
     if (window.__laterOnPickerPayloadCleanup === cleanupPayloadListener) delete window.__laterOnPickerPayloadCleanup;
   };
 
-  // 预览页会直接调用这个入口；重复注入时覆盖同名属性是安全的。
-  window.showFolderPickerOverlay = showFolderPickerOverlay;
   window.__laterOnPickerPayloadCleanup = cleanupPayloadListener;
   document.addEventListener("lateron-picker-payload-ready", onPayloadReady, { once: true });
   consumePickerPayload();
-})();
+}
