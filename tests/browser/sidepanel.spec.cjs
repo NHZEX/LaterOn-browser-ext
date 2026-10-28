@@ -120,17 +120,29 @@ for (const [language, theme] of [["zh-CN", "light"], ["en", "dark"]]) {
     await expect(link).toBeFocused();
     for (const width of [375, 640]) {
       await page.setViewportSize({ width, height: 800 });
+      // Resize and automatic click scrolling dismiss menus; finish both before opening one.
+      await link.scrollIntoViewIfNeeded();
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       await link.click({ button: "right" }); await expect(menu).toBeVisible();
       const box = await menu.boundingBox(); expect(box.x).toBeGreaterThanOrEqual(8); expect(box.x + box.width).toBeLessThanOrEqual(width - 7);
       await page.keyboard.press("End"); await expect(entries.nth(2)).toBeFocused();
       await page.keyboard.press("Escape"); await expect(link).toBeFocused(); await expect(menu).toHaveCount(0);
     }
     await page.setViewportSize({ width: 375, height: 800 });
+    await page.mouse.move(0, 0);
+    const settleCards = () => cards.evaluateAll(elements =>
+      Promise.all(elements.flatMap(element => element.getAnimations().map(animation => animation.finished.catch(() => {})))));
+    await settleCards();
     // 从非链接的卡片边缘用原生鼠标发起排序，验证浏览器实际 dragstart/drop 链。
-    const from = await page.locator('[data-id="c"]').boundingBox(), to = await page.locator('[data-id="a"]').boundingBox();
+    const source = page.locator('#items [data-id="c"]');
+    const from = await source.boundingBox(), to = await page.locator('[data-id="a"]').boundingBox();
     await page.mouse.move(from.x + 3, from.y + 25); await page.mouse.down();
     await page.mouse.move(from.x + 15, from.y + 35, { steps: 5 }); await expect(page.locator(".card-drag-preview")).toHaveCount(1);
-    await page.mouse.move(to.x + 30, to.y + 10, { steps: 12 }); await page.mouse.up();
+    await expect(source).toHaveClass(/dragging/);
+    await page.mouse.move(to.x + 30, to.y + 30, { steps: 12 });
+    // Finish the insertion animation and deliver a final native dragover before release.
+    await settleCards();
+    await page.mouse.move(to.x + 32, to.y + 32); await page.mouse.up();
     const order = () => cards.evaluateAll(elements => elements.map(element => element.dataset.id));
     await expect.poll(order).toEqual(["c", "a", "b"]);
     await expect.poll(() => extension.worker.evaluate(async () => (await chrome.storage.local.get("laterOnOrder")).laterOnOrder.unfiled)).toEqual(["c", "a", "b", "hidden"]);

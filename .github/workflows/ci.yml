@@ -26,31 +26,40 @@ jobs:
       version: ${{ steps.bundle.outputs.version }}
     steps:
       - uses: actions/checkout@v7.0.1
+        timeout-minutes: 3
         with:
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-node@v7.1.0
+        timeout-minutes: 3
         with:
           node-version-file: package.json
           package-manager-cache: false
       - uses: pnpm/action-setup@v6.1.0
+        timeout-minutes: 3
         with:
           run_install: false
           cache: true
       - name: Install locked dependencies
+        timeout-minutes: 5
         run: pnpm install --frozen-lockfile
       - name: Check TypeScript
+        timeout-minutes: 3
         run: pnpm typecheck
       - name: Run tests
+        timeout-minutes: 8
         run: pnpm test
       - name: Check sidebar test isolation
-        run: node --test tests/panel-fast-open.test.js
+        timeout-minutes: 2
+        run: node --test --test-timeout=90000 tests/panel-fast-open.test.js
         env:
           PANEL_TEST_ORDER: reverse
       - name: Build local installation archive
+        timeout-minutes: 3
         run: pnpm zip
       - name: Prepare checked release files
         id: bundle
+        timeout-minutes: 1
         shell: bash
         run: |
           args=()
@@ -59,11 +68,15 @@ jobs:
           fi
           pnpm release:prepare "${args[@]}"
       - name: Install test Chromium
+        # Slow Ubuntu mirrors can take several minutes to download browser fonts.
+        timeout-minutes: 10
         run: pnpm exec playwright install --with-deps --no-shell chromium
       - name: Test built extension in Chromium
         id: browser
+        timeout-minutes: 8
         run: pnpm exec playwright test
       - name: Save browser failure diagnostics
+        timeout-minutes: 2
         if: failure() && steps.browser.outcome == 'failure'
         uses: actions/upload-artifact@v7.0.2
         with:
@@ -74,6 +87,7 @@ jobs:
           overwrite: true
       - name: Save checked packages
         id: upload
+        timeout-minutes: 2
         uses: actions/upload-artifact@v7.0.2
         with:
           name: lateron-${{ github.sha }}
@@ -95,11 +109,13 @@ jobs:
       contents: write
     steps:
       - name: Download the checked artifact
+        timeout-minutes: 2
         uses: actions/download-artifact@v8.0.2
         with:
           artifact-ids: ${{ needs.validate.outputs.artifact-id }}
           path: release
       - name: Publish complete release
+        timeout-minutes: 5
         working-directory: release
         env:
           GH_TOKEN: ${{ github.token }}

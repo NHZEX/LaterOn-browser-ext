@@ -300,8 +300,14 @@ test("鼠标可从卡片空白处发起原生拖拽并保存顺序", async ({ pa
   await page.mouse.down();
   await page.mouse.move(from.x + 20, from.y + 20, { steps: 5 });
   await expect(source).toHaveClass(/dragging/);
-  await page.mouse.move(to.x + 8, to.y + 8, { steps: 12 });
-  await page.mouse.move(to.x + 10, to.y + 10);
+  await page.mouse.move(to.x + 30, to.y + 40, { steps: 12 });
+  // Let the insertion preview settle before the final native dragover and drop.
+  // Releasing over a moving rounded corner can cancel the browser's drop target.
+  await expect.poll(async () => {
+    const box = await source.boundingBox();
+    return Math.abs(box.x - to.x);
+  }).toBeLessThan(1);
+  await page.mouse.move(to.x + 32, to.y + 42);
   await page.mouse.up();
   await expect.poll(() => ids(page)).toEqual(["n-3", "n-0", "n-1", "n-2"]);
   await expect.poll(() => extension.worker.evaluate(async () => (await chrome.storage.local.get("laterOnOrder")).laterOnOrder.unfiled)).toEqual(["n-3", "n-0", "n-1", "n-2"]);
@@ -382,10 +388,14 @@ for (const [theme, language] of [["light", "zh-CN"], ["dark", "en"]]) {
     await page.setViewportSize({ width: 375, height: 640 });
     await settleCards(page);
     async function openCardMenu() {
-      // The menu dismisses on scroll. Finish locator auto-scrolling before opening it.
-      await card.scrollIntoViewIfNeeded();
-      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-      await card.click({ button: "right", position: { x: 8, y: 8 } });
+      await test.step("右键打开卡片菜单", async () => {
+        // A tall card's top-left corner can sit behind the sticky header after scrolling.
+        // Scroll its title into view and settle scrolling before opening the real menu.
+        const title = card.locator(".title-link");
+        await title.scrollIntoViewIfNeeded();
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        await title.click({ button: "right" });
+      });
     }
     await openCardMenu();
     await expect(popup).toBeVisible();
@@ -394,16 +404,25 @@ for (const [theme, language] of [["light", "zh-CN"], ["dark", "en"]]) {
     expect(box.x).toBeGreaterThanOrEqual(7); expect(box.y).toBeGreaterThanOrEqual(7);
     expect(box.x + box.width).toBeLessThanOrEqual(368); expect(box.y + box.height).toBeLessThanOrEqual(633);
     await page.screenshot({ path: test.info().outputPath(`library-menu-${theme}.png`) });
-    await page.setViewportSize({ width: 390, height: 640 }); await expect(popup).toHaveCount(0);
-    await openCardMenu();
-    await page.mouse.wheel(0, 400); await expect(popup).toHaveCount(0);
-    await openCardMenu();
-    await page.locator("#searchInput").click(); await expect(popup).toHaveCount(0);
-    await openCardMenu();
-    await expect(popup).toBeVisible();
-    await expect(popup.locator('[data-action="open"]')).toBeFocused();
-    await extension.worker.evaluate(() => chrome.storage.local.set({ laterOnItems: [] }));
-    await expect(popup).toHaveCount(0); await expect(page.locator("#searchInput")).toBeFocused();
+    await test.step("改变视口关闭菜单", async () => {
+      // Keep the viewport shorter than the card to cover sticky-header interception.
+      await page.setViewportSize({ width: 390, height: 320 }); await expect(popup).toHaveCount(0);
+    });
+    await test.step("滚动关闭菜单", async () => {
+      await openCardMenu();
+      await page.mouse.wheel(0, 400); await expect(popup).toHaveCount(0);
+    });
+    await test.step("点击搜索框关闭菜单", async () => {
+      await openCardMenu();
+      await page.locator("#searchInput").click(); await expect(popup).toHaveCount(0);
+    });
+    await test.step("删除菜单目标后关闭并恢复焦点", async () => {
+      await openCardMenu();
+      await expect(popup).toBeVisible();
+      await expect(popup.locator('[data-action="open"]')).toBeFocused();
+      await extension.worker.evaluate(() => chrome.storage.local.set({ laterOnItems: [] }));
+      await expect(popup).toHaveCount(0); await expect(page.locator("#searchInput")).toBeFocused();
+    });
     expect(errors).toEqual([]);
   });
 }
