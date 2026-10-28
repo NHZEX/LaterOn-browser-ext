@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "__MSG_extensionName__",
-  "version": "1.70.5",
+  "version": "1.70.6",
   "key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEjadVL3Xz5gq+lacx3vdxDFNeHSiYlLn2/enUcSa7/8u7hO55iLrW1Cc73zNsK71oJSXJH1YX91ND94b7eDTADg==",
   "default_locale": "zh_CN",
   "minimum_chrome_version": "121",
