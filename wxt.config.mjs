@@ -19,7 +19,7 @@ export default defineConfig({
     const { key, ...storeManifest } = manifest;
     return mode === "store" ? storeManifest : manifest;
   },
-  zip: { artifactTemplate: "LaterOn-{{version}}{{modeSuffix}}.zip", zipSources: false },
+  zip: { artifactTemplate: "StaySide-{{version}}{{modeSuffix}}.zip", zipSources: false },
   hooks: {
     "vite:build:extendConfig"(entries, config) {
       if (entries.some(entry => entry.type === "unlisted-style" && entry.name === "translation")) {

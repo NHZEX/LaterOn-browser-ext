@@ -38,7 +38,7 @@ const tick = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
   const host = window.document.querySelector("#lateron-reading-position");
   check("有历史位置时显示轻量提示", !!host);
   check("提示只说继续上次位置", host?.shadowRoot?.querySelector(".resume")?.textContent === "继续上次位置");
-  check("提示使用当前 LaterOn 图标", host?.shadowRoot?.querySelector(".mark")?.getAttribute("src") === "chrome-extension://lateron/icon128.png");
+  check("提示使用当前 StaySide 图标", host?.shadowRoot?.querySelector(".mark")?.getAttribute("src") === "chrome-extension://lateron/icon128.png");
   check("关闭按钮使用居中的 SVG，而不是字体乘号", !!host?.shadowRoot?.querySelector(".close svg"));
   check("尚未选择时不会用页面顶部覆盖旧位置", messages.length === 0);
 

@@ -299,7 +299,7 @@ const check = (label, ok, extra = "") => {
     id: 88,
     windowId: 1,
     url: "chrome-extension://lateron/library.html",
-    title: "LaterOn · 我的收藏"
+    title: "StaySide · 我的收藏"
   });
   const libraryNotice = runtimeNotices.at(-1);
   check("给全屏收藏库发送页内提示", runtimeNotices.length === noticesBefore + 1 && libraryNotice?.type === "SHOW_LIBRARY_NOTICE", JSON.stringify(libraryNotice));

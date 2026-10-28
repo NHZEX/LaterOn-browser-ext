@@ -2,7 +2,7 @@ import type { FolderPickerOptions, PickerProject } from "./types";
 import type { StoredSettings } from "../settings/shared";
 import { openFolderPicker } from "./ui";
 
-// A protected suspended page cannot host the web overlay. Use LaterOn's own tab.
+// A protected suspended page cannot host the web overlay. Use StaySide's own tab.
 export async function startProjectPicker(): Promise<void> {
   const batchId = new URL(location.href).searchParams.get("batch");
   const status = document.querySelector<HTMLElement>("#pickerStatus")!;
@@ -16,7 +16,7 @@ export async function startProjectPicker(): Promise<void> {
   const settings = await chrome.storage.local.get<{ readonly laterOnSettings?: StoredSettings }>("laterOnSettings").catch((): { readonly laterOnSettings?: StoredSettings } => ({}));
   const en = settings.laterOnSettings?.language === "en";
   document.documentElement.lang = en ? "en" : "zh-CN";
-  document.title = en ? "Choose a project · LaterOn" : "选择项目 · LaterOn";
+  document.title = en ? "Choose a project · StaySide" : "选择项目 · StaySide";
   closeButton.textContent = en ? "Close" : "关闭";
   try {
     const response = await message("GET_PENDING_PICKER");

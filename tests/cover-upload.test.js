@@ -373,7 +373,7 @@ async function partLibrary() {
   check("移除封面写进了库（image 变空）", saved?.image === "", String(saved?.image).slice(0, 30));
   check("标记为「封面由用户定过」", saved?.imageEdited === true, String(saved?.imageEdited));
   check("卡片上的封面图被撤掉", coverSrc("item-1") === "", coverSrc("item-1"));
-  check("退回 LaterOn 的 Logo 占位", !!card("item-1")?.querySelector(".cover .cover-placeholder"));
+  check("退回 StaySide 的 Logo 占位", !!card("item-1")?.querySelector(".cover .cover-placeholder"));
 
   // ── 上传一张自己的图 ──
   click(card("item-1").querySelector(".edit"));

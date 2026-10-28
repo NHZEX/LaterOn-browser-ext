@@ -27,7 +27,7 @@ body {
 }
 .settings-brand .logo {
   display: block; width: 40px; height: 40px; border-radius: 11px;
-  box-shadow: 0 7px 16px -6px rgba(255,80,50,.6);
+  box-shadow: 0 7px 16px -6px rgba(255,173,10,.35);
 }
 /* 返回按钮：挪到顶栏右侧，与品牌标识左右呼应；用和全屏页搜索框同款的玻璃胶囊。 */
 .settings-back {
@@ -96,7 +96,7 @@ body {
 .switch { position: relative; display: inline-block; width: 46px; height: 27px; flex: none; padding: 0; border: 0; border-radius: 99px; background: transparent; cursor: pointer; }
 .switch .slider { position: absolute; inset: 0; border-radius: 99px; background: var(--btn-soft); border: 1px solid var(--hairline-2); transition: background .2s; }
 .switch .slider::before { content: ""; position: absolute; top: 2px; left: 2px; width: 21px; height: 21px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: transform .2s; }
-.switch[data-state="checked"] .slider { background: var(--accent); border-color: var(--accent); }
+.switch[data-state="checked"] .slider { background: var(--accent-fill); border-color: var(--accent); }
 .switch[data-state="checked"] .slider::before { transform: translateX(19px); }
 
 .setting-select {
@@ -118,7 +118,7 @@ body {
 
 .setting-action { border: 1px solid var(--hairline-2); border-radius: 12px; padding: 9px 16px; background: var(--field); color: var(--ink); font-size: 13px; font-weight: 650; cursor: pointer; transition: background .15s, border-color .15s; }
 .setting-action:hover { background: var(--btn-soft); }
-.setting-action.danger { color: #df4c31; border-color: rgba(223,76,49,.3); background: var(--accent-soft); }
+.setting-action.danger { color: var(--danger); border-color: var(--danger); background: var(--danger-soft); }
 .setting-action.danger:hover { background: rgba(223,76,49,.16); }
 .data-actions { display: flex; flex-direction: column; align-items: flex-start; flex-shrink: 0; max-width: 100%; gap: 8px; }
 .import-actions { display: flex; flex-wrap: wrap; max-width: 100%; gap: 8px; }
@@ -128,7 +128,7 @@ body {
 .export-images:has(input:disabled) { opacity: .55; cursor: wait; }
 .setting-action:disabled, .setting-select:disabled { opacity: .55; cursor: wait; }
 .danger-row { align-items: flex-start; }
-.danger-row .setting-label strong { color: #df4c31; }
+.danger-row .setting-label strong { color: var(--danger); }
 
 .settings-dialog-message { white-space: pre-line; }
 .settings-main button:disabled, .settings-main input:disabled, .settings-main select:disabled { opacity: .5; cursor: default; }

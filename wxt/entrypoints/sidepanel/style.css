@@ -6,9 +6,10 @@
 body { min-width: 280px; margin: 0; padding: 0; background: var(--paper); color: var(--ink); }
 button, input { font: inherit; }
 button { cursor: pointer; }
+button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 header { position: sticky; z-index: 5; top: 0; display: flex; align-items: center; justify-content: space-between; height: 58px; margin: 0; padding: 0 15px; border-bottom: 1px solid var(--hairline-2); background: var(--topbar-bg); backdrop-filter: blur(15px); }
 .brand { display:flex; align-items:center; gap:7px; font-size:17px; font-weight:850; letter-spacing:-.5px; }
-.brand-icon { display:block; width:25px; height:25px; border-radius:6px; box-shadow:0 4px 12px -5px rgba(255,80,50,.6); }
+.brand-icon { display:block; width:25px; height:25px; border-radius:6px; box-shadow:0 4px 12px -5px rgba(255,173,10,.35); }
 .icon-button { display:grid; place-items:center; width:33px; height:33px; border:1px solid var(--line); border-radius:9px; background:var(--field); color:var(--chip-text); }
 .icon-button:hover { color:var(--ink); border-color:var(--subtle); }
 .icon-button svg { width:16px; fill:none; stroke:currentColor; stroke-linecap:round; stroke-width:1.7; }
@@ -21,28 +22,29 @@ main { padding:14px 13px 30px; }
 .current-copy { min-width:0; }
 .current-copy p { overflow:hidden; margin:0 0 4px; color:var(--muted); font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
 .current-copy h1 { display:-webkit-box; overflow:hidden; margin:0; font-size:12px; line-height:1.4; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
-#saveCurrent { display:flex; align-items:center; gap:4px; border:1px solid transparent; border-radius:9px; padding:8px 9px; background:var(--active-bg); color:var(--active-text); font-size:11px; font-weight:700; transition:background .15s,color .15s,border-color .15s; }
+#saveCurrent { display:flex; align-items:center; gap:4px; border:1px solid transparent; border-radius:9px; padding:8px 9px; background:var(--accent-fill); color:var(--accent-on); font-size:11px; font-weight:700; transition:background .15s,color .15s,border-color .15s; }
 #saveCurrent:disabled { opacity:.35; cursor:wait; }
-#saveCurrent.done { background:#2d7a4f; }
-#saveCurrent.saved { border-color:var(--line); background:var(--accent-soft); color:var(--accent); }
+#saveCurrent.done { background:var(--success); color:var(--success-on); }
+#saveCurrent.saved { border-color:var(--success); background:var(--success-soft); color:var(--success); }
 #saveCurrent.saved:disabled { opacity:1; cursor:default; }
 #status { min-height:13px; margin:5px 3px 2px; color:var(--accent); font-size:10px; }
 .search { display:flex; align-items:center; margin-top:8px; padding:9px 10px; border:1px solid var(--line); border-radius:10px; background:var(--field); }
+.search:focus-within { border-color:var(--accent); box-shadow:0 0 0 3px rgba(var(--accent-rgb),.14); }
 .search svg { width:15px; fill:none; stroke:var(--muted); stroke-linecap:round; stroke-width:1.8; }
 .search input { min-width:0; width:100%; border:0; outline:0; padding:0 7px; background:transparent; color:var(--ink); font-size:11px; }
 .filter-row { display:flex; align-items:center; justify-content:space-between; margin:12px 1px 9px; }
 .filters { display:flex; gap:3px; }
 .filter { border:0; border-radius:99px; padding:5px 9px; background:transparent; color:var(--chip-text); font-size:10px; }
-.filter.active { background:var(--btn-soft); color:var(--ink); font-weight:700; }
+.filter.active { background:var(--active-bg); color:var(--active-text); font-weight:700; }
 #itemCount { color:var(--subtle); font-size:10px; }
 .project-filters { display:flex; gap:5px; overflow-x:auto; margin:0 -13px 10px; padding:0 13px 3px; scrollbar-width:none; }
 .project-filters::-webkit-scrollbar { display:none; }
 .project-filter { flex:0 0 auto; display:flex; align-items:center; gap:5px; max-width:150px; border:1px solid var(--line); border-radius:8px; padding:6px 8px; background:var(--card); color:var(--chip-text); font-size:9.5px; white-space:nowrap; }
 .project-filter:hover { border-color:var(--subtle); color:var(--ink); }
-.project-filter.active { border-color:var(--active-bg); background:var(--active-bg); color:var(--active-text); }
+.project-filter.active { border-color:var(--accent); background:var(--active-bg); color:var(--active-text); }
 .project-filter .project-name { overflow:hidden; text-overflow:ellipsis; }
 .project-filter strong { color:var(--subtle); font-size:8px; font-weight:600; }
-.project-filter.active strong { color:rgba(255,255,255,.6); }
+.project-filter.active strong { color:var(--active-text); }
 .items { display:flex; flex-direction:column; gap:8px; }
 .item { position:relative; overflow:hidden; border:1px solid var(--line); border-radius:12px; background:var(--card); transition:border-color .15s, transform .15s; }
 .item:hover { border-color:var(--subtle); transform:translateY(-1px); }
@@ -63,13 +65,12 @@ main { padding:14px 13px 30px; }
    图片永远填满剩下的空间。否则占位里那张 Logo 会按自身比例把卡片反过来顶高。 */
 .thumb { position:relative; width:92px; height:auto; min-height:92px; overflow:hidden; background:var(--cover-bg); }
 .thumb img { width:100%; height:100%; object-fit:cover; }
-/* 没抓到封面时的兜底：和完整界面一样铺满显示 LaterOn 的 Logo 砖，而不是一个箭头。 */
-.thumb-placeholder { position:absolute; inset:0; display:grid; place-items:center; background:linear-gradient(140deg,#ff7a45,#ff5c35); }
+/* 没抓到封面时保留完整品牌图形，底色沿用当前主题的封面背景。 */
+.thumb-placeholder { position:absolute; inset:0; display:grid; place-items:center; background:var(--cover-bg); }
 /* 真实封面：盖在占位之上（它在 DOM 里排在占位前面，不给 z-index 会被占位挡住）。 */
 .thumb .thumb-img { position:absolute; inset:0; z-index:1; }
-.thumb-logo { display:block; width:100%; height:100%; object-fit:cover; }
+.thumb-logo { display:block; width:100%; height:100%; object-fit:contain; }
 .thumb-placeholder .thumb-logo { border-radius: 0; }
-.thumb-placeholder .thumb-logo { transform: scale(1.12); }
 .copy { min-width:0; padding:10px 29px 9px 11px; }
 .meta { display:grid; grid-template-columns:14px minmax(0,1fr) auto auto; align-items:center; column-gap:4px; min-width:0; width:100%; color:var(--subtle); font-size:9px; white-space:nowrap; }
 .meta img { width:14px; height:14px; border-radius:50%; object-fit:cover; }
@@ -86,9 +87,9 @@ main { padding:14px 13px 30px; }
    位置还占着，标题和来源不会因为少了一个词而左右跳动。 */
 .edit { right:35px; }
 .delete { right:6px; }
-.item:hover .edit, .item:hover .delete { opacity:1; }
+.item:hover .edit, .item:hover .delete, .edit:focus-visible, .delete:focus-visible { opacity:1; }
 .edit:hover { background:var(--btn-soft); color:var(--ink); }
-.delete:hover { background:var(--accent-soft); color:var(--accent); }
+.delete:hover { background:var(--danger-soft); color:var(--danger); }
 .edit svg, .delete svg { width:14px; fill:none; stroke:currentColor; stroke-linecap:round; stroke-linejoin:round; stroke-width:1.6; }
 /* 与全屏页面共用同一套右键菜单视觉；侧栏只保留打开、编辑、删除三项。 */
 .folder-menu {
@@ -105,7 +106,8 @@ main { padding:14px 13px 30px; }
   color:var(--field-text); font-family:inherit; font-size:12.5px; text-align:left;
   transition:background .12s, color .12s;
 }
-.folder-menu-item:hover, .folder-menu-item:focus-visible { outline:0; background:var(--btn-soft); color:var(--ink); }
+.folder-menu-item:hover { background:var(--btn-soft); color:var(--ink); }
+.folder-menu-item:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; background:var(--btn-soft); color:var(--ink); }
 .folder-menu-item svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
 .folder-menu-item.danger { color:#d94841; }
 .folder-menu-item.danger:hover { background:rgba(217,72,65,.1); color:#c93a2c; }
@@ -195,7 +197,7 @@ body.booting #appBody { display:none; }
 /* 悬停（或键盘聚焦）才浮出来 */
 .item:hover .read-toggle, .read-toggle:focus-visible { opacity:1; }
 /* 鼠标放到按钮上：整颗变主题色高亮（和全屏界面一致） */
-.read-toggle:hover, .read-toggle:focus-visible { background:var(--accent); color:#fff; }
+.read-toggle:hover, .read-toggle:focus-visible { background:var(--accent-fill); color:var(--accent-on); }
 /* 触屏没有「悬停」这一说，按钮常驻显示 */
 @media (hover: none) { .read-toggle { opacity:1; } }
 /* 已读：整卡变浅 + 标题、摘要都划线（和全屏一致）。 */
@@ -204,12 +206,12 @@ body.booting #appBody { display:none; }
 /* 在读（已点开但还没标完成）不做任何视觉高亮：用户反馈橙框太扎眼。
    在读与未读在界面上看起来一样，只有手动标「已读」后才变浅划线。 */
 /* 当前正在阅读的那篇：和全屏界面用一致的「橙圈 + 左上角『正在读』」标出来。 */
-.item.is-current { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(255,92,53,.5); }
+.item.is-current { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(var(--accent-rgb),.5); }
 .item.is-current::after {
   content: attr(data-current-label);
   position: absolute; top: 7px; left: 7px; z-index: 3;
   padding: 2px 8px; border-radius: 99px;
-  background: var(--accent); color: #fff;
+  background: var(--accent-fill); color: var(--accent-on);
   font-size: 9px; font-weight: 700; letter-spacing: .2px;
   pointer-events: none;
 }

@@ -95,7 +95,7 @@ export function usePanelDiagnostics(cache: PanelCache, count: () => number) {
     const full = { ...seg, other };
     // 数据超过 300 KB 就值得一说：正常只有几十 KB，大说明里面混进了图片之类的大块内容。
     const slow = slowestResources();
-    try { console.info(`[LaterOn] 打开耗时 总 ${total} 毫秒`, full, slow); } catch {}
+    try { console.info(`[StaySide] 打开耗时 总 ${total} 毫秒`, full, slow); } catch {}
     // 本地快照读起来比预期的慢很多 → 说明这台机器上 localStorage 本身就是慢的，
     // 那就别再一遍遍去读它了（集合更新会安排快照写入，慢起来是叠加的）。
     if (seg.cache > 400) cache.disable();

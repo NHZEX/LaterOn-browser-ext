@@ -4,7 +4,7 @@ import type { BackgroundSnapshot } from "./shared";
 import { isWebUrl, usesEnglish, STORAGE_KEY, PROJECTS_KEY, CURRENT_ITEM_KEY } from "./shared";
 import { normalize as normalizeUrl } from "../shared/url-utils";
 
-// ── 地址栏搜索：输入 `lo` + 空格后直接查 LaterOn ─────────────
+// ── 地址栏搜索：输入 `lo` + 空格后直接查 StaySide ─────────────
 function escapeOmniboxText(value: string | undefined): string {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -42,8 +42,8 @@ async function setOmniboxDefault(text = "") {
   const en = await usesEnglish();
   const value = escapeOmniboxText(String(text || "").trim());
   const description = value
-    ? (en ? `Search LaterOn for <match>${value}</match>` : `在 LaterOn 中搜索 <match>${value}</match>`)
-    : (en ? "Search your LaterOn pages" : "搜索 LaterOn 网页");
+    ? (en ? `Search StaySide for <match>${value}</match>` : `在 StaySide 中搜索 <match>${value}</match>`)
+    : (en ? "Search your StaySide pages" : "搜索 StaySide 网页");
   await chrome.omnibox.setDefaultSuggestion({ description }).catch(() => {});
 }
 

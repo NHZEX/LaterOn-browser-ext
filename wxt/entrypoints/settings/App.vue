@@ -90,7 +90,7 @@ async function home(event: MouseEvent): Promise<void> {
 }
 async function init(): Promise<void> {
   loadError.value = false;
-  document.title = `LaterOn · ${t("settings")}`;
+  document.title = `StaySide · ${t("settings")}`;
   try { current.value = await settings.get(); }
   catch { loadError.value = true; }
 }
@@ -100,7 +100,7 @@ onMounted(init);
 
 <template>
   <header class="settings-top">
-    <a id="settingsHome" class="settings-brand" href="library.html" :aria-label="t('home')" :title="t('home')" @click="home"><img class="logo" :src="iconUrl" width="40" height="40" alt="" /><span class="brand-name">LaterOn</span></a>
+    <a id="settingsHome" class="settings-brand" href="library.html" :aria-label="t('home')" :title="t('home')" @click="home"><img class="logo" :src="iconUrl" width="40" height="40" alt="" /><span class="brand-name">StaySide</span></a>
     <a id="back" class="settings-back" href="library.html" @click="back">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5m0 0 6-6m-6 6 6 6" /></svg><span>{{ t('back') }}</span>
     </a>

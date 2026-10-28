@@ -329,11 +329,9 @@ const cardFolderOptions = () => [...document.querySelectorAll(".card .project-se
   const firstCol = Number(/grid-template-columns:\s*(\d+)px/.exec(navBase)?.[1] || 0);
   const thumbW = Number(/width:\s*(\d+)px/.exec(ruleOf("\\.project-thumb"))?.[1] || 0);
   const thumbImg = ruleOf("\\.project-thumb\\s+img");
-  const phRule = ruleOf("\\.project-ph");
   check("项目行声明了列间距（否则文字会贴着缩略图）", colGap >= 6, `column-gap=${colGap}px`);
   check("缩略图宽度和栅格第一列一致（对不齐就会挤出格子）", firstCol > 0 && firstCol === thumbW, `列=${firstCol}px 缩略图=${thumbW}px`);
   check("缩略图是圆角方块、图片裁切填充", /border-radius/.test(ruleOf("\\.project-thumb")) && /object-fit:\s*cover/.test(thumbImg));
-  check("没有封面时用首字占位块（居中 + 暖色底，不是空白）", /place-items:\s*center/.test(phRule) && /linear-gradient/.test(phRule));
   // 右侧「⋯」是绝对定位的，项目行为它留了 padding-right：留的位子必须够，否则会压住篇数小圆标。
   const padRight = Number(/padding-right:\s*(\d+)px/.exec(ruleOf("\\.project-row\\s+\\.project-nav"))?.[1] || 0);
   const moreRule = ruleOf("\\.project-more");

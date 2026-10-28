@@ -25,7 +25,7 @@ export function usePanelReader(controls: SidepanelControls, commands: PanelComma
         await markReading(id);
         if (!alive) return;
         await activate(tab);
-        // 命中的文章可能在另一窗口，让 LaterOn 侧栏跟到那个窗口。
+        // 命中的文章可能在另一窗口，让 StaySide 侧栏跟到那个窗口。
         if (alive && tab.windowId != null && typeof browser.sidePanel?.open === "function") {
           await browser.sidePanel.open({ windowId: tab.windowId }).catch(() => {});
         }

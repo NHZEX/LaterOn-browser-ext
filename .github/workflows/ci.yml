@@ -90,10 +90,10 @@ jobs:
         timeout-minutes: 2
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: lateron-${{ github.sha }}
+          name: stayside-${{ github.sha }}
           path: |
-            .output/release/LaterOn-${{ steps.bundle.outputs.version }}.zip
-            .output/release/LaterOn-${{ steps.bundle.outputs.version }}.zip.sha256
+            .output/release/StaySide-${{ steps.bundle.outputs.version }}.zip
+            .output/release/StaySide-${{ steps.bundle.outputs.version }}.zip.sha256
             .output/release/RELEASE_NOTES.md
           if-no-files-found: error
           compression-level: 0
@@ -124,8 +124,8 @@ jobs:
           VERSION: ${{ needs.validate.outputs.version }}
         shell: bash
         run: |
-          sha256sum --check --strict "LaterOn-$VERSION.zip.sha256"
+          sha256sum --check --strict "StaySide-$VERSION.zip.sha256"
           gh release create "$RELEASE_TAG" \
-            "LaterOn-$VERSION.zip" "LaterOn-$VERSION.zip.sha256" \
-            --verify-tag --draft --title "LaterOn $VERSION" --notes-file RELEASE_NOTES.md
+            "StaySide-$VERSION.zip" "StaySide-$VERSION.zip.sha256" \
+            --verify-tag --draft --title "StaySide $VERSION" --notes-file RELEASE_NOTES.md
           gh release edit "$RELEASE_TAG" --draft=false

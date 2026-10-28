@@ -7,7 +7,7 @@ const path = require("node:path");
 const { zipSync } = require("fflate");
 
 const version = "1.70.4";
-const local = { manifest_version: 3, name: "LaterOn", version, key: "fixed-public-key" };
+const local = { manifest_version: 3, name: "StaySide", version, key: "fixed-public-key" };
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "lateron-release-"));
 const writeJson = (file, value) => fs.writeFileSync(file, JSON.stringify(value));
 
@@ -16,7 +16,7 @@ function fixture(name) {
   fs.mkdirSync(path.join(root, ".output"), { recursive: true });
   writeJson(path.join(root, "manifest.json"), local);
   const archive = (manifest, extra = {}) => {
-    const file = path.join(root, ".output", `LaterOn-${version}.zip`);
+    const file = path.join(root, ".output", `StaySide-${version}.zip`);
     fs.writeFileSync(file, zipSync({ "manifest.json": Buffer.from(JSON.stringify(manifest)), "worker.js": Buffer.from("// worker"), ...extra }));
     return file;
   };
@@ -54,17 +54,17 @@ async function main() {
   const unrelated = git(valid.root, ["commit-tree", `${commits.latest}^{tree}`, "-m", "Unrelated release"]);
   git(valid.root, ["tag", "v9.0.0", unrelated]);
   git(valid.root, ["tag", "v1.70.4-rc.1", commits.fix]);
-  fs.writeFileSync(path.join(valid.root, ".output", `LaterOn-${version}-store.zip`), "Unused store archive");
+  fs.writeFileSync(path.join(valid.root, ".output", `StaySide-${version}-store.zip`), "Unused store archive");
   const result = prepareRelease({ root: valid.root, tag: `v${version}`, repositoryUrl });
   assert.equal(result.version, version);
   assert.deepEqual(fs.readdirSync(result.directory).sort(), [
-    `LaterOn-${version}.zip`, `LaterOn-${version}.zip.sha256`, "RELEASE_NOTES.md"
+    `StaySide-${version}.zip`, `StaySide-${version}.zip.sha256`, "RELEASE_NOTES.md"
   ].sort());
   assert.equal(fs.readFileSync(path.join(result.directory, "RELEASE_NOTES.md"), "utf8"),
     `## Changes since v1.70.3\n\n- fix: first change ([${commits.fix.slice(0, 7)}](${repositoryUrl}/commit/${commits.fix}))\n` +
     `- build: 发布 \\[安装包\\] ([${commits.latest.slice(0, 7)}](${repositoryUrl}/commit/${commits.latest}))\n\n` +
     `[Full Changelog](${repositoryUrl}/compare/v1.70.3...v${version})\n`);
-  const name = `LaterOn-${version}.zip`;
+  const name = `StaySide-${version}.zip`;
   const original = fs.readFileSync(path.join(valid.root, ".output", name));
   assert.deepEqual(fs.readFileSync(path.join(result.directory, name)), original, "Publish the validated WXT bytes unchanged");
   const expected = `${createHash("sha256").update(original).digest("hex")}  ${name}\n`;

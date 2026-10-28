@@ -116,7 +116,7 @@ module.exports = async function verifySettingsPage(directory) {
       document.querySelector("#retrySettings").click();
       await until(() => document.querySelector("#exportBtn"), `Vue mounts: ${errors.join("; ")}`);
       assert.equal(document.documentElement.lang, language);
-      assert.equal(document.title, language === "en" ? "LaterOn · Settings" : "LaterOn · 设置");
+      assert.equal(document.title, language === "en" ? "StaySide · Settings" : "StaySide · 设置");
       assert.equal(document.querySelector('[data-setting="defaultSort"]').value, "custom");
       resource(document.querySelector(".settings-brand img").src);
       const click = selector => document.querySelector(selector).click();
@@ -275,7 +275,7 @@ module.exports = async function verifySettingsPage(directory) {
       for (const key of ["image", "favicon"]) assert.equal(exported.data.items[0][key], "");
       assert.equal(exported.data.projects[0].cover, "");
       assert.doesNotMatch(JSON.stringify(exported), /data:image/);
-      assert.match(downloads[1], /^lateron-backup-.*\.json$/);
+      assert.match(downloads[1], /^stayside-backup-.*\.json$/);
       const beforeExport = clone(store);
       click("#exportImages"); click("#exportBtn"); await tick();
       await until(() => !exportButton.disabled, "Full export completes");

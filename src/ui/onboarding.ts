@@ -41,7 +41,7 @@ export function openOnboarding(): () => void {
   root.innerHTML = `
     <div class="lon-guide-backdrop"></div>
     <section class="lon-guide-card" role="dialog" aria-modal="true" aria-labelledby="lon-guide-title" tabindex="-1">
-      <div class="lon-guide-brand"><img src="icon128.png" alt="" />LaterOn</div>
+      <div class="lon-guide-brand"><img src="icon128.png" alt="" />StaySide</div>
       <div class="lon-guide-progress" aria-hidden="true"></div>
       <div class="lon-guide-page">
         <div class="lon-guide-icon" aria-hidden="true"></div>

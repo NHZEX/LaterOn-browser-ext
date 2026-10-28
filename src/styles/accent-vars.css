@@ -1,0 +1,29 @@
+/* 扩展页面和 Shadow DOM 选择器共用；在浮层根节点定义，避免继承宿主网页的配色。 */
+:root, .lon-root {
+  --accent: #945200;
+  --accent-rgb: 148,82,0;
+  --accent-soft: #fff3d6;
+  --accent-soft-hover: #ffe8ad;
+  --accent-fill: #ffb52e;
+  --accent-on: #241a0b;
+  --accent-gradient: linear-gradient(140deg, #ffc95f, #ffb52e);
+  --danger: #b9382b;
+  --danger-soft: #fff0ed;
+  --danger-fill: #b9382b;
+  --danger-on: #ffffff;
+  --success: #26734d;
+  --success-soft: #edf8f0;
+  --success-on: #ffffff;
+}
+
+[data-theme="dark"], .lon-root[data-dark="1"] {
+  --accent: #ffc15c;
+  --accent-rgb: 255,193,92;
+  --accent-soft: #3b2d18;
+  --accent-soft-hover: #4b391c;
+  --danger: #ff9b8c;
+  --danger-soft: #402321;
+  --success: #79d6a0;
+  --success-soft: #173326;
+  --success-on: #102719;
+}

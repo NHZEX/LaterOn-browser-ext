@@ -22,14 +22,15 @@ const cases = [
       Object.defineProperty(links[0], "sheet", { value: {} });
     } });
     const links = [...env.document.querySelectorAll("link[data-boot-style]")];
-    assert.equal(links.length, 3);
-    assert.deepEqual(links.map(link => link.media), ["all", "print", "print"]);
+    assert.ok(links.length >= 3, "覆盖已解析、加载事件和定时激活三个路径");
+    assert.equal(links[0].media, "all");
+    assert.ok(links.slice(1).every(link => link.media === "print"));
     Object.defineProperty(links[1], "sheet", { value: {} });
     links[1].dispatchEvent(new env.window.Event("load"));
     assert.equal(links[1].media, "all");
-    Object.defineProperty(links[2], "sheet", { value: {} });
+    links.slice(2).forEach(link => Object.defineProperty(link, "sheet", { value: {} }));
     await env.clock.tickAsync(300);
-    assert.equal(links[2].media, "all");
+    assert.ok(links.every(link => link.media === "all"), "全部已解析样式均已激活");
     assert.ok(env.document.querySelector("#bootSkeleton"), "样式激活不提前结束页面骨架");
   }],
   ["存储未返回时先显示缓存，返回后更新页面和下次快照", async (t) => {

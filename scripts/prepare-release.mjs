@@ -41,7 +41,7 @@ export function prepareRelease({
   if (tag !== undefined && tag !== `v${version}`) throw new Error(`Release tag ${tag} must match v${version}`);
   if (typeof key !== "string" || !key.trim()) throw new Error("The local package requires a fixed public key");
 
-  const name = `LaterOn-${version}.zip`;
+  const name = `StaySide-${version}.zip`;
   const archive = resolve(root, ".output", name);
   const { files, manifest } = readReleaseArchive(archive);
   if (manifest.version !== version) throw new Error(`${name}: version must match ${version}`);

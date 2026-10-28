@@ -253,7 +253,7 @@ async function until(check, label) {
     const added = await feedback.send({ type: "QUICK_SAVE_TAB", tabId: 1 });
     assert.equal(added.ok, true);
     assert.equal(feedback.notifications.length, 1, "侧栏收藏冻结页后发出一次系统结果通知");
-    assert.equal(feedback.notifications[0].title, "LaterOn");
+    assert.equal(feedback.notifications[0].title, "StaySide");
     assert.equal(feedback.notifications[0].type, "basic");
     assert.equal(feedback.notifications[0].iconUrl, "chrome-extension://lateron/icon128.png");
     assert.equal(feedback.notifications[0].silent, true);

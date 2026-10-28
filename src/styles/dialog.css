@@ -1,5 +1,5 @@
 /* 共享的自定义弹窗（取代浏览器原生 confirm / alert）。
-   视觉与「选项目」浮层保持一致：同圆角、同阴影、同橙色渐变按钮。
+   视觉与「选项目」浮层保持一致：同圆角、同阴影、同琥珀色主要按钮。
    颜色取 theme-vars.css 的变量并带兜底值，因此没引入主题变量的页面也能正常显示。 */
 
 .lod-root {
@@ -17,14 +17,14 @@
   --lod-soft: var(--btn-soft, #f1f0eb);
   --lod-soft-hover: var(--btn-soft-hover, #e7e5df);
   --lod-subtle: var(--subtle, #aaa69d);
-  --lod-danger: #dc3f22;
-  --lod-danger-soft: rgba(220,63,34,.12);
+  --lod-danger: var(--danger, #b9382b);
+  --lod-danger-soft: var(--danger-soft, #fff0ed);
   --lod-panel-shadow: 0 34px 80px -24px rgba(15,13,10,.5), 0 8px 26px -10px rgba(15,13,10,.2);
 }
 .lod-root[hidden] { display: none; }
 [data-theme="dark"] .lod-root {
-  --lod-danger: #ff7a5c;
-  --lod-danger-soft: rgba(255,122,92,.16);
+  --lod-danger: var(--danger, #ff9b8c);
+  --lod-danger-soft: var(--danger-soft, #402321);
   --lod-panel-shadow: 0 34px 80px -24px rgba(0,0,0,.82), 0 8px 26px -10px rgba(0,0,0,.55);
 }
 [data-theme="dark"] .lod-backdrop { background: rgba(0,0,0,.56); }
@@ -73,8 +73,8 @@
   width: 38px;
   height: 38px;
   border-radius: 12px;
-  background: var(--accent-soft, #fff1ec);
-  color: var(--accent, #ff5c35);
+  background: var(--accent-soft, #fff3d6);
+  color: var(--accent, #945200);
 }
 .lod-icon svg {
   width: 19px;
@@ -127,9 +127,9 @@
 .lod-textarea { min-height: 96px; max-height: 38vh; resize: vertical; }
 .lod-input::placeholder, .lod-textarea::placeholder { color: var(--lod-subtle); }
 .lod-input:focus, .lod-textarea:focus {
-  border-color: var(--accent, #ff5c35);
+  border-color: var(--accent, #945200);
   background: var(--lod-card);
-  box-shadow: 0 0 0 4px rgba(255,92,53,.12);
+  box-shadow: 0 0 0 4px rgba(var(--accent-rgb),.12);
 }
 [data-theme="dark"] .lod-input, [data-theme="dark"] .lod-textarea { background: rgba(255,255,255,.04); }
 
@@ -150,7 +150,7 @@
   background: var(--lod-soft); color: var(--lod-ink);
   font-size: 12px; font-weight: 650; cursor: pointer; transition: background .15s, border-color .15s;
 }
-.lod-cover-btn:hover:not(:disabled) { border-color: var(--accent, #ff5c35); color: var(--accent, #ff5c35); }
+.lod-cover-btn:hover:not(:disabled) { border-color: var(--accent, #945200); color: var(--accent, #945200); }
 .lod-cover-btn:disabled { opacity: .45; cursor: default; }
 .lod-cover-btn.is-plain { background: transparent; }
 .lod-cover-note { margin: 0; color: var(--lod-subtle); font-size: 11px; line-height: 1.5; }
@@ -173,16 +173,16 @@
 }
 /* 没挑的暗一档：一眼能分清「已经在封面里」和「备选」。 */
 .lod-pick img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: .58; transition: opacity .15s; }
-.lod-pick:hover { border-color: var(--accent, #ff5c35); }
+.lod-pick:hover { border-color: var(--accent, #945200); }
 .lod-pick:hover img { opacity: 1; }
-.lod-pick.is-on { border-color: var(--accent, #ff5c35); box-shadow: 0 0 0 2px rgba(255,92,53,.2); }
+.lod-pick.is-on { border-color: var(--accent, #945200); box-shadow: 0 0 0 2px rgba(var(--accent-rgb),.2); }
 .lod-pick.is-on img { opacity: 1; }
 .lod-pick.is-dragging { opacity: .3; }
-.lod-pick:focus-visible { outline: 2px solid var(--accent, #ff5c35); outline-offset: 2px; }
+.lod-pick:focus-visible { outline: 2px solid var(--accent, #945200); outline-offset: 2px; }
 .lod-pick-order {
   position: absolute; left: 3px; top: 3px;
   display: grid; place-items: center; width: 15px; height: 15px;
-  border-radius: 50%; background: var(--accent, #ff5c35); color: #fff;
+  border-radius: 50%; background: var(--accent-fill); color: var(--accent-on);
   font-size: 9.5px; font-weight: 800; line-height: 1;
 }
 .lod-pick-x {
@@ -195,7 +195,7 @@
 /* 插入位置的指示线：绝对定位（不参与排版），拖动中挪它不会让缩略图跟着动 */
 .lod-pick-line {
   position: absolute; width: 2px; border-radius: 2px;
-  background: var(--accent, #ff5c35);
+  background: var(--accent, #945200);
   box-shadow: 0 0 0 1px var(--lod-card);
   pointer-events: none;
 }
@@ -226,18 +226,19 @@
 .lod-ok {
   flex: 1.5;
   border: 0;
-  background: linear-gradient(140deg, #ff7a52, #ff4f2e);
-  color: #fff;
+  background: var(--accent-gradient, linear-gradient(140deg, #ffc95f, #ffb52e));
+  color: var(--accent-on, #241a0b);
   font-weight: 750;
-  box-shadow: 0 8px 20px -8px rgba(255,79,46,.9);
+  box-shadow: 0 8px 20px -8px rgba(var(--accent-rgb),.35);
 }
 .lod-root[data-tone="danger"] .lod-ok {
-  background: linear-gradient(140deg, #f4694b, #db3a1c);
+  background: var(--danger-fill, #b9382b);
+  color: var(--danger-on, #fff);
   box-shadow: 0 8px 20px -8px rgba(219,58,28,.85);
 }
 .lod-ok:hover { filter: brightness(1.05); }
 .lod-ok:active { transform: scale(.985); }
-.lod-foot button:focus-visible { outline: 2px solid var(--accent, #ff5c35); outline-offset: 2px; }
+.lod-foot button:focus-visible { outline: 2px solid var(--accent, #945200); outline-offset: 2px; }
 .lod-cancel[hidden] + .lod-ok { flex: 1; }
 
 @media (max-width: 460px) {

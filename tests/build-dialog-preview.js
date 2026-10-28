@@ -9,7 +9,7 @@ const path = require("path");
 const ROOT = path.resolve(__dirname, "..");
 const read = (name) => fs.readFileSync(sourcePath(name), "utf8");
 
-const themeVars = read("theme-vars.css");
+const themeVars = `${fs.readFileSync(path.join(ROOT, "src/styles/accent-vars.css"), "utf8")}\n${read("theme-vars.css")}`;
 const dialogCss = read("dialog.css");
 const { buildSync } = require("esbuild");
 const dialogJs = buildSync({ stdin: { contents: 'import { dialog } from "./src/ui/dialog.ts"; window.dialogPreview = dialog;',
@@ -21,7 +21,7 @@ const html = `<!doctype html>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>LaterOn · 弹窗效果预览</title>
+    <title>StaySide · 弹窗效果预览</title>
     <style>
       /* ── 主题变量（内联自 theme-vars.css，和真实页面一致）── */
 ${themeVars}
@@ -81,7 +81,7 @@ ${dialogCss}
       <div class="demo-head">
         <img class="demo-logo" src="data:image/png;base64,${iconData}" alt="" />
         <div>
-          <h1>LaterOn 弹窗效果预览</h1>
+          <h1>StaySide 弹窗效果预览</h1>
           <p>下面是应用里真实使用的弹窗组件，点任意按钮即可看到实际效果。</p>
         </div>
         <button class="demo-theme" id="themeToggle" type="button">切换深色</button>

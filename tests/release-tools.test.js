@@ -12,9 +12,9 @@ const root = path.resolve(__dirname, "..");
 const output = path.join(root, ".output");
 fs.mkdirSync(output, { recursive: true });
 const temporary = fs.mkdtempSync(path.join(output, "release-tools-"));
-const destination = path.join(temporary, "LaterOn");
+const destination = path.join(temporary, "StaySide");
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
-const archive = path.join(output, `LaterOn-${manifest.version}.zip`);
+const archive = path.join(output, `StaySide-${manifest.version}.zip`);
 const builtDirectory = path.join(root, ".output/chrome-mv3");
 
 function command(executable, args, env = {}) {
@@ -47,7 +47,7 @@ function verifyStorePackaging(readReleaseArchive) {
     LATERON_RELEASE_DIR: localInstallation
   });
 
-  const store = readReleaseArchive(path.join(output, `LaterOn-${manifest.version}-store.zip`));
+  const store = readReleaseArchive(path.join(output, `StaySide-${manifest.version}-store.zip`));
   const storeBuild = JSON.parse(fs.readFileSync(path.join(output, "chrome-mv3-store/manifest.json"), "utf8"));
   const { key, ...expectedStoreManifest } = production.manifest;
   assert.equal(Object.hasOwn(store.manifest, "key"), false, "The store ZIP omits the local public key");
@@ -71,7 +71,7 @@ async function verifyModePublishing(hook) {
   const local = path.join(temporary, "模式 本机目录");
   const override = path.join(temporary, "系统 覆盖目录");
   const modeOutput = path.join(output, `chrome-mv3-${mode}`);
-  const modeArchive = path.join(output, `LaterOn-${manifest.version}-${mode}.zip`);
+  const modeArchive = path.join(output, `StaySide-${manifest.version}-${mode}.zip`);
   const created = [];
   const previousEnvironment = { LATERON_PUBLISH: process.env.LATERON_PUBLISH, LATERON_RELEASE_DIR: process.env.LATERON_RELEASE_DIR };
   const configure = (suffix, target) => {
@@ -352,7 +352,7 @@ async function main() {
     const oldContents = fs.readFileSync(installedUrl);
     publish(destination);
     assert.deepEqual(fs.readFileSync(installedUrl), fs.readFileSync(path.join(builtDirectory, "url-utils.js")));
-    const backups = path.join(temporary, "LaterOn-backups");
+    const backups = path.join(temporary, "StaySide-backups");
     const entries = fs.readdirSync(backups);
     assert.equal(entries.length, 1);
     assert.deepEqual(fs.readFileSync(path.join(backups, entries[0], "url-utils.js")), oldContents, "Backup preserves the prior installation");
@@ -399,7 +399,7 @@ async function main() {
       assert.throws(() => publishLocal({ archive, destination }), (error) => error.rollbackFailed === true);
     } finally { fs.renameSync = rename; }
     const recoveryBackup = fs.readdirSync(backups).find((name) => !entries.includes(name));
-    const recoveryStage = fs.readdirSync(temporary).find((name) => name.startsWith(".LaterOn-stage-"));
+    const recoveryStage = fs.readdirSync(temporary).find((name) => name.startsWith(".StaySide-stage-"));
     assert.ok(recoveryBackup && recoveryStage, "A failed rollback preserves both recovery directories");
     assert.deepEqual(fs.readFileSync(path.join(backups, recoveryBackup, "url-utils.js")), beforeFailure);
     assert.deepEqual(fs.readFileSync(path.join(temporary, recoveryStage, "url-utils.js")), fs.readFileSync(path.join(builtDirectory, "url-utils.js")));

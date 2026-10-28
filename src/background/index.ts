@@ -39,7 +39,7 @@ export async function handleCommand(command: string, commandTab?: BackgroundTab)
   const tab = rawTab ? unwrapSuspendedTab(rawTab) : rawTab;
 
   if (!tab?.id || !isWebUrl(tab.url) || (command === "toggle-translation" && tab.suspended)) {
-    // 在 LaterOn 全屏收藏库里按 Alt+1 时，不能只在工具栏图标上挂一个「!」：
+    // 在 StaySide 全屏收藏库里按 Alt+1 时，不能只在工具栏图标上挂一个「!」：
     // 页面本身已有 toast，就把“为什么不能收藏”直接说在人眼正在看的地方。
     // Chrome 设置页等其它受保护页面收不到扩展页消息，仍保留角标兜底。
     const explained = await showLibraryCommandNotice(rawTab, command);
@@ -64,7 +64,7 @@ export function registerBackground() {
   registerBrowserSetup();
   registerMaintenance();
   // ── 新标签页劫持（已移除）──
-  // 曾经支持「把新标签页换成 LaterOn 全屏收藏墙」（设置项 newTabPage + onCreated 监听），
+  // 曾经支持「把新标签页换成 StaySide 全屏收藏墙」（设置项 newTabPage + onCreated 监听），
   // 现已下线：新标签恢复浏览器默认行为，不再有任何劫持。
 
   chrome.contextMenus.onClicked.addListener((info, tab) => {

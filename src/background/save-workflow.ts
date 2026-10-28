@@ -176,7 +176,7 @@ async function askFolderThenSave({ tabs, source = "shortcut", activeTab = null, 
     }
   }));
 
-  // 其他扩展的冻结页不允许注入；在 LaterOn 自己的页面复用同一个选择器。
+  // 其他扩展的冻结页不允许注入；在 StaySide 自己的页面复用同一个选择器。
   if (activeTab?.suspended) {
     try {
       await chrome.tabs.create({ url: chrome.runtime.getURL(`save-project-picker.html?batch=${encodeURIComponent(batchId)}`) });

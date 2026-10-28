@@ -15,7 +15,7 @@ function home(event: MouseEvent): void { event.preventDefault(); emit("home"); }
 
 <template>
   <a id="homeBrand" class="brand" href="#" :aria-label="translate('home')" :title="translate('home')" @click="home">
-    <img class="brand-icon" src="/icon128.png" width="40" height="40" alt="" />LaterOn
+    <img class="brand-icon" src="/icon128.png" width="40" height="40" alt="" />StaySide
   </a>
   <nav :aria-label="translate('filterNav')">
     <button v-for="option in filters" :key="option.value" class="nav-item" :class="{ active: filter === option.value }"

@@ -29,7 +29,7 @@ let actionFeedbackUntil = 0;
 async function resetActionAppearance() {
   if (Date.now() < actionFeedbackUntil) return;
   const en = await usesEnglish();
-  const baseTitle = en ? "Open the LaterOn side panel" : "打开 LaterOn 侧栏";
+  const baseTitle = en ? "Open the StaySide side panel" : "打开 StaySide 侧栏";
   await chrome.action?.setBadgeText?.({ text: "" });
   await chrome.action?.setTitle?.({ title: baseTitle });
 }
@@ -68,8 +68,8 @@ async function showLibraryCommandNotice(tab: BackgroundTab | null | undefined, c
   if (!String(tab.url || "").startsWith(libraryUrl)) return false;
   const en = await usesEnglish();
   const message = command === "toggle-translation"
-    ? (en ? "You’re in LaterOn. Open the page you want to translate, then press Alt+2." : "当前是 LaterOn，请打开需要翻译的网页后再按 Alt+2")
-    : (en ? "You’re in LaterOn. Open the page you want to add, then press Alt+1." : "当前是 LaterOn，请先打开想添加的网页，再按 Alt+1");
+    ? (en ? "You’re in StaySide. Open the page you want to translate, then press Alt+2." : "当前是 StaySide，请打开需要翻译的网页后再按 Alt+2")
+    : (en ? "You’re in StaySide. Open the page you want to add, then press Alt+1." : "当前是 StaySide，请先打开想添加的网页，再按 Alt+1");
   try {
     const response = await chrome.runtime.sendMessage({
       type: "SHOW_LIBRARY_NOTICE",
@@ -101,7 +101,7 @@ async function reportFailure(error: unknown, targetTab: BackgroundTab | null = n
 async function showSystemNotice(text: string): Promise<void> {
   try {
     await chrome.notifications?.create?.("lateron-save-result", {
-      type: "basic", title: "LaterOn", message: text,
+      type: "basic", title: "StaySide", message: text,
       iconUrl: chrome.runtime.getURL("icon128.png"), silent: true
     });
   } catch {

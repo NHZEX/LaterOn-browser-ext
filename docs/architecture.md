@@ -16,8 +16,11 @@
 | 备份导出、预览、恢复与清空 | [后台协议](../src/backup/background.ts)、[纯数据核心](../src/backup/core.ts)；语义见 [备份说明](backup-format.md) |
 | URL 身份、标签复用与共享规则 | [URL](../src/shared/url-utils.ts)、[标签导航](../src/tabs/navigation.ts)、[筛选](../src/collection/filter.ts)、[排序](../src/shared/collection-sort.ts)、[编辑](../src/collection/item-edit.ts)、[阅读状态](../src/collection/item-state.ts) |
 | 公共界面 | [国际化](../src/shared/i18n.ts)、[弹窗加载](../src/ui/load-dialog.ts)、[弹窗](../src/ui/dialog.ts)、[引导](../src/ui/onboarding.ts) |
+| 共享配色 | 页面入口共同加载 [强调色与状态色](../src/styles/accent-vars.css) 和 [主题表面](../src/styles/theme-vars.css)，侧栏将两者显式列为异步样式，避免原样发布的 CSS 依赖未打包的导入；[项目选择器](../src/picker/ui.ts) 将同一份强调色 CSS 内嵌到 Shadow DOM，浮层根节点独立定义变量，隔离宿主网页样式 |
 
 ## 数据边界
+
+StaySide 是 LaterOn 的独立衍生版本。界面使用 StaySide 名称与图标；为兼容已有安装与备份，保留根 manifest 公钥、`laterOn*` 存储键、`lateron.collection` / 旧备份读取协议、经典脚本全局与注入消息标识，以及地址栏 `lo` 入口。部署环境变量继续使用 `LATERON_*`，现有本机配置无需迁移。图标母版与导出方式见 [品牌资源](../assets/brand/README.md)。
 
 正式收藏数据位于 `chrome.storage.local`。页面通过客户端发送具体操作，后台在共享队列内读取最新数据并提交；编辑只带改动字段，移动只带目标和锚点，避免旧页面快照覆盖新数据。同一字段的并发编辑按后台处理顺序生效，后处理的值覆盖先处理的值；页面通过广播最终同步。封面内容与 `local://` 指针同批保存，删除项目按执行时的最新归属级联清理相关收藏及引用。
 

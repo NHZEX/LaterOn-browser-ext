@@ -172,4 +172,4 @@ for (const locale of ["zh_CN", "en"]) {
     assert.ok(messages[key]?.message, `${locale} 缺少 ${key}`);
   }
 }
-assert.strictEqual(JSON.parse(read("_locales/zh_CN/messages.json")).extensionName.message, "LaterOn · 项目型网页管理");
+assert.strictEqual(JSON.parse(read("_locales/zh_CN/messages.json")).extensionName.message, "StaySide · 项目型网页管理");

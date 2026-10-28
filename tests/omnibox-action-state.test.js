@@ -106,14 +106,14 @@ const tick = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms));
   await tick();
   check("升级后清理已撤下的最近记录", store.laterOnRecentItems === undefined);
   check("工具栏品牌图标不显示常驻收藏角标", badges.at(-1) === "" && !badges.includes("✓"), badges.join(" → "));
-  check("工具栏悬浮说明保持默认入口文案", titles.at(-1) === "打开 LaterOn 侧栏", titles.at(-1));
+  check("工具栏悬浮说明保持默认入口文案", titles.at(-1) === "打开 StaySide 侧栏", titles.at(-1));
 
   let suggestions = [];
   omniboxListeners.changed("neuro", (items) => { suggestions = items; });
   await tick();
   check("地址栏会搜索标题和摘要并返回建议", suggestions.length === 2, suggestions.map((item) => item.description).join(" | "));
   check("标题更匹配的文章排在前面", suggestions[0]?.content === "https://science.test/neuro", suggestions[0]?.content);
-  check("默认项说明是在 LaterOn 内搜索", /LaterOn/.test(defaultSuggestion) && /neuro/.test(defaultSuggestion), defaultSuggestion);
+  check("默认项说明是在 StaySide 内搜索", /StaySide/.test(defaultSuggestion) && /neuro/.test(defaultSuggestion), defaultSuggestion);
 
   omniboxListeners.entered(suggestions[0].content, "currentTab");
   await tick();

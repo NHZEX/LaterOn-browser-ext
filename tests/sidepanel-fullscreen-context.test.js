@@ -75,14 +75,14 @@ async function until(window, predicate, label) {
   assert(document.querySelector('.card[data-id="reading"]')?.classList.contains("is-current"), "应高亮正在阅读的文章");
   assert(!document.querySelector('.card[data-id="done"]'), "不应为了定位当前文章擅自改变筛选");
   assert(expanded.scrolled.includes("reading"), "正在阅读的卡片应滚动到可视位置");
-  assert.strictEqual(document.title, "LaterOn - 研究项目");
+  assert.strictEqual(document.title, "StaySide - 研究项目");
   assert.deepStrictEqual(expanded.errors, []);
   expanded.dom.window.close();
 
   const direct = mount("chrome-extension://lateron/library.html");
   await until(direct.window, () => direct.window.document.querySelector('.project-nav[data-project="all"]')?.classList.contains("active"), "普通入口应完成初始化");
   assert(direct.window.document.querySelector('.project-nav[data-project="all"]')?.classList.contains("active"), "普通打开仍应进入全部项目首页");
-  assert.strictEqual(direct.window.document.title, "LaterOn - 有价值的网页，留给 LaterOn。");
+  assert.strictEqual(direct.window.document.title, "StaySide - 有价值的网页，留给 StaySide。");
   direct.dom.window.close();
 
   const cleanups = [], requests = [], closed = [];

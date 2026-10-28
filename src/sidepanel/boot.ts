@@ -76,7 +76,7 @@ export function startBoot(): void {
       if (ms > 6000) {
         const hint = textOf("bootTipHint");
         if (hint) hint.textContent = english
-          ? "This is taking longer than usual. Close and reopen the side panel; if it keeps happening, reload LaterOn on the Extensions page."
+          ? "This is taking longer than usual. Close and reopen the side panel; if it keeps happening, reload StaySide on the Extensions page."
           : "加载比平时慢，可以先试试关掉侧栏再打开；一直这样就在扩展页点一下「重新加载」。";
       }
     }
@@ -89,7 +89,7 @@ export function startBoot(): void {
     // 切换提示语：告诉用户现在卡在读数据还是画界面。
     stage(label) {
       marks.push([label, elapsed()]);
-      try { console.info(`[LaterOn] ${label} +${elapsed()}ms`); } catch {}
+      try { console.info(`[StaySide] ${label} +${elapsed()}ms`); } catch {}
       const el = textOf("bootTipText");
       if (el) el.textContent = label;
     },

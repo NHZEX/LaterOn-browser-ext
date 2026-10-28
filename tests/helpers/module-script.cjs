@@ -5,5 +5,5 @@ const { resolve } = require("node:path");
 module.exports = (file, globalName = "backgroundModule") => buildSync({
   entryPoints: [resolve(__dirname, "../..", file)],
   bundle: true, write: false, format: "iife", globalName,
-  platform: "browser", target: "esnext", keepNames: true
+  platform: "browser", target: "esnext", keepNames: true, loader: { ".css": "text" }
 }).outputFiles[0].text;

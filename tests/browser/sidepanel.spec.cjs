@@ -36,8 +36,10 @@ test("F3d：主页面脚本失败时独立启动，异步样式恢复且十二�
     await expect(page.locator("#appBody")).toBeHidden();
     await expect(page.locator("#bootTipText")).toHaveText("Opening your saves…");
     await expect(page.locator("#bootTip")).toBeHidden();
-    expect(await page.locator("link[data-boot-style]").evaluateAll(links => links.map(link => link.media))).toEqual(["print", "print", "print"]);
-    await expect.poll(() => blockedStyles.length).toBe(3);
+    const styleCount = await page.locator("link[data-boot-style]").count();
+    expect(styleCount).toBeGreaterThan(0);
+    expect(await page.locator("link[data-boot-style]").evaluateAll(links => links.every(link => link.media === "print"))).toBe(true);
+    await expect.poll(() => blockedStyles.length).toBe(styleCount);
     await page.clock.runFor(1400);
     await expect(page.locator("#bootTip")).toBeVisible();
     await Promise.all(blockedStyles.splice(0).map(async route => route.fulfill({
@@ -296,8 +298,11 @@ for (const colorScheme of ["light", "dark"]) {
 
     test("实际扩展加载后样式生效，窄宽侧栏的封面与占位正确铺满", async ({ page, extension }) => {
       await seed(extension.worker, colorScheme);
-      const errors = [];
+      const errors = [], failedResources = [];
       page.on("pageerror", (error) => errors.push(error.message));
+      page.on("requestfailed", request => {
+        if (request.url().startsWith("chrome-extension://")) failedResources.push(request.url());
+      });
       await page.goto(extension.url);
       const cards = page.locator("#items .item");
       await expect(cards).toHaveCount(2);
@@ -305,6 +310,9 @@ for (const colorScheme of ["light", "dark"]) {
       await expect(page.locator("#appBody")).toBeVisible();
       await expect.poll(() => page.locator("link[data-boot-style]").evaluateAll((links) => links.every((link) => link.media === "all"))).toBe(true);
       await expect(page.locator("html")).toHaveAttribute("data-theme", colorScheme);
+      const selectedFilter = page.locator('.filter[aria-pressed="true"]');
+      await expect(selectedFilter).toHaveCSS("color", colorScheme === "dark" ? "rgb(255, 193, 92)" : "rgb(148, 82, 0)");
+      await expect(selectedFilter).toHaveCSS("background-color", colorScheme === "dark" ? "rgb(59, 45, 24)" : "rgb(255, 243, 214)");
       await expect.poll(() => page.locator('[data-id="cover"] .thumb-img').evaluate((image) => image.complete && image.naturalWidth > 0)).toBe(true);
       for (const width of [375, 640]) {
         await page.setViewportSize({ width, height: 800 });
@@ -349,6 +357,7 @@ for (const colorScheme of ["light", "dark"]) {
         expect(bounds.imageOnTop).toBe(true);
       }
       expect(errors).toEqual([]);
+      expect(failedResources).toEqual([]);
     });
   });
 }

@@ -14,6 +14,7 @@ body {
 }
 button, input, select { font: inherit; }
 button, select { cursor: pointer; }
+button:focus-visible, a:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .shell { min-height: 100vh; }
 .topbar {
   position: sticky; z-index: 10; top: 0;
@@ -24,17 +25,17 @@ button, select { cursor: pointer; }
   backdrop-filter: blur(22px) saturate(160%);
 }
 .brand { display: flex; gap: 10px; align-items: center; color: var(--ink); font-size: 22px; font-weight: 850; letter-spacing: -.8px; text-decoration: none; }
-.brand-icon { display: block; width: 40px; height: 40px; border-radius: 11px; box-shadow: 0 7px 16px -6px rgba(255,80,50,.6); }
+.brand-icon { display: block; width: 40px; height: 40px; border-radius: 11px; box-shadow: 0 7px 16px -6px rgba(255,173,10,.35); }
 nav { display: flex; gap: 4px; padding: 4px; border-radius: 99px; background: var(--chip); border: 1px solid var(--hairline-2); box-shadow: var(--shadow-sm); }
 .nav-item { border: 0; border-radius: 99px; padding: 8px 18px; background: transparent; color: var(--chip-text); font-size: 13px; font-weight: 650; transition: color .15s, background .15s; }
 .nav-item:hover { color: var(--ink); }
-.nav-item.active { background: var(--active-bg); color: var(--active-text); box-shadow: 0 4px 12px -4px rgba(0,0,0,.4); }
+.nav-item.active { background: var(--active-bg); color: var(--active-text); box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb),.22); }
 .search {
   justify-self: end; display: flex; align-items: center; width: min(280px, 26vw);
   border: 1px solid var(--hairline-2); border-radius: 14px; background: var(--glass-strong);
   padding: 9px 12px; box-shadow: var(--shadow-sm); transition: border-color .15s, box-shadow .15s;
 }
-.search:focus-within { border-color: var(--card-line); box-shadow: 0 0 0 4px rgba(255,92,53,.1); }
+.search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(var(--accent-rgb),.1); }
 .search svg { width: 17px; fill: none; stroke: var(--muted); stroke-linecap: round; stroke-width: 1.8; }
 .search input { min-width: 0; flex: 1; border: 0; outline: 0; padding: 0 8px; background: transparent; font-size: 13px; color: var(--ink); }
 kbd { border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; color: var(--subtle); background: var(--field-soft); font-size: 10px; }
@@ -95,10 +96,10 @@ kbd { border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; color
 /* 自己写了 display 就得自己管 hidden：浏览器自带的 [hidden]{display:none} 敌不过作者样式。
    「待整理」那一行就是靠这个属性收起来的。 */
 .project-nav[hidden] { display: none; }
-.project-nav.active { background: var(--accent-soft); color: var(--ink); font-weight: 720; box-shadow: inset 0 0 0 1px rgba(255,92,53,.09); }
+.project-nav.active { background: var(--accent-soft); color: var(--ink); font-weight: 720; box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb),.09); }
 .project-nav.active .nav-icon { color: var(--accent); opacity: 1; }
 .project-nav.active strong { color: var(--accent); opacity: 1; }
-.project-nav.drop-target { outline: none; background: var(--accent-soft); color: #c84427; box-shadow: inset 0 0 0 2px rgba(255,92,53,.5); }
+.project-nav.drop-target { outline: none; background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 2px rgba(var(--accent-rgb),.5); }
 /* ── 「待整理」：钉在侧栏最上面 ──────────────────────────────
    它仍然是更有行动意味的入口，但和其它目录共用同一套行高、圆角和选中态。
    有内容时用强调色图标和计数提醒，避免整块高亮长期抢走内容区的注意力。 */
@@ -114,7 +115,7 @@ kbd { border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; color
 .inbox-card.has-items { background: transparent; color: var(--ink); }
 .inbox-card.has-items:hover { background: var(--glass-strong); }
 /* 正在看待整理时：浅色选中面 + 实色图标，文字标签仍保持最高可读性。 */
-.inbox-card.active { background: var(--accent-soft); border-color: transparent; color: var(--ink); box-shadow: inset 0 0 0 1px rgba(255,92,53,.09); }
+.inbox-card.active { background: var(--accent-soft); border-color: transparent; color: var(--ink); box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb),.09); }
 .inbox-card.active:hover { background: var(--accent-soft); color: var(--ink); }
 .inbox-icon {
   display: grid; place-items: center; width: 36px; height: 36px;
@@ -122,7 +123,7 @@ kbd { border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; color
   transition: background .15s, color .15s;
 }
 .inbox-card.has-items .inbox-icon { background: var(--accent-soft); color: var(--accent); }
-.inbox-card.active .inbox-icon { background: var(--accent); color: #fff; box-shadow: 0 5px 13px -6px rgba(255,92,53,.7); }
+.inbox-card.active .inbox-icon { background: var(--accent-fill); color: var(--accent-on); box-shadow: 0 5px 13px -6px rgba(var(--accent-rgb),.7); }
 .inbox-icon svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
 .inbox-icon svg.nav-art-icon,
 .all-icon svg.nav-art-icon { width: 25px; height: 25px; fill: currentColor; stroke: none; }
@@ -140,8 +141,8 @@ kbd { border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; color
   border-radius: 99px; background: var(--field-soft); color: var(--subtle);
   font-size: 11px; font-weight: 750; transition: background .15s, color .15s;
 }
-.inbox-card.has-items .inbox-count { background: var(--accent); color: #fff; }
-.inbox-card.active .inbox-count { background: rgba(255,92,53,.14); color: var(--accent); }
+.inbox-card.has-items .inbox-count { background: var(--accent-fill); color: var(--accent-on); }
+.inbox-card.active .inbox-count { background: rgba(var(--accent-rgb),.14); color: var(--accent); }
 .nav-icon { display: grid; place-items: center; color: var(--subtle); font-size: 14px; }
 /* 项目行左侧：不是文件夹图标，而是这个项目的封面缩略图
    （和「选项目」浮层里每行那张小图同一套外观：圆角方块 + 首字占位色块） */
@@ -151,10 +152,10 @@ kbd { border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; color
 /* 没有封面时的占位：项目名首字 + 暖色底 */
 .project-ph {
   display: grid; place-items: center; width: 100%; height: 100%;
-  background: linear-gradient(140deg, #ffd9cc, #ffb39a); color: #fff;
+  background: var(--accent-soft-hover); color: var(--accent);
   font-size: 13px; font-weight: 800; line-height: 1;
 }
-/* 选中行是深色底，缩略图别跟着变淡，否则照片糊成一块 */
+/* 选中行保留封面识别度。 */
 .project-nav.active .project-thumb { opacity: 1; }
 /* ── 顶部两个入口（待整理 / 全部项目）：内部几何完全一致 ──
    图标都是 36px 的圆角方块、内边距一致、篇数都是同一个小圆标，
@@ -164,11 +165,11 @@ kbd { border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; color
 .all-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 12px; background: var(--field-soft); color: var(--muted); transition: background .15s, color .15s, box-shadow .15s; }
 .all-icon svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
 .project-nav:hover .all-icon { background: var(--field-soft); color: var(--ink); }
-.project-nav.active .all-icon { background: var(--accent); color: #fff; box-shadow: 0 5px 13px -6px rgba(255,92,53,.7); }
+.project-nav.active .all-icon { background: var(--accent-fill); color: var(--accent-on); box-shadow: 0 5px 13px -6px rgba(var(--accent-rgb),.7); }
 /* 侧栏里所有篇数都用同一个小圆标（顶部两个入口 + 项目行） */
 .project-nav .nav-count { display: grid; place-items: center; min-width: 23px; height: 22px; padding: 0 6px; border-radius: 99px; background: transparent; color: var(--subtle); font-size: 10.5px; font-weight: 720; transition: background .15s, color .15s; }
 .project-nav:hover .nav-count { background: var(--glass-soft); color: var(--ink); }
-.project-nav.active .nav-count { background: rgba(255,92,53,.14); color: var(--accent); }
+.project-nav.active .nav-count { background: rgba(var(--accent-rgb),.14); color: var(--accent); }
 .project-nav strong { color: var(--subtle); font-size: 9px; font-weight: 600; }
 /* 项目行：主体按钮 + 右侧「⋯」更多按钮 */
 .project-row { position: relative; display: flex; align-items: center; }
@@ -192,7 +193,7 @@ kbd { border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; color
 }
 .project-nav:focus-visible .project-name { -webkit-line-clamp: unset; }
 .projects-section .nav-count { min-width: 23px; font-variant-numeric: tabular-nums; }
-.project-row.drop-target .project-nav { outline: none; background: var(--accent-soft); color: #c84427; box-shadow: inset 0 0 0 2px rgba(255,92,53,.5); }
+.project-row.drop-target .project-nav { outline: none; background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 2px rgba(var(--accent-rgb),.5); }
 /* 拖拽排序：被拖的行变淡，跟随光标的是一份实体化影像，指示线标出会落在哪 */
 .project-row { cursor: default; }
 .project-row:active { cursor: grabbing; }
@@ -208,7 +209,7 @@ kbd { border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; color
 .folder-drag-preview .project-more { display: none; }
 .folder-drop-line {
   height: 2px; margin: 3px 10px; border-radius: 2px;
-  background: linear-gradient(90deg, var(--accent) 0%, rgba(255,92,53,.16) 100%);
+  background: linear-gradient(90deg, var(--accent) 0%, rgba(var(--accent-rgb),.16) 100%);
 }
 .project-more {
   position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
@@ -223,7 +224,7 @@ kbd { border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; color
 .project-more:hover { background: var(--glass-soft); color: var(--ink); }
 /* 选中项目里的更多按钮沿用强调色，避免和缩略图争抢视觉焦点。 */
 .project-row:has(.project-nav.active) .project-more { color: var(--accent); }
-.project-row:has(.project-nav.active) .project-more:hover { background: rgba(255,92,53,.12); color: var(--accent); }
+.project-row:has(.project-nav.active) .project-more:hover { background: rgba(var(--accent-rgb),.12); color: var(--accent); }
 /* ── 置顶：缩略图右下角一枚图钉 + 置顶区和其余项目之间一条细分隔线 ──
    加上这个标记之后，「排在最上面」才读得出来是「被钉住的」，而不是「名字刚好排第一」。 */
 .project-pin-badge {
@@ -248,7 +249,7 @@ kbd { border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; color
   width: 100%; min-width: 0; border: 1px solid var(--accent); border-radius: 8px;
   padding: 3px 7px; background: var(--field); color: var(--ink);
   font-family: inherit; font-size: 12.5px; outline: none;
-  box-shadow: 0 0 0 3px rgba(255,92,53,.16);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb),.16);
 }
 .project-list { display: flex; flex-direction: column; gap: 3px; flex: 1; min-height: 0; overflow-y: auto; padding-right: 3px; }
 .project-list::-webkit-scrollbar { width: 6px; }
@@ -335,15 +336,15 @@ select:hover { border-color: var(--card-line); }
    真正的卡片画面由浏览器拖影（drag image）跟着鼠标走，
    原位置和落点看到的都只是「这里会被占住」的框。
    注意这里不能写 transform（会盖不掉行内让位位移，见 animation 注释）。 */
-.card.dragging { border-style: dashed; border-color: rgba(255,92,53,.55); background: rgba(255,92,53,.05); box-shadow: none; }
+.card.dragging { border-style: dashed; border-color: rgba(var(--accent-rgb),.55); background: rgba(var(--accent-rgb),.05); box-shadow: none; }
 .card.dragging > * { visibility: hidden; }
 .card.dragging::after { display: none; }
 /* 卡片被拖走后，原位置留下的空虚线框。绝对定位浮层，不占网格格子——
    占格子会让所有卡片重新排布，是以前「疯狂抖动」的根源。 */
 .drag-home-frame {
   position: absolute; z-index: 2; pointer-events: none;
-  border: 2px dashed rgba(255,92,53,.5); border-radius: var(--radius);
-  background: rgba(255,92,53,.05);
+  border: 2px dashed rgba(var(--accent-rgb),.5); border-radius: var(--radius);
+  background: rgba(var(--accent-rgb),.05);
 }
 .card.drag-preview { position: fixed; z-index: -1; top: 0; left: -10000px; margin: 0; pointer-events: none; opacity: 1; transform: none; box-shadow: 0 14px 30px rgba(33,29,20,.16); }
 /* 拖拽排序中：让位要跟手，默认 .28s 的过渡会显得拖沓。
@@ -356,14 +357,13 @@ select:hover { border-color: var(--card-line); }
    不会先弹回原位再跳过去。 */
 .grid.no-transition .card { transition: none; }
 .cover-link { display: block; color: inherit; text-decoration: none; }
-.cover { aspect-ratio: 1.62; overflow: hidden; background: var(--cover-bg); }
+.cover { position: relative; aspect-ratio: 1.62; overflow: hidden; background: var(--cover-bg); }
 .cover img { width: 100%; height: 100%; object-fit: cover; transition: transform .45s ease; }
 .card:hover .cover img { transform: scale(1.04); }
-.cover-placeholder { display: grid; height: 100%; place-items: center; background: var(--cover-ph); }
-.cover-logo { width: 54px; height: 54px; border-radius: 0; opacity: .92; box-shadow: var(--cover-ph-shadow); }
-/* 箭头版封面源图自带一圈圆角；放大到卡片边缘外，由 .cover 的裁切只留下卡片这一层圆角。 */
-.cover-placeholder .cover-logo { width: 100%; height: 100%; transform: scale(1.12); }
-.card:hover .cover-placeholder .cover-logo { transform: scale(1.12); }
+.cover-placeholder { position: absolute; inset: 0; display: grid; place-items: center; background: var(--cover-bg); }
+/* 保留完整品牌轮廓；占位不参与卡片高度计算，也不沿用真实封面的裁切和缩放。 */
+.cover-placeholder .cover-logo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; transform: none; }
+.card:hover .cover-placeholder .cover-logo { transform: none; }
 .card-body { padding: 15px 15px 13px; }
 .source-row { display: grid; grid-template-columns: 17px minmax(0,1fr) auto auto; align-items: center; column-gap: 5px; min-width: 0; width: 100%; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .favicon { width: 17px; height: 17px; border-radius: 50%; background: var(--cover-bg); object-fit: cover; }
@@ -375,14 +375,14 @@ select:hover { border-color: var(--card-line); }
 footer { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 8px; margin-top: 13px; padding-top: 11px; border-top: 1px solid var(--hairline); }
 .read-toggle { border: 0; border-radius: 99px; padding: 6px 11px; background: var(--btn-soft); color: var(--chip-text); font-size: 10.5px; font-weight: 600; transition: background .15s, color .15s; }
 /* 鼠标放到按钮上：整颗变主题色高亮（侧栏那颗同款按钮也是这个效果）。 */
-.read-toggle:hover, .read-toggle:focus-visible { background: var(--accent); color: #fff; }
+.read-toggle:hover, .read-toggle:focus-visible { background: var(--accent-fill); color: var(--accent-on); }
 /* 卡片上的「所属项目」下拉：控件本身看着小巧（和以前一样），
    但原生弹出菜单的字号跟随控件 font-size，所以反过来操作——
    font-size 用 12.5px（弹出菜单就是大字），再整体 scale(.76) 缩回原来的视觉大小；
    宽度相应放大（1 / 0.76 ≈ 132%），缩回来后正好占满格子，不留缝。 */
 .project-select { min-width: 0; width: 132%; border: 0; border-radius: 8px; padding: 7px 18px 7px 6px; background-color: var(--field-soft); background-position: right 6px center; color: var(--chip-text); font-size: 12.5px; text-overflow: ellipsis; transform: scale(.76); transform-origin: left center; }
 .delete { display: grid; place-items: center; width: 29px; height: 29px; border: 0; border-radius: 9px; background: transparent; color: var(--subtle); transition: background .15s, color .15s; }
-.delete:hover { background: var(--accent-soft); color: #df4c31; }
+.delete:hover { background: var(--danger-soft); color: var(--danger); }
 .edit svg, .delete svg { width: 16px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.6; }
 
 /* 卡片右上角的「改写标题 / 摘要」铅笔：平时收着，鼠标移到卡片上才浮出来，
@@ -402,7 +402,7 @@ footer { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-it
 .card:hover .edit, .edit:focus-visible { opacity: 1; transform: none; pointer-events: auto; }
 .edit:hover { background: #fff; color: var(--ink); }
 [data-theme="dark"] .edit:hover { background: #26241f; color: #fff; }
-.edit:focus-visible { outline: 2px solid var(--accent, #ff5c35); outline-offset: 2px; }
+.edit:focus-visible { outline: 2px solid var(--accent, #945200); outline-offset: 2px; }
 .edit svg { width: 15px; }
 /* 多选模式下整张卡片用来勾选，铅笔就先别出来添乱。 */
 .grid.selecting .edit { display: none; }
@@ -508,7 +508,7 @@ footer { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-it
 .board-card:hover .board-edit, .board-edit:focus-visible { opacity: 1; transform: none; pointer-events: auto; }
 .board-edit:hover { background: #fff; color: var(--ink); }
 [data-theme="dark"] .board-edit:hover { background: #26241f; color: #fff; }
-.board-edit:focus-visible { outline: 2px solid var(--accent, #ff5c35); outline-offset: 2px; }
+.board-edit:focus-visible { outline: 2px solid var(--accent, #945200); outline-offset: 2px; }
 .board-edit svg { width: 14px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.6; }
 @media (hover: none) { .board-edit { opacity: 1; transform: none; pointer-events: auto; } }
 
@@ -516,7 +516,7 @@ footer { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-it
 .empty-icon { display: block; width: 76px; height: 76px; margin: auto; padding: 0; border-radius: 24px; object-fit: cover; background: transparent; box-shadow: var(--shadow-sm); }
 .empty h2 { margin: 20px 0 8px; font-family: Georgia, "Songti SC", serif; font-size: 28px; font-weight: 500; }
 .empty p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.7; }
-.toast { position: fixed; right: 25px; bottom: 25px; transform: translateY(20px); border-radius: 14px; padding: 12px 16px; background: var(--toast-bg); color: var(--active-text); font-size: 12px; box-shadow: var(--shadow-md); opacity: 0; pointer-events: none; transition: .25s; }
+.toast { position: fixed; right: 25px; bottom: 25px; transform: translateY(20px); border-radius: 14px; padding: 12px 16px; background: var(--toast-bg); color: var(--toast-text); font-size: 12px; box-shadow: var(--shadow-md); opacity: 0; pointer-events: none; transition: .25s; }
 .toast.show { transform: translateY(0); opacity: 1; }
 /* 全屏页按 Alt+1 / Alt+2 的说明提示：复用网页上「已收藏」通知的真实位置与外观。
    只给这类快捷键说明加 pill-toast，项目管理等普通 toast 仍留在右下角。 */
@@ -572,7 +572,7 @@ footer { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-it
 .collection-left { display: flex; align-items: center; gap: 14px; }
 .select-mode { border: 1px solid var(--hairline-2); border-radius: 99px; padding: 7px 16px; background: var(--glass-strong); color: var(--chip-text); font-size: 12.5px; font-weight: 650; box-shadow: var(--shadow-sm); transition: background .15s, color .15s, box-shadow .15s; }
 .select-mode:hover { background: var(--field); }
-.select-mode.active { background: var(--accent); color: #fff; border-color: var(--accent); box-shadow: 0 6px 16px -6px rgba(255,80,50,.6); }
+.select-mode.active { background: var(--accent-fill); color: var(--accent-on); border-color: var(--accent); box-shadow: 0 6px 16px -6px rgba(var(--accent-rgb),.6); }
 .grid.selecting .card { cursor: pointer; }
 .grid.selecting .card:hover { transform: none; }
 .select-badge {
@@ -585,21 +585,21 @@ footer { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-it
 .grid.selecting .select-badge { display: grid; }
 .select-badge input { position: absolute; width: 0; height: 0; opacity: 0; }
 .card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent), var(--shadow-sm); }
-.card.selected .select-badge { background: var(--accent); border-color: var(--accent); transform: scale(1.05); }
+.card.selected .select-badge { background: var(--accent-fill); border-color: var(--accent); transform: scale(1.05); }
 /* 当前正在阅读的这篇：两个视图都用「橙圈 + 左上角『正在读』」标出来，让你一眼知道自己在哪。 */
-.card.is-current { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(255,92,53,.5), var(--shadow-md); }
+.card.is-current { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(var(--accent-rgb),.5), var(--shadow-md); }
 .card.is-current::after {
   content: attr(data-current-label);
   position: absolute; top: 12px; left: 12px; z-index: 4;
   padding: 3px 9px; border-radius: 99px;
-  background: var(--accent); color: #fff;
+  background: var(--accent-fill); color: var(--accent-on);
   font-size: 10px; font-weight: 700; letter-spacing: .3px;
-  box-shadow: 0 4px 12px -4px rgba(255,80,50,.6);
+  box-shadow: 0 4px 12px -4px rgba(var(--accent-rgb),.6);
   pointer-events: none;
 }
 /* 多选时整张卡片用来勾选，左上角圆点已经在那儿了，别再叠个角标。 */
 .grid.selecting .card.is-current::after { display: none; }
-.card.selected .select-badge::after { content: ""; width: 12px; height: 7px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg) translateY(-1px); }
+.card.selected .select-badge::after { content: ""; width: 12px; height: 7px; border-left: 2px solid var(--accent-on); border-bottom: 2px solid var(--accent-on); transform: rotate(-45deg) translateY(-1px); }
 .card.selected .cover { opacity: .9; }
 
 /* 底部大药丸操作条 */
@@ -626,10 +626,10 @@ footer { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-it
 }
 .bulk-actions button:hover { background: rgba(255,255,255,.24); }
 .bulk-actions button:active { transform: scale(.96); }
-.bulk-actions button.primary { background: var(--accent); color: #fff; box-shadow: 0 6px 16px -6px rgba(255,80,50,.7); }
+.bulk-actions button.primary { background: var(--accent-fill); color: var(--accent-on); box-shadow: 0 6px 16px -6px rgba(var(--accent-rgb),.7); }
 .bulk-actions button.primary:hover { filter: brightness(1.07); }
-.bulk-actions button.danger { background: rgba(255,92,53,.22); color: #ffb6a6; }
-.bulk-actions button.danger:hover { background: rgba(255,92,53,.34); }
+.bulk-actions button.danger { background: rgba(217,72,65,.22); color: #ffb6a6; }
+.bulk-actions button.danger:hover { background: rgba(217,72,65,.34); }
 .bulk-actions .bulk-project { min-width: 122px; justify-content: space-between; }
 .bulk-project svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; opacity: .72; }
 

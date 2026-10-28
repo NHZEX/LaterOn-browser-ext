@@ -1,8 +1,8 @@
 {
-  "extensionName": { "message": "LaterOn · Project Web Manager" },
+  "extensionName": { "message": "StaySide · Project Web Manager" },
   "extensionDescription": { "message": "A web manager built for project research. Add scattered pages into projects, organize them, and keep working through them." },
-  "actionTitle": { "message": "Open the LaterOn side panel" },
-  "commandSavePage": { "message": "Add the current page to LaterOn" },
+  "actionTitle": { "message": "Open the StaySide side panel" },
+  "commandSavePage": { "message": "Add the current page to StaySide" },
   "commandTranslatePage": { "message": "Translate the current page or restore the original" },
-  "commandSaveAllTabs": { "message": "Add every tab in the current window to LaterOn" }
+  "commandSaveAllTabs": { "message": "Add every tab in the current window to StaySide" }
 }

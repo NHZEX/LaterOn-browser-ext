@@ -238,11 +238,11 @@ const PAGES = [
   await tick(300);
 
   console.log("\n── 品牌标识只出现在整屏弹窗里 ──");
-  // 整屏弹窗（网页里 Alt+1 收藏）：用户得先知道这是谁弹的窗，所以顶部保留当前 LaterOn 图标和品牌名。
+  // 整屏弹窗（网页里 Alt+1 收藏）：用户得先知道这是谁弹的窗，所以顶部保留当前 StaySide 图标和品牌名。
   openOverlay({ theme: "light", selected: "work", folders: FOLDERS, pages: PAGES });
   const modalShadow = document.getElementById("lateron-folder-picker").shadowRoot;
   const modalBrand = modalShadow.querySelector(".lon-brand");
-  check("整屏收藏弹窗保留当前 LaterOn 品牌标识", !!modalBrand?.querySelector('img[src*="icon128.png"]') && /LaterOn/.test(modalBrand.textContent), modalBrand?.textContent);
+  check("整屏收藏弹窗保留当前 StaySide 品牌标识", !!modalBrand?.querySelector('img[src*="icon128.png"]') && /StaySide/.test(modalBrand.textContent), modalBrand?.textContent);
   document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
   await tick(300);
 
@@ -253,8 +253,8 @@ const PAGES = [
   const popover = window.__pickerUI.openFolderPicker({ anchor, theme: "light", selected: "work", folders: FOLDERS });
   const popShadow = document.getElementById("lateron-folder-picker").shadowRoot;
   check("浮层认得出自己是「贴按钮」那一档", popShadow.querySelector(".lon-root").classList.contains("lon-popover"));
-  check("浮层里没有品牌标识（图标和 LaterOn 字样都不出现）",
-    !popShadow.querySelector(".lon-brand") && !/LaterOn/.test(popShadow.querySelector(".lon-panel").innerHTML),
+  check("浮层里没有品牌标识（图标和 StaySide 字样都不出现）",
+    !popShadow.querySelector(".lon-brand") && !/StaySide/.test(popShadow.querySelector(".lon-panel").innerHTML),
     popShadow.querySelector(".lon-panel").innerHTML.slice(0, 80));
   check("浮层的标题还在（不然不知道这个浮层是干嘛的）",
     popShadow.querySelector(".lon-title").textContent === "把这篇放到哪个项目？",

@@ -53,7 +53,7 @@ if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.m
     if (process.argv.length !== 2) throw new Error("Usage: pnpm release:check");
     const root = fileURLToPath(projectRoot);
     const { version } = readJson(resolve(root, "manifest.json"));
-    const archive = resolve(root, ".output", `LaterOn-${version}.zip`);
+    const archive = resolve(root, ".output", `StaySide-${version}.zip`);
     const { files, manifest } = readReleaseArchive(archive);
     console.log(`Verified ${relative(root, archive)} (${Object.keys(files).length} files, version ${manifest.version})`);
   } catch (error) { console.error(error.message); process.exitCode = 1; }

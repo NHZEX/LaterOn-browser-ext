@@ -18,7 +18,7 @@ export function useLibraryNavigation(view: LibraryView) {
     if (!alive) return;
     const key = state.activeProject === "unfiled" ? "inbox" : state.activeProject === "archive" ? "archive" : "allProjectsOverview";
     const name = homeTitle.value ? t("slogan") : collection.value.projects.find(project => project.id === state.activeProject)?.name || t(key);
-    document.title = `LaterOn - ${name}`;
+    document.title = `StaySide - ${name}`;
   }
   const stopTitle = watch([() => state.activeProject, homeTitle, () => collection.value.projects], title, { flush: "sync" });
   function initialize(snapshot: LibrarySnapshot): void {

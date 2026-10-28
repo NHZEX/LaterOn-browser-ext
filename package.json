@@ -1,7 +1,7 @@
 {
-  "name": "lateron-browser-ext",
+  "name": "stayside-browser-ext",
   "private": true,
-  "description": "LaterOn browser extension development tools",
+  "description": "StaySide browser extension development tools",
   "license": "MIT",
   "packageManager": "pnpm@12.14.0",
   "engines": {

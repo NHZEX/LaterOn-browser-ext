@@ -1,4 +1,5 @@
 import { errorText } from "../shared/errors";
+import accentStyles from "../styles/accent-vars.css?raw";
 import type { FolderPickerOptions, PickerProject } from "./types";
 
 // 收藏库（全屏页）和网页浮层（content script）共用的「选项目」面板。
@@ -85,13 +86,13 @@ export function openFolderPicker(options: FolderPickerOptions): { readonly close
   style.textContent = buildStyle();
   shadow.appendChild(style);
 
-  // 品牌标识（图标 + LaterOn）只在「整屏弹窗」里出现——那是网页里 Alt+1 收藏时弹的那个，
+  // 品牌标识（图标 + StaySide）只在「整屏弹窗」里出现——那是网页里 Alt+1 收藏时弹的那个，
   // 用户需要它说明这是谁弹的窗。贴按钮的浮层（收藏库卡片上点「所属项目」）不出这一行：
   // 人已经在收藏库里了，顶部再写一遍品牌纯属重复，还把项目列表往下挤了一截。
   const brandIcon = safeRuntimeUrl("icon128.png");
   const brandHtml = isPopover
     ? ""
-    : `<div class="lon-brand">${brandIcon ? `<img class="lon-logo" src="${brandIcon}" width="34" height="34" alt="" />` : ""}LaterOn</div>`;
+    : `<div class="lon-brand">${brandIcon ? `<img class="lon-logo" src="${brandIcon}" width="34" height="34" alt="" />` : ""}StaySide</div>`;
 
   const root = document.createElement("div");
   root.className = "lon-root" + (isPopover ? " lon-popover" : "");
@@ -455,6 +456,7 @@ export function openFolderPicker(options: FolderPickerOptions): { readonly close
 
 function buildStyle() {
   return `
+    ${accentStyles}
     :host { all: initial; }
     .lon-root, .lon-root *, .lon-root *::before, .lon-root *::after { box-sizing: border-box; }
     .lon-root {
@@ -474,10 +476,10 @@ function buildStyle() {
       --lon-field: #ffffff;
       --lon-soft: #f1f0eb;
       --lon-soft-hover: #e7e5df;
-      --lon-accent: #ff5c35;
-      --lon-accent-soft: #fff1ec;
+      --lon-accent: var(--accent);
+      --lon-accent-soft: var(--accent-soft);
       --lon-panel-shadow: 0 34px 80px -24px rgba(15,13,10,.5), 0 8px 26px -10px rgba(15,13,10,.2);
-      --lon-btn-shadow: 0 8px 20px -8px rgba(255,79,46,.9);
+      --lon-btn-shadow: 0 8px 20px -8px rgba(var(--accent-rgb),.35);
     }
     .lon-root[data-dark="1"] {
       --lon-card: #211f1d;
@@ -488,8 +490,6 @@ function buildStyle() {
       --lon-field: #2a2725;
       --lon-soft: #2f2c29;
       --lon-soft-hover: #38342f;
-      --lon-accent: #ff6a45;
-      --lon-accent-soft: #3a241d;
       --lon-panel-shadow: 0 34px 80px -24px rgba(0,0,0,.82), 0 8px 26px -10px rgba(0,0,0,.55);
     }
     .lon-backdrop {
@@ -517,7 +517,7 @@ function buildStyle() {
     .lon-brand { display: flex; align-items: center; gap: 10px; color: var(--lon-muted); font-size: 13.5px; font-weight: 700; letter-spacing: .2px; }
     .lon-logo {
       display: block; width: 34px; height: 34px; border-radius: 9px;
-      box-shadow: 0 6px 16px -6px rgba(255,80,50,.6);
+      box-shadow: 0 6px 16px -6px rgba(var(--accent-rgb),.35);
     }
     .lon-title { margin: 12px 0 0; font-size: 20px; font-weight: 800; letter-spacing: -.4px; line-height: 1.3; color: var(--lon-ink); }
     .lon-summary { margin: 7px 0 0; color: var(--lon-muted); font-size: 12.5px; line-height: 1.6; }
@@ -546,12 +546,14 @@ function buildStyle() {
     }
     .lon-folder:hover { background: var(--lon-soft); }
     .lon-folder:active { transform: scale(.992); }
-    .lon-folder.is-selected { border-color: var(--lon-accent); background: var(--lon-accent-soft); box-shadow: 0 0 0 3px rgba(255,92,53,.1); }
+    .lon-root :is(button, summary):focus-visible { outline: 2px solid var(--lon-accent); outline-offset: 2px; }
+    .lon-folder.is-selected { border-color: var(--lon-accent); background: var(--lon-accent-soft); box-shadow: 0 0 0 3px rgba(var(--accent-rgb),.1); }
     .lon-folder-icon { display: block; flex: none; width: 30px; height: 30px; border-radius: 9px; overflow: hidden; background: transparent; }
     .lon-folder-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .lon-folder-ph { width: 100%; height: 100%; display: grid; place-items: center; border-radius: 9px; background: linear-gradient(140deg, #ffd9cc, #ffb39a); color: #fff; font-size: 13px; font-weight: 800; }
+    .lon-folder-ph { width: 100%; height: 100%; display: grid; place-items: center; border-radius: 9px; background: var(--accent-soft-hover); color: var(--lon-accent); font-size: 13px; font-weight: 800; }
     .lon-folder-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; font-weight: 650; }
     .lon-folder-count { flex: none; color: var(--lon-subtle); font-size: 11.5px; font-weight: 700; }
+    .lon-folder.is-selected .lon-folder-count { color: var(--lon-accent); }
     .lon-folder-tick { flex: none; width: 14px; color: var(--lon-accent); font-size: 13px; font-weight: 800; opacity: 0; transition: opacity .15s; }
     .lon-folder.is-selected .lon-folder-tick { opacity: 1; }
 
@@ -562,7 +564,7 @@ function buildStyle() {
       transition: border-color .15s, box-shadow .15s;
     }
     .lon-new-input::placeholder { color: var(--lon-subtle); }
-    .lon-new-input:focus { border-color: var(--lon-accent); box-shadow: 0 0 0 3px rgba(255,92,53,.14); }
+    .lon-new-input:focus { border-color: var(--lon-accent); box-shadow: 0 0 0 3px rgba(var(--accent-rgb),.14); }
 
     .lon-hint { margin: 0; color: var(--lon-subtle); font-size: 11.5px; text-align: center; }
     .lon-foot { display: flex; gap: 10px; }
@@ -573,8 +575,8 @@ function buildStyle() {
     .lon-ghost { flex: 1; border: 1px solid var(--lon-line); background: transparent; color: var(--lon-ink); font-weight: 650; }
     .lon-ghost:hover { background: var(--lon-soft); }
     .lon-primary {
-      flex: 1.7; border: 0; background: linear-gradient(140deg, #ff7a52, #ff4f2e);
-      color: #fff; font-weight: 750; box-shadow: var(--lon-btn-shadow);
+      flex: 1.7; border: 0; background: var(--accent-gradient);
+      color: var(--accent-on); font-weight: 750; box-shadow: var(--lon-btn-shadow);
     }
     .lon-primary:hover:not(:disabled) { filter: brightness(1.05); }
     .lon-primary:active:not(:disabled) { transform: scale(.985); }

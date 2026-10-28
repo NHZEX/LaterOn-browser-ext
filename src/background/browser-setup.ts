@@ -17,8 +17,8 @@ function setupContextMenus() {
     const stored = await chrome.storage.local.get<BackgroundSnapshot>(SETTINGS_KEY).catch((): BackgroundSnapshot => ({}));
     const language = stored[SETTINGS_KEY]?.language === "en" ? "en" : "zh-CN";
     const titles = language === "en"
-      ? { page: "Add this page to LaterOn", all: "Add all tabs in this window to LaterOn" }
-      : { page: "添加此页面到 LaterOn", all: "添加本窗口所有标签页到 LaterOn" };
+      ? { page: "Add this page to StaySide", all: "Add all tabs in this window to StaySide" }
+      : { page: "添加此页面到 StaySide", all: "添加本窗口所有标签页到 StaySide" };
     await new Promise<void>((resolve) => {
       try {
         chrome.contextMenus.removeAll(() => {
@@ -43,7 +43,7 @@ function setupContextMenus() {
 }
 
 // Chrome 与 Edge 共用 Side Panel API。manifest 里不再绑定 default_popup，
-// 再显式开启 openPanelOnActionClick，工具栏图标便会在两端直接切换 LaterOn 侧栏。
+// 再显式开启 openPanelOnActionClick，工具栏图标便会在两端直接切换 StaySide 侧栏。
 // 该偏好由浏览器保存；service worker 冷启动、浏览器启动和扩展升级时都重新确认一次，
 // 避免 Edge 更新、扩展重新加载或浏览器同步后退回默认的“图标无动作”。
 async function setupSidePanelAction() {

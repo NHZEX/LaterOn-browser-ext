@@ -29,7 +29,7 @@ async function download(): Promise<void> {
     try {
       const link = document.createElement("a");
       link.href = url;
-      link.download = `lateron-backup-${payload.exportedAt.replace(/[:.]/g, "-")}.json`;
+      link.download = `stayside-backup-${payload.exportedAt.replace(/[:.]/g, "-")}.json`;
       link.click();
     } finally { window.setTimeout(() => URL.revokeObjectURL(url), 1000); }
   } catch (error) { await failure(error, "backupExportFail"); }
