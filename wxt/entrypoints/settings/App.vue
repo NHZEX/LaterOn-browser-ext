@@ -7,6 +7,7 @@ import { setLanguage, t } from "../../../src/shared/i18n";
 import { clampDays } from "./shared";
 import { useDialog } from "./useDialog";
 import BackupPanel from "./BackupPanel.vue";
+import StorageUsagePanel from "./StorageUsagePanel.vue";
 import ShortcutsPanel from "./ShortcutsPanel.vue";
 import SettingsDialog from "./SettingsDialog.vue";
 import type { Settings, StoredSettings } from "../../../src/settings/shared";
@@ -153,6 +154,7 @@ onMounted(init);
           <p id="cleanResumeHint" class="setting-note">{{ t('autoCleanResumeHint') }}</p>
         </section>
         <ShortcutsPanel :dialog="dialog" />
+        <StorageUsagePanel />
         <BackupPanel :dialog="dialog" />
       </template>
       <div v-else-if="loadError" role="alert"><p>{{ t('settingsLoadFailed') }}</p><button id="retrySettings" class="setting-action" type="button" @click="init">{{ t('retry') }}</button></div>

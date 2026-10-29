@@ -1,4 +1,54 @@
 import type { Translate } from "../../../src/shared/i18n";
+import { COVERS as STORED_COVERS, ITEMS, PROJECTS, isRecord } from "../../../src/storage/contracts";
+
+export interface StorageUsage {
+  readonly totalBytes: number;
+  readonly itemCount: number;
+  readonly projectCount: number;
+  readonly inlineIconCount: number;
+  readonly remoteIconCount: number;
+  readonly inlineCoverCount: number;
+  readonly metadataBytes: number;
+  readonly iconBytes: number;
+  readonly coverBytes: number;
+  readonly otherBytes: number;
+}
+
+const utf8 = new TextEncoder();
+const jsonBytes = (value: unknown): number => utf8.encode(JSON.stringify(value) ?? "").byteLength;
+const isInlineImage = (value: unknown): value is string => typeof value === "string" && /^data:image\//i.test(value);
+const imageBytes = (images: readonly string[]): number => images.reduce((sum, image) => sum + jsonBytes(image) - 2, 0);
+const records = (value: unknown): readonly Record<string, unknown>[] => Array.isArray(value) ? value.filter(isRecord) : [];
+
+export function calculateStorageUsage(snapshot: Readonly<Record<string, unknown>>, totalBytes: number): StorageUsage {
+  const items = records(snapshot[ITEMS]);
+  const projects = records(snapshot[PROJECTS]);
+  const icons = items.map(item => item.favicon).filter(isInlineImage);
+  const covers = [
+    ...items.map(item => item.image), ...projects.map(project => project.cover),
+    ...Object.values(isRecord(snapshot[STORED_COVERS]) ? snapshot[STORED_COVERS] : {})
+  ].filter(isInlineImage);
+  const iconBytes = imageBytes(icons);
+  const coverBytes = imageBytes(covers);
+  const collectionKeys: readonly string[] = [ITEMS, PROJECTS, STORED_COVERS];
+  const entryBytes = ([key, value]: readonly [string, unknown]): number => utf8.encode(key).byteLength + jsonBytes(value);
+  const entries = Object.entries(snapshot);
+  const collectionBytes = entries.filter(([key]) => collectionKeys.includes(key)).reduce((sum, entry) => sum + entryBytes(entry), 0);
+  return {
+    totalBytes, itemCount: items.length, projectCount: projects.length,
+    inlineIconCount: icons.length,
+    remoteIconCount: items.filter(item => typeof item.favicon === "string" && /^https?:\/\//i.test(item.favicon)).length,
+    inlineCoverCount: covers.length,
+    metadataBytes: Math.max(0, collectionBytes - iconBytes - coverBytes), iconBytes, coverBytes,
+    otherBytes: entries.filter(([key]) => !collectionKeys.includes(key)).reduce((sum, entry) => sum + entryBytes(entry), 0)
+  };
+}
+
+export function formatStorageBytes(bytes: number, language: string): string {
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"] as const;
+  const index = bytes > 0 ? Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024))) : 0;
+  return `${new Intl.NumberFormat(language, { maximumFractionDigits: index === 0 ? 0 : 2 }).format(bytes / 1024 ** index)} ${units[index]}`;
+}
 
 export function clampDays(value: unknown): number {
   const days = Number(value);

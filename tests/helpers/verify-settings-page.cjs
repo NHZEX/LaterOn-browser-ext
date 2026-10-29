@@ -59,13 +59,18 @@ module.exports = async function verifySettingsPage(directory) {
       const handlers = [], listeners = [], messages = [], downloads = [], released = [], updates = [], created = [];
       const faults = { write: false, shortcuts: false, readSettings: true };
       window.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
+      window.TextEncoder = TextEncoder;
       window.chrome = {
         storage: { local: {
           async get(keys) {
             if (faults.readSettings && document.querySelector(".settings-main")) {
               faults.readSettings = false; throw Error("fixture initial settings read failure");
             }
-            return structuredClone(Object.fromEntries((Array.isArray(keys) ? keys : [keys]).filter(key => key in store).map(key => [key, store[key]])));
+            return structuredClone(Object.fromEntries((keys === null ? Object.keys(store) : Array.isArray(keys) ? keys : [keys]).filter(key => key in store).map(key => [key, store[key]])));
+          },
+          async getBytesInUse(keys) {
+            const selected = keys === null ? Object.keys(store) : Array.isArray(keys) ? keys : [keys];
+            return selected.filter(key => key in store).reduce((sum, key) => sum + Buffer.byteLength(key) + Buffer.byteLength(JSON.stringify(store[key])), 0);
           },
           async set(patch) {
             if (faults.write) { faults.write = false; throw Error("fixture write failure"); }
@@ -73,7 +78,10 @@ module.exports = async function verifySettingsPage(directory) {
             Object.assign(store, structuredClone(patch));
             listeners.forEach(listener => listener(changes, "local"));
           }
-        }, onChanged: { addListener(listener) { listeners.push(listener); } } },
+        }, onChanged: {
+          addListener(listener) { listeners.push(listener); },
+          removeListener(listener) { const index = listeners.indexOf(listener); if (index >= 0) listeners.splice(index, 1); }
+        } },
         runtime: { getManifest: () => manifest, getURL: name => `chrome-extension://fixture/${name}`,
           onMessage: { addListener(listener) { handlers.push(listener); } },
           sendMessage(message) {

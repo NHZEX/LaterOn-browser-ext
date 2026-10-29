@@ -131,6 +131,17 @@ body {
 .danger-row .setting-label strong { color: var(--danger); }
 
 .settings-dialog-message { white-space: pre-line; }
+.storage-summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0 8px; }
+.storage-summary .setting-action { flex-shrink: 0; }
+.storage-total { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; margin: 0 0 6px; }
+.storage-total span { color: var(--muted); font-size: 13px; }
+.storage-total strong { font-size: 26px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.storage-breakdown { margin: 10px 0 14px; font-size: 13px; }
+.storage-breakdown > div { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-top: 1px solid var(--hairline); }
+.storage-breakdown dt { color: var(--muted); }
+.storage-breakdown dd { margin: 0; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.storage-usage :is(h2, .setting-note, .storage-total span, .storage-breakdown dt) { color: var(--field-text); }
+.storage-usage .storage-error { color: var(--danger); }
 .settings-main button:disabled, .settings-main input:disabled, .settings-main select:disabled { opacity: .5; cursor: default; }
 .settings-main :is(button, input, select, summary):focus-visible, .settings-top a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 html { scroll-padding-top: 90px; }
