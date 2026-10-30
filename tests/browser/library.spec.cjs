@@ -372,11 +372,17 @@ for (const [theme, language] of [["light", "zh-CN"], ["dark", "en"]]) {
     await expect(popup).toHaveCount(0);
     await expect(page.locator("#searchInput")).not.toBeFocused();
     await expect(more).not.toBeFocused();
-    await more.click(); await page.keyboard.press("Shift+Tab");
+    await more.click();
+    await expect(popup.locator('[data-action="pin"]')).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
     await expect(popup).toHaveCount(0);
     await expect(page.locator('.project-nav[data-project="p"]')).toBeFocused();
     // Native Enter activates a menu item and the dialog retains its own focus.
-    await more.click(); await page.keyboard.press("End"); await page.keyboard.press("Enter");
+    await more.click();
+    await expect(popup.locator('[data-action="pin"]')).toBeFocused();
+    await page.keyboard.press("End");
+    await expect(popup.locator('[data-action="delete"]')).toBeFocused();
+    await page.keyboard.press("Enter");
     await expect(page.locator(".lod-root:not([hidden])")).toBeVisible();
     await expect(page.locator(".lod-root:not([hidden]) .lod-panel")).toBeFocused();
     await page.keyboard.press("Escape");
