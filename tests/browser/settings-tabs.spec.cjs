@@ -78,6 +78,7 @@ test("运行诊断：展开才读取和轮询，折叠或离开停止，丢弃�
   await page.goto(url(extension, "#data"));
   await expect(usage(page)).toBeVisible();
   await page.clock.install();
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
   const reads = () => page.evaluate(() => window.reads.diagnostics);
   const details = page.locator(".settings-diagnostics"), summary = details.locator("summary");
   await page.clock.runFor(6000); expect(await reads()).toBe(0);
@@ -106,6 +107,7 @@ test("运行诊断：展开才读取和轮询，折叠或离开停止，丢弃�
   await expect(details.getByRole("alert")).toHaveCount(0);
   await expect(details).toContainText("fresh diagnostics");
   await summary.click();
+  await expect(details.locator("#diagShortcut")).toHaveCount(0);
   const stopped = await reads();
   await page.clock.runFor(6000); expect(await reads()).toBe(stopped);
 });
