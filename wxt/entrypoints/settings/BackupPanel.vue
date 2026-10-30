@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, shallowRef } from "vue";
-import { applyBackup, clearPanelCache, exportBackup, previewBackup, wipeCollection } from "../../../src/backup/client";
+import { applyBackup, clearPanelCache, exportBackup, previewBackup } from "../../../src/backup/client";
 import { MAX_BYTES } from "../../../src/backup/core";
 import { t } from "../../../src/shared/i18n";
 import { backupErrorKey } from "./shared";
@@ -9,7 +9,7 @@ import type { SettingsDialog } from "./useDialog";
 
 const props = defineProps<{ dialog: SettingsDialog }>();
 
-const busy = ref(false);
+const busy = defineModel<boolean>("busy", { default: false });
 const includeImages = ref(false);
 const mode = ref<ImportMode>("merge");
 const fileInput = shallowRef<HTMLInputElement | null>(null);
@@ -64,22 +64,11 @@ async function importFile(): Promise<void> {
   } catch (error) { await failure(error, "importFailTitle"); }
   finally { input.value = ""; busy.value = false; }
 }
-async function wipe(): Promise<void> {
-  if (busy.value) return;
-  busy.value = true;
-  try {
-    if (!await props.dialog.confirm({ tone: "danger", title: t("wipeConfirmTitle"), message: t("wipeConfirmMsg"), confirmText: t("wipeConfirmBtn") })) return;
-    await wipeCollection();
-    clearPanelCache();
-    await props.dialog.alert({ tone: "success", title: t("wipeDoneTitle"), message: t("wipeDoneMsg") });
-  } catch (error) { await failure(error, "backupOperationFailed"); }
-  finally { busy.value = false; }
-}
 </script>
 
 <template>
   <section class="settings-group" :aria-busy="busy">
-    <h2>{{ t('data') }}</h2>
+    <h2>{{ t('backupRestore') }}</h2>
     <div class="setting-row">
       <div class="setting-label"><strong>{{ t('backupRestore') }}</strong><span>{{ t('backupHint') }}</span></div>
       <div class="data-actions">
@@ -96,10 +85,6 @@ async function wipe(): Promise<void> {
         </div>
         <input id="importFile" ref="fileInput" type="file" accept="application/json,.json" hidden @change="importFile" />
       </div>
-    </div>
-    <div class="setting-row danger-row">
-      <div class="setting-label"><strong>{{ t('wipe') }}</strong><span>{{ t('wipeHint') }}</span></div>
-      <button id="wipeBtn" class="setting-action danger" type="button" :disabled="busy" @click="wipe">{{ t('wipeAction') }}</button>
     </div>
   </section>
 </template>

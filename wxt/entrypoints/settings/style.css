@@ -43,6 +43,11 @@ body {
 .settings-title { margin: 34px 0 22px; }
 .settings-title h1 { margin: 0; font-size: 30px; font-weight: 850; letter-spacing: -1.1px; }
 .settings-title p { margin: 8px 0 0; color: var(--muted); font-size: 13.5px; }
+.settings-tabs { display: flex; gap: 6px; margin-bottom: 22px; padding-bottom: 6px; border-bottom: 1px solid var(--hairline-2); }
+.settings-tabs [role="tab"] { min-height: 44px; flex: 1; border: 0; border-radius: 10px; padding: 10px 16px; background: transparent; color: var(--field-text); font: inherit; font-size: 14px; font-weight: 650; cursor: pointer; }
+.settings-tabs [role="tab"]:hover { background: var(--btn-soft); }
+.settings-tabs [role="tab"][data-state="active"] { background: var(--btn-soft); color: var(--ink); box-shadow: inset 0 -3px 0 var(--accent); }
+.settings-tab-panel:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 /* 窗口很窄时先省掉品牌文字，避免和返回按钮撞在一起。 */
 @media (max-width: 560px) {
   .settings-brand .brand-name { display: none; }

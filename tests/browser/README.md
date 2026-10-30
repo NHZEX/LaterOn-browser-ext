@@ -40,6 +40,7 @@ Remove-Item Env:PANEL_TEST_ORDER
 | [picker.spec.cjs](picker.spec.cjs) | 网页浮层与独立选择页、样式隔离、重复打开、过期批次、确认 / 取消 |
 | [ui-modules.spec.cjs](ui-modules.spec.cjs) | 国际化、引导、图片上传 / 焦点、编辑器按需加载与样式失败重试 |
 | [storage-usage.spec.cjs](storage-usage.spec.cjs) | 设置页实际存储用量、内嵌图片分类、手动刷新、读取失败恢复及读取期间的数据变化 |
+| [settings-tabs.spec.cjs](settings-tabs.spec.cjs) | 中英文设置分层、键盘切换和面板链接、存储按需读取、诊断展开轮询 / 停止 / 迟到结果及重试，以及切换期间导入导出继续完成或失败重试、选项保留和操作锁 |
 | [icon-storage.spec.cjs](icon-storage.spec.cjs) | 两页图标迁移、实际 PNG 显示及字节减量、无广播命令响应、初始化广播竞态、侧栏共享图标缓存，以及中英文图标详情的按需读取、分页、折叠丢弃迟到结果、预览、引用数、缺失提示和只读刷新 / 重试 |
 | [content-injections.spec.cjs](content-injections.spec.cjs) | 元数据、阅读恢复及 MAIN world 翻译，网络 / Translator API 是可控外部边界 |
 

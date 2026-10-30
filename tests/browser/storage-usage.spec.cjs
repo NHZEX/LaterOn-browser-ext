@@ -1,7 +1,7 @@
 const { test, expect } = require("./extension.cjs");
 
 const icon = "data:image/png;base64,AAAA";
-const settingsUrl = extension => new URL("settings.html", extension.url).href;
+const settingsUrl = extension => new URL("settings.html#data", extension.url).href;
 async function seed(worker, language = "en") {
   await worker.evaluate(async language => {
     await chrome.storage.local.clear();

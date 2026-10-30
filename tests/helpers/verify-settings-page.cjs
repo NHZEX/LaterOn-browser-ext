@@ -122,12 +122,13 @@ module.exports = async function verifySettingsPage(directory) {
       window.eval(outputFiles[0].text);
       await until(() => document.querySelector("#retrySettings"), "Failed initial read offers retry rather than permanent loading");
       document.querySelector("#retrySettings").click();
-      await until(() => document.querySelector("#exportBtn"), `Vue mounts: ${errors.join("; ")}`);
+      await until(() => document.querySelector('[role="tab"][data-state="active"]'), `Vue mounts: ${errors.join("; ")}`);
       assert.equal(document.documentElement.lang, language);
       assert.equal(document.title, language === "en" ? "StaySide · Settings" : "StaySide · 设置");
       assert.equal(document.querySelector('[data-setting="defaultSort"]').value, "custom");
       resource(document.querySelector(".settings-brand img").src);
       const click = selector => document.querySelector(selector).click();
+      const switchTab = value => [...document.querySelectorAll('[role="tab"]')].find(element => element.textContent === window.uiTest.i18n.t(value === "data" ? "settingsMaintenance" : "settingsGeneral")).dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 }));
       const change = (selector, value) => {
         const element = document.querySelector(selector);
         element.value = value;
@@ -145,6 +146,8 @@ module.exports = async function verifySettingsPage(directory) {
       await until(() => store.laterOnSettings.theme === "light", "Theme saves");
       assert.equal(document.documentElement.dataset.theme, "light");
       await tick();
+      switchTab("data");
+      await until(() => document.querySelector("#exportBtn"), "Data tab mounts maintenance controls");
       for (const [value, expected] of [["999", 180], ["32.6", 33], ["", 30]]) {
         const days = change('[data-setting="autoCleanDays"]', value);
         await until(() => store.laterOnSettings.autoCleanDays === expected, "Days clamp and round");
@@ -161,10 +164,12 @@ module.exports = async function verifySettingsPage(directory) {
       assert.equal(autoClean.getAttribute("aria-checked"), "false");
       assert.equal(cleanupDays.disabled, true);
       assert.equal(cleanupDays.value, "90", "Disabling remembers the previous days");
+      switchTab("general"); await tick();
       change('[data-setting="defaultSort"]', "oldest");
       await until(() => store.laterOnSettings.defaultSort === "oldest", "Sort saves"); await tick();
       assert.equal(store.laterOnSettings.autoCleanEnabled, false, "Other settings do not re-enable cleanup");
       const beforeEnable = clone(store);
+      switchTab("data"); await tick();
       autoClean.click();
       await until(dialog, "Re-enabling requires confirmation before writing");
       assert.deepEqual(clone(store), beforeEnable, "Opening confirmation does not change settings or collection data");
@@ -192,6 +197,7 @@ module.exports = async function verifySettingsPage(directory) {
       await closeDialog();
       await until(() => store.laterOnSettings.autoCleanEnabled === true && !cleanupDays.disabled, "Cleanup can be re-enabled");
       assert.equal(cleanupDays.value, "90"); await tick();
+      switchTab("general"); await tick();
       const singleSave = document.querySelector('[data-setting="askFolderOnSingle"]');
       assert.equal(singleSave.getAttribute("role"), "switch");
       assert.equal(singleSave.getAttribute("aria-checked"), "false");
@@ -202,14 +208,18 @@ module.exports = async function verifySettingsPage(directory) {
       assert.equal(store.laterOnSettings.libraryView, "boards");
       await until(() => document.querySelector("#cmdSave").textContent.includes("Alt+9"), "Configured shortcut is shown");
       assert.ok(document.querySelector("#cmdSaveAll").textContent.includes("Alt+Shift+1"));
-      assert.ok(document.querySelector("#diagShortcut").textContent.includes(window.uiTest.i18n.t("cmdSaveAllTabs")));
-      assert.ok(document.querySelector("#diagPanelSpeed").textContent.includes(window.uiTest.i18n.t("speedOk")));
       faults.write = true; click('[data-setting="theme"] [data-value="dark"]');
       await until(dialog, "Settings write error opens dialog");
       assert.equal(store.laterOnSettings.theme, "light");
       assert.equal(document.querySelector(".lod-root").dataset.tone, "danger");
       await closeDialog(); await tick();
 
+      switchTab("data"); await tick();
+      const diagnosticDetails = document.querySelector(".settings-diagnostics");
+      diagnosticDetails.open = true;
+      diagnosticDetails.dispatchEvent(new window.Event("toggle"));
+      await until(() => document.querySelector("#diagShortcut")?.textContent.includes(window.uiTest.i18n.t("cmdSaveAllTabs")), "Expanded diagnostics reads the latest shortcut");
+      assert.ok(document.querySelector("#diagPanelSpeed").textContent.includes(window.uiTest.i18n.t("speedOk")));
       const input = document.querySelector("#importFile");
       const exportButton = document.querySelector("#exportBtn");
       let selectedFileValue = "";
@@ -308,6 +318,7 @@ module.exports = async function verifySettingsPage(directory) {
       click("#wipeBtn"); await closeDialog(); await closeDialog(); await endImport();
       assert.equal(store.laterOnItems.length, 0);
       assert.equal(store.laterOnSettings.libraryView, "boards");
+      switchTab("general"); await tick();
       click("#replayOnboarding"); await tick();
       assert.equal(updates.at(-1).url, "chrome-extension://fixture/library.html?guide=1");
       faults.shortcuts = true; click("#openShortcuts"); await closeDialog(); faults.shortcuts = false;

@@ -36,6 +36,9 @@ async function seed(page, extension, values, shared = false) {
         favicon: shared ? `icon://${hashes[group]}` : values[group] })),
       ...(shared ? { laterOnIcons: Object.fromEntries(hashes.map((hash, i) => [hash, values[i]])) } : {}) });
   }, { values, hashes, shared });
+  // A later #data navigation must mount a fresh page after seeding, rather than
+  // reuse settings state from before storage was cleared.
+  await page.goto("about:blank");
   return hashes;
 }
 
@@ -122,7 +125,7 @@ test("图标去重：侧栏缓存只保留首屏所需图标，完整读取等�
 test("图标去重：设置页区分使用量与存储份数，缺图提示后仍可导出无图片备份", async ({ page, extension }) => {
   const values = await images(page);
   const hashes = await seed(page, extension, values, true);
-  await page.goto(new URL("settings.html", extension.url).href);
+  await page.goto(new URL("settings.html#data", extension.url).href);
   const usage = page.getByRole("region", { name: "Storage usage" });
   await expect(usage).toContainText("Embedded icons: 14 references · 4 stored");
   const bytes = values.reduce((n, value) => n + Buffer.byteLength(value), 0);
@@ -158,7 +161,7 @@ for (const language of ["zh-CN", "en"]) {
       await chrome.storage.local.set({ laterOnSettings: { ...settings, language, theme: language === "en" ? "dark" : "light" },
         laterOnItems: items.map((item, i) => ({ ...item, url: `https://${i < 11 ? "linux.do" : i === 11 ? "github.com" : "youtube.com"}/${i}` })) });
     }, language);
-    await page.goto(new URL("settings.html", extension.url).href);
+    await page.goto(new URL("settings.html#data", extension.url).href);
     const usage = page.getByRole("region", { name: language === "en" ? "Storage usage" : "存储占用" });
     const summary = usage.locator("summary");
     await expect(usage.locator(".storage-icon-summary")).toHaveText(language === "en"
@@ -231,7 +234,7 @@ test("图标详情：展开才读取、折叠取消旧结果、分页上限和�
       return window.iconReads.hold ? new Promise(resolve => { window.iconReads.release = () => resolve(snapshot); }) : snapshot;
     };
   });
-  await page.goto(new URL("settings.html", extension.url).href);
+  await page.goto(new URL("settings.html#data", extension.url).href);
   const usage = page.getByRole("region", { name: "Storage usage" });
   const summary = usage.locator("summary"), rows = usage.getByRole("listitem");
   const refresh = usage.getByRole("button", { name: "Refresh", exact: true });
