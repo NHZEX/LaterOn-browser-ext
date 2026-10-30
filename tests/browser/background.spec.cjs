@@ -4,7 +4,7 @@ const path = require("node:path");
 const { chromium } = require("@playwright/test");
 const { test, expect, buildDir } = require("./extension.cjs");
 
-test("原生后台冷启动可抓取、保存、更新和导出，无全局桥接", async ({ context, extension }) => {
+test("原生后台冷启动可抓取、保存、更新和导出，无全局桥接", { tag: "@smoke" }, async ({ context, extension }) => {
   const errors = [];
   extension.worker.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
   expect(await extension.worker.evaluate(() =>

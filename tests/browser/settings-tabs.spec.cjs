@@ -28,7 +28,7 @@ async function trackReads(page) {
 }
 
 for (const language of ["zh-CN", "en"]) {
-  test(`设置分层：${language} 默认常规、键盘切换、深链接与只读按需加载`, async ({ page, extension }) => {
+  test(`设置分层：${language} 默认常规、键盘切换、深链接与只读按需加载`, { tag: language === "zh-CN" ? ["@smoke"] : [] }, async ({ page, extension }) => {
     await seed(extension.worker, language);
     await trackReads(page);
     await page.setViewportSize({ width: language === "en" ? 375 : 1360, height: 900 });
@@ -114,7 +114,7 @@ test("运行诊断：展开才读取和轮询，折叠或离开停止，丢弃�
 
 for (const action of ["BACKUP_EXPORT", "BACKUP_APPLY"]) {
   for (const fail of [false, true]) {
-    test(`数据面板：${action} 切换期间${fail ? "失败后可重试" : "继续完成"}，保留选项与操作锁`, async ({ page, extension }) => {
+    test(`数据面板：${action} 切换期间${fail ? "失败后可重试" : "继续完成"}，保留选项与操作锁`, { tag: action === "BACKUP_APPLY" && !fail ? ["@smoke"] : [] }, async ({ page, extension }) => {
       await seed(extension.worker);
       await page.addInitScript(action => {
         const send = chrome.runtime.sendMessage.bind(chrome.runtime);

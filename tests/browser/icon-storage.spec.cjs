@@ -43,7 +43,7 @@ async function seed(page, extension, values, shared = false) {
 }
 
 for (const kind of ["library", "sidepanel"]) {
-  test(`图标去重：${kind} 迁移、真实图片、无广播命令响应和存储减量`, async ({ page, extension }) => {
+  test(`图标去重：${kind} 迁移、真实图片、无广播命令响应和存储减量`, { tag: kind === "library" ? ["@smoke"] : [] }, async ({ page, extension }) => {
     const errors = []; page.on("pageerror", error => errors.push(error.message));
     const values = await images(page);
     await seed(page, extension, values);

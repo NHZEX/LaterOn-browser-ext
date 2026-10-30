@@ -57,7 +57,7 @@ test("F3d：主页面脚本失败时独立启动，异步样式恢复且十二�
 });
 
 for (const [language, theme] of [["zh-CN", "light"], ["en", "dark"]]) {
-  test(`E4：当前页元数据、实际保存、切页与完整界面交接 ${language}/${theme}`, async ({ context, page, extension }, testInfo) => {
+  test(`E4：当前页元数据、实际保存、切页与完整界面交接 ${language}/${theme}`, { tag: language === "en" ? ["@smoke"] : [] }, async ({ context, page, extension }, testInfo) => {
     const errors = []; page.on("pageerror", error => errors.push(error.message));
     await context.route("https://e4.test/**", route => route.fulfill({ contentType: "text/html", body:
       '<title>E4 tab title</title><meta property="og:title" content="E4 metadata title"><meta property="og:description" content="E4 description"><main>Article body</main>' }));

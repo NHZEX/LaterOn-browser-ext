@@ -21,7 +21,7 @@ const settleCards = page => page.locator("#cardGrid .card").evaluateAll(cards =>
   Promise.all(cards.flatMap(card => card.getAnimations().map(animation => animation.finished.catch(() => {})))));
 
 for (const [theme, language] of [["light", "zh-CN"], ["dark", "en"]]) {
-  test(`D5 页面生命周期、通知、快捷键与原文标签复用（${theme}/${language}）`, async ({ page, context, extension }) => {
+  test(`D5 页面生命周期、通知、快捷键与原文标签复用（${theme}/${language}）`, { tag: language === "zh-CN" ? ["@smoke"] : [] }, async ({ page, context, extension }) => {
     const errors = []; page.on("pageerror", error => errors.push(error.message));
     await context.route("https://assets.example.test/**", route => route.abort());
     await context.route("https://example.test/**", route => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Saved article</title><p>Article content</p>" }));

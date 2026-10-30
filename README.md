@@ -118,6 +118,7 @@ pnpm install --frozen-lockfile
 | --- | --- |
 | `pnpm test` | 运行 Node / JSDOM 测试 |
 | `pnpm test:browser` | 构建后用真实 Chromium 验证扩展界面、后台与持久化 |
+| `pnpm test:browser:smoke` | 构建后并行验证核心入口与数据链路，供局部改动快速检查 |
 | `pnpm typecheck` | 生成 WXT 类型配置并检查已迁移的 TypeScript 代码 |
 | `pnpm build` | 使用 WXT 构建扩展到 `.output/chrome-mv3` |
 | `pnpm zip` | 按默认 production 模式构建、打包，并按环境开关决定是否发布 |
@@ -146,7 +147,7 @@ production 模式的产物为 `.output/chrome-mv3` 和 `.output/StaySide-<版本
 
 store 模式的产物为 `.output/chrome-mv3-store` 和 `.output/StaySide-<版本>-store.zip`，构建时通过 WXT 的 manifest 配置函数省略 `key`，根 manifest 保持不变。GitHub 下载和本地加载使用普通 ZIP；上传 Chrome 商店使用 store ZIP，商店版本的 ID 由商店条目确定。该命令只生成上传包，不自动上传或发布到商店。
 
-扩展版本由 `manifest.json` 定义。发布前先运行测试；`pnpm build` 仅构建，即使发布开关开启也不部署。部署前检查 ZIP，安装目录的父目录须已存在，已有目录必须为同一扩展。旧版本保存在安装目录同级的 `<目录名>-backups/` 中，发布后需在浏览器中重新加载扩展。
+扩展版本由 `manifest.json` 定义。发布前按[测试说明](tests/browser/README.md#执行)确认对应代码的验证结果，已通过的业务代码仅改版本或发布说明时复用结果，不为打 tag 重跑全套。`pnpm build` 仅构建，即使发布开关开启也不部署。部署前检查 ZIP，安装目录的父目录须已存在，已有目录必须为同一扩展。旧版本保存在安装目录同级的 `<目录名>-backups/` 中，发布后需在浏览器中重新加载扩展。
 
 浏览器安装、测试执行与验证限制见 [测试说明](tests/browser/README.md)。CI 步骤以 [工作流](.github/workflows/ci.yml) 为准。
 

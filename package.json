@@ -11,6 +11,7 @@
   "scripts": {
     "test": "node scripts/test.cjs",
     "test:browser": "pnpm build && playwright test",
+    "test:browser:smoke": "pnpm build && playwright test --grep @smoke --workers=2 --trace=off",
     "typecheck": "wxt prepare && vue-tsc --noEmit",
     "build": "wxt build",
     "zip": "wxt zip",
