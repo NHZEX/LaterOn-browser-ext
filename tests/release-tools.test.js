@@ -1,6 +1,7 @@
-// Exercise the artifact and deployment boundary using ignored .output files.
+// Exercise built artifacts with deployment fixtures isolated in the system temp directory.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const vm = require("node:vm");
@@ -11,7 +12,7 @@ const { JSDOM } = require("jsdom");
 const root = path.resolve(__dirname, "..");
 const output = path.join(root, ".output");
 fs.mkdirSync(output, { recursive: true });
-const temporary = fs.mkdtempSync(path.join(output, "release-tools-"));
+const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "stayside-release-tools-"));
 const destination = path.join(temporary, "StaySide");
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
 const archive = path.join(output, `StaySide-${manifest.version}.zip`);
@@ -406,8 +407,8 @@ async function main() {
 
     console.log("PASS WXT local/store packaging, mode-based publishing hook, built worker, final ZIP checks, backup, rollback and directory protection");
   } finally {
-    assert.equal(path.dirname(temporary), output);
-    assert.ok(path.basename(temporary).startsWith("release-tools-"));
+    assert.equal(path.dirname(temporary), path.resolve(os.tmpdir()));
+    assert.ok(path.basename(temporary).startsWith("stayside-release-tools-"));
     fs.rmSync(temporary, { recursive: true, force: true });
   }
 }

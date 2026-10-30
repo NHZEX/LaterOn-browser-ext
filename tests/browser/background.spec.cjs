@@ -1,4 +1,5 @@
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { chromium } = require("@playwright/test");
 const { test, expect, buildDir } = require("./extension.cjs");
@@ -36,9 +37,8 @@ test("原生后台冷启动可抓取、保存、更新和导出，无全局桥�
 });
 
 test("浏览器重启后原生后台保留收藏并接受重启前的备份预览", async () => {
-  const root = path.resolve(__dirname, "../../.output/f2-browser-profiles");
-  fs.mkdirSync(root, { recursive: true });
-  const profile = fs.mkdtempSync(path.join(root, "restart-"));
+  const root = path.resolve(os.tmpdir());
+  const profile = fs.mkdtempSync(path.join(root, "stayside-browser-restart-"));
   let context;
   const launch = () => chromium.launchPersistentContext(profile, { channel: "chromium", headless: true,
     args: [`--disable-extensions-except=${buildDir}`, `--load-extension=${buildDir}`] });

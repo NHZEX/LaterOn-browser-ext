@@ -165,7 +165,7 @@ for (const language of ["zh-CN", "en"]) {
       ? "Embedded icons: 14 references · 4 stored" : "内嵌图标：14 次引用 · 4 份存储");
     await expect(usage.locator("details")).not.toHaveAttribute("open", "");
     await expect(usage.locator("li")).toHaveCount(0);
-    await usage.screenshot({ path: `.output/icon-usage-${language}-collapsed.png`, animations: "disabled" });
+    await usage.screenshot({ path: test.info().outputPath(`icon-usage-${language}-collapsed.png`), animations: "disabled" });
     const before = await extension.worker.evaluate(() => chrome.storage.local.get(null));
     await summary.focus(); await page.keyboard.press("Enter");
     const rows = usage.getByRole("listitem");
@@ -178,7 +178,7 @@ for (const language of ["zh-CN", "en"]) {
     await expect(usage).toContainText(language === "en" ? "Linked icons: 0 · Embedded covers: 0" : "远程图标 0 · 内嵌封面 0");
     expect(await extension.worker.evaluate(() => chrome.storage.local.get(null))).toEqual(before);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await usage.screenshot({ path: `.output/icon-usage-${language}-expanded.png`, animations: "disabled" });
+    await usage.screenshot({ path: test.info().outputPath(`icon-usage-${language}-expanded.png`), animations: "disabled" });
     await page.keyboard.press("Enter");
     await expect(rows).toHaveCount(0);
     await expect(summary).toBeFocused();

@@ -15,6 +15,8 @@ pnpm test:browser
 
 已有 production 构建时，可直接运行 `pnpm exec playwright test`。Linux CI 的浏览器安装加 `--with-deps`。Playwright 的构建目录与临时资料设置见 [extension.cjs](extension.cjs)，操作、场景及整套测试的超时、并发和重试策略见 [playwright.config.cjs](../../playwright.config.cjs)。失败截图、trace 与结果位于 `.output/browser-results`；使用 `pnpm exec playwright show-trace <trace.zip>` 查看失败前的操作、页面及网络记录，测试通过时丢弃 trace，不自动重试。
 
+每轮 Playwright 运行会先清空配置的结果目录；主动截图也使用测试自身的 `outputPath()`，不再散落到 `.output` 顶层或为每轮排查新增目录。重启场景的持久浏览器资料和发布测试的部署夹具使用系统临时目录，并在测试结束时清理；一次性排查文件与失败证据的保留要求见 [临时文件约定](../../AGENTS.md#临时文件与验证产物)。
+
 CI 为步骤及作业分别限制运行时间；浏览器测试的内部总超时早于步骤超时，给诊断上传留出时间。作业总超时、强制取消或 runner 中断仍可能阻止附件上传，不能依赖收尾步骤必定执行。具体上限以工作流为准。
 
 侧栏调度隔离专项支持逆序：
