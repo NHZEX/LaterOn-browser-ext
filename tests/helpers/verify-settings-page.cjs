@@ -92,6 +92,11 @@ module.exports = async function verifySettingsPage(directory) {
           }
         },
         commands: { async getAll() { return [{ name: "quick-save", shortcut: "Alt+9" }]; } },
+        permissions: {
+          async contains() { return false; },
+          onAdded: { addListener() {}, removeListener() {} },
+          onRemoved: { addListener() {}, removeListener() {} }
+        },
         tabs: {
           async getCurrent() { return { id: 7 }; },
           async update(id, patch) { updates.push({ id, ...patch }); },

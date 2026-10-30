@@ -9,6 +9,7 @@ import { useDialog } from "./useDialog";
 import BackupPanel from "./BackupPanel.vue";
 import StorageUsagePanel from "./StorageUsagePanel.vue";
 import ShortcutsPanel from "./ShortcutsPanel.vue";
+import NotificationSetting from "./NotificationSetting.vue";
 import DiagnosticsPanel from "./DiagnosticsPanel.vue";
 import WipePanel from "./WipePanel.vue";
 import SettingsDialog from "./SettingsDialog.vue";
@@ -158,6 +159,7 @@ onUnmounted(() => { window.removeEventListener("hashchange", restoreTab); });
                 <div class="setting-label"><strong id="batchLabel">{{ t('askBatch') }}</strong><span id="batchHint">{{ t('askBatchHint') }}</span></div>
                 <SwitchRoot class="switch" data-setting="askFolderOnBatch" aria-labelledby="batchLabel" aria-describedby="batchHint" :model-value="current.askFolderOnBatch" :disabled="saving" @update:model-value="changeBatch"><SwitchThumb class="slider" /></SwitchRoot>
               </div>
+              <NotificationSetting />
             </section>
             <ShortcutsPanel :dialog="dialog" />
             <section class="settings-group">

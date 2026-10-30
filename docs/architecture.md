@@ -52,6 +52,7 @@ StaySide 是 LaterOn 的独立衍生版本。界面使用 StaySide 名称与图�
 | 页面采用 Vue + TypeScript，领域规则用普通函数模块 | 组件管理界面，composable 连接状态与业务；Reka UI 按实际交互需要使用，简单按钮和输入保留原生元素，复用现有样式 |
 | 运行脚本和样式通过 WXT 入口或资源依赖构建 | 仓库根目录不能直接作为扩展加载；旧复制清单和辅助复制脚本已删除，业务源码不放进 public |
 | 网页脚本按需注入，保持现有 `content-*.js` 地址 | [元数据](../wxt/entrypoints/content-metadata.ts)、[阅读位置](../wxt/entrypoints/content-reading-position.ts)、[翻译](../wxt/entrypoints/content-translation.ts)、[项目浮层](../wxt/entrypoints/content-folder-picker.ts) 为 unlisted 入口，不自动匹配网页，也不进入后台冷启动依赖图 |
+| 冻结页系统通知使用可选权限 | [通知设置](../wxt/entrypoints/settings/NotificationSetting.vue) 以浏览器授权为唯一状态来源，仅用户开启时申请、关闭时撤销，监听授权变化；后台每次发送前重新检查，未授权或通知失败不影响收藏与工具栏角标 |
 | 侧栏启动独立于主页面 | [boot 入口](../wxt/entrypoints/boot.ts) → [启动逻辑](../src/sidepanel/boot.ts)，保留骨架、慢打开提示和十二秒兜底；[侧栏 HTML](../wxt/entrypoints/sidepanel/index.html) 的首屏样式非阻塞加载，主脚本失败也能执行启动兜底 |
 | 弹窗脚本与样式按需加载且失败可重试 | 保持首屏轻量；构建生成资源 URL，不能重新写死退休的根级样式路径；`translation.css` 另用稳定独立入口供后台注入 |
 | 保留必要的经典脚本桥接 | 经典脚本消费者与首屏时序仍依赖这些接口；移除桥接前须核对消费者与加载顺序 |

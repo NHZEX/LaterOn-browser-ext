@@ -64,6 +64,8 @@ function worker() {
   const menus = [];
   const commands = [];
   const notifications = [];
+  const notificationAttempts = [];
+  const permissionRequests = [];
   const badges = [];
   const tabs = [clone(frozen)];
   const injections = [];
@@ -74,6 +76,8 @@ function worker() {
   let failCreate = false;
   let failItemWrite = false;
   let failNotification = false;
+  let notificationPermission = true;
+  let failPermissionCheck = false;
   const event = () => ({ addListener() {} });
   const chrome = {
     storage: { local: storage(local), session: storage(session), onChanged: event() },
@@ -90,7 +94,16 @@ function worker() {
     },
     action: { async setBadgeText({ text }) { badges.push(text); }, async setBadgeBackgroundColor() {}, async setTitle() {} },
     commands: { onCommand: { addListener(fn) { commands.push(fn); } } },
+    permissions: {
+      async contains(request) {
+        assert.deepEqual(clone(request), { permissions: ["notifications"] });
+        if (failPermissionCheck) throw new Error("PERMISSION_CHECK_FAILED");
+        return notificationPermission;
+      },
+      async request(request) { permissionRequests.push(clone(request)); return false; }
+    },
     notifications: { async create(id, options) {
+      notificationAttempts.push({ id, ...clone(options) });
       if (failNotification) throw new Error("NOTIFICATIONS_DISABLED");
       notifications.push({ id, ...clone(options) });
       return id;
@@ -118,10 +131,12 @@ function worker() {
     }
     reject(new Error(`UNHANDLED: ${message.type}`));
   });
-  return { ctx, local, session, tabs, injections, created, updates, fetches, send, menus, commands, notifications, badges,
+  return { ctx, local, session, tabs, injections, created, updates, fetches, send, menus, commands, notifications, notificationAttempts, permissionRequests, badges,
     offline() { fetchMode = "fail"; }, failCreate() { failCreate = true; },
     failWrites() { failItemWrite = true; }, allowWrites() { failItemWrite = false; },
-    disableNotifications() { failNotification = true; } };
+    disableNotifications() { failNotification = true; },
+    setNotificationPermission(granted) { notificationPermission = granted; },
+    failPermissionCheck() { failPermissionCheck = true; } };
 }
 
 async function until(check, label) {
@@ -243,7 +258,8 @@ async function until(check, label) {
   assert.equal(routes.updates.length, 0, "收集路由网址不改变任何标签页");
 
   const manifest = JSON.parse(readFileSync(path.resolve(__dirname, "../manifest.json"), "utf8"));
-  assert.ok(manifest.permissions.includes("notifications"), "构建清单声明系统通知权限");
+  assert.ok(!manifest.permissions.includes("notifications"), "系统通知不再是安装必需权限");
+  assert.ok(manifest.optional_permissions.includes("notifications"), "构建清单声明可选系统通知权限");
   assert.ok(readFileSync(sourcePath("icon128.png")).length, "系统通知图标存在");
 
   for (const language of ["zh-CN", "en"]) {
@@ -295,6 +311,31 @@ async function until(check, label) {
     assert.match(feedback.notifications.at(-1).message, /操作失败：.*SAVE_FAILED/);
     assert.equal(feedback.badges.at(-1), "!");
   }
+
+  const ungranted = worker();
+  ungranted.setNotificationPermission(false);
+  assert.equal((await ungranted.send({ type: "QUICK_SAVE_TAB", tabId: 1 })).ok, true);
+  assert.equal(ungranted.local.laterOnItems.length, 1, "未授权仍成功收藏");
+  assert.equal(ungranted.badges.at(-1), "✓");
+  ungranted.tabs[0].url = frozenUrl("https://example.com/ungranted-failure");
+  ungranted.failWrites();
+  assert.equal((await ungranted.send({ type: "QUICK_SAVE_TAB", tabId: 1 })).ok, false);
+  assert.equal(ungranted.badges.at(-1), "!");
+  assert.equal(ungranted.notificationAttempts.length, 0, "未授权不调用通知 API");
+  assert.equal(ungranted.permissionRequests.length, 0, "收藏过程中不弹出授权请求");
+  ungranted.allowWrites();
+  ungranted.setNotificationPermission(true);
+  assert.equal((await ungranted.send({ type: "QUICK_SAVE_TAB", tabId: 1 })).ok, true);
+  assert.equal(ungranted.notifications.length, 1, "授权后下一次收藏立即使用系统通知");
+  ungranted.setNotificationPermission(false);
+  assert.equal((await ungranted.send({ type: "QUICK_SAVE_TAB", tabId: 1 })).duplicated, true);
+  assert.equal(ungranted.notificationAttempts.length, 1, "撤销权限后不使用缓存授权发送通知");
+
+  const checkFailure = worker();
+  checkFailure.failPermissionCheck();
+  assert.equal((await checkFailure.send({ type: "QUICK_SAVE_TAB", tabId: 1 })).ok, true);
+  assert.equal(checkFailure.badges.at(-1), "✓", "权限查询异常时仍成功收藏并保留角标");
+  assert.equal(checkFailure.notificationAttempts.length, 0);
 
   const disabled = worker();
   await disabled.ctx.backgroundTest.ensureLegacyCleanup();

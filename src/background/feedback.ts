@@ -100,12 +100,13 @@ async function reportFailure(error: unknown, targetTab: BackgroundTab | null = n
 // 冻结页属于其他扩展，不能注入药丸；通知失败也不能改变已经完成的收藏结果。
 async function showSystemNotice(text: string): Promise<void> {
   try {
+    if (!await chrome.permissions.contains({ permissions: ["notifications"] })) return;
     await chrome.notifications?.create?.("lateron-save-result", {
       type: "basic", title: "StaySide", message: text,
       iconUrl: chrome.runtime.getURL("icon128.png"), silent: true
     });
   } catch {
-    // 通知被禁用或接口不可用时，保留调用方已经显示的工具栏角标。
+    // 权限被撤销、通知被禁用或接口不可用时，保留调用方已经显示的工具栏角标。
   }
 }
 
