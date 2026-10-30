@@ -1,6 +1,25 @@
 import type { Translate } from "../../../src/shared/i18n";
 import { COVERS as STORED_COVERS, ITEMS, PROJECTS, ICONS, isRecord } from "../../../src/storage/contracts";
-import { iconId, resolveFavicon } from "../../../src/storage/icons";
+import { iconId, isIconReference, resolveFavicon } from "../../../src/storage/icons";
+
+export interface StorageIconUsage {
+  readonly key: string;
+  readonly source: string;
+  readonly sites: readonly string[];
+  readonly references: number;
+  readonly shared: boolean;
+  readonly bytes: number;
+}
+
+interface StorageIconEntry {
+  readonly key: string;
+  readonly source: string;
+  readonly urls: readonly string[];
+  readonly references: number;
+  readonly shared: boolean;
+}
+export type StorageIconIndex = readonly StorageIconEntry[];
+export const STORAGE_ICON_PAGE_SIZE = 20;
 
 export interface StorageUsage {
   readonly totalBytes: number;
@@ -14,6 +33,7 @@ export interface StorageUsage {
   readonly iconBytes: number;
   readonly coverBytes: number;
   readonly otherBytes: number;
+  readonly missingIconCount: number;
 }
 
 const utf8 = new TextEncoder();
@@ -21,6 +41,40 @@ const jsonBytes = (value: unknown): number => utf8.encode(JSON.stringify(value) 
 const isInlineImage = (value: unknown): value is string => typeof value === "string" && /^data:image\//i.test(value);
 const imageBytes = (images: readonly string[]): number => images.reduce((sum, image) => sum + jsonBytes(image) - 2, 0);
 const records = (value: unknown): readonly Record<string, unknown>[] => Array.isArray(value) ? value.filter(isRecord) : [];
+
+export function createStorageIconIndex(snapshot: Readonly<Record<string, unknown>>): StorageIconIndex {
+  const items = records(snapshot[ITEMS]);
+  const pool = isRecord(snapshot[ICONS]) ? snapshot[ICONS] : {};
+  const references = new Map<string, { references: number; urls: string[] }>();
+  for (const item of items) {
+    const id = typeof item.favicon === "string" ? iconId(item.favicon) : null;
+    if (!id) continue;
+    const group = references.get(id) ?? { references: 0, urls: [] };
+    group.references += 1;
+    // Keep only a few source examples, never whole collection records or covers.
+    if (group.urls.length < 3 && typeof item.url === "string" && item.url && !group.urls.includes(item.url)) group.urls.push(item.url);
+    references.set(id, group);
+  }
+  return [
+    ...Object.entries(pool).flatMap(([id, source]) => isInlineImage(source) ? [{
+      key: `pool:${id}`, source, shared: true, references: references.get(id)?.references ?? 0, urls: references.get(id)?.urls ?? []
+    }] : []),
+    ...items.flatMap((item, index) => isInlineImage(item.favicon) ? [{ key: `inline:${index}`, source: item.favicon,
+      shared: false, references: 1, urls: typeof item.url === "string" ? [item.url] : [] }] : [])
+  ].sort((a, b) => b.references - a.references || a.key.localeCompare(b.key));
+}
+
+export function storageIconPage(index: StorageIconIndex, page: number): readonly StorageIconUsage[] {
+  const offset = Math.max(0, Math.min(Math.floor(page), Math.ceil(index.length / STORAGE_ICON_PAGE_SIZE) - 1)) * STORAGE_ICON_PAGE_SIZE;
+  const site = (url: string): string => {
+    try { return new URL(url).hostname; }
+    catch { return ""; }
+  };
+  return index.slice(offset, offset + STORAGE_ICON_PAGE_SIZE).map(entry => ({
+    key: entry.key, source: entry.source, references: entry.references, shared: entry.shared,
+    bytes: imageBytes([entry.source]), sites: [...new Set(entry.urls.map(site).filter(Boolean))].sort()
+  }));
+}
 
 export function calculateStorageUsage(snapshot: Readonly<Record<string, unknown>>, totalBytes: number): StorageUsage {
   const items = records(snapshot[ITEMS]);
@@ -47,6 +101,7 @@ export function calculateStorageUsage(snapshot: Readonly<Record<string, unknown>
     inlineCoverCount: covers.length,
     metadataBytes: Math.max(0, collectionBytes - iconBytes - coverBytes), iconBytes, coverBytes,
     otherBytes: entries.filter(([key]) => !collectionKeys.includes(key)).reduce((sum, entry) => sum + entryBytes(entry), 0),
+    missingIconCount: items.filter(item => isIconReference(item.favicon) && !resolveFavicon(item.favicon, usablePool)).length
   };
 }
 

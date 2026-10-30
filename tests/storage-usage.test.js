@@ -1,11 +1,11 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
-const { calculateStorageUsage, formatStorageBytes } = require("./helpers/load-module.cjs")("wxt/entrypoints/settings/shared.ts");
+const { calculateStorageUsage, createStorageIconIndex, storageIconPage, formatStorageBytes } = require("./helpers/load-module.cjs")("wxt/entrypoints/settings/shared.ts");
 
 test("empty storage and binary units", () => {
   assert.deepEqual(calculateStorageUsage({}, 0), {
     totalBytes: 0, itemCount: 0, projectCount: 0, inlineIconCount: 0, storedIconCount: 0, remoteIconCount: 0,
-    inlineCoverCount: 0, metadataBytes: 0, iconBytes: 0, coverBytes: 0, otherBytes: 0
+    inlineCoverCount: 0, metadataBytes: 0, iconBytes: 0, coverBytes: 0, otherBytes: 0, missingIconCount: 0
   });
   assert.equal(formatStorageBytes(0, "en"), "0 B");
   assert.equal(formatStorageBytes(1023, "en"), "1,023 B");
@@ -70,4 +70,55 @@ test("shared icons count stored images once, while references and pool keys stay
   const bytes = Object.entries(snapshot).reduce((n, [key, value]) => n + Buffer.byteLength(key) + Buffer.byteLength(JSON.stringify(value)), 0);
   assert.equal(usage.metadataBytes + usage.iconBytes, bytes);
   assert.deepEqual(snapshot, before);
+});
+
+test("icon details count each pool entry, its actual users and standalone images without fetching or rewriting", () => {
+  const a = "a".repeat(64), b = "b".repeat(64), c = "c".repeat(64);
+  const image = 'data:image/svg+xml,<svg aria-label="图"/>';
+  const snapshot = {
+    laterOnItems: [
+      { url: "https://one.test/first", favicon: `icon://${a}` },
+      { url: "https://one.test/second", favicon: `icon://${a}` },
+      { url: "https://two.test/", favicon: `icon://${a}` },
+      { url: "bad URL", favicon: image },
+      { favicon: `icon://${c}` }, { favicon: "icon://broken" },
+      { favicon: "https://remote.test/favicon.ico" }, null
+    ],
+    laterOnIcons: { [a]: image, [b]: image, [c]: null }
+  };
+  const original = structuredClone(snapshot);
+  const usage = calculateStorageUsage(snapshot, 15000);
+  const details = storageIconPage(createStorageIconIndex(snapshot), 0);
+  assert.equal(usage.inlineIconCount, 4);
+  assert.equal(usage.storedIconCount, 3);
+  assert.equal(usage.missingIconCount, 2);
+  assert.equal(usage.remoteIconCount, 1);
+  assert.equal(details.length, 3);
+  assert.deepEqual(details[0], { key: `pool:${a}`, source: image, sites: ["one.test", "two.test"],
+    references: 3, shared: true, bytes: Buffer.byteLength(JSON.stringify(image)) - 2 });
+  assert.deepEqual(details.find(row => row.key === `pool:${b}`).sites, []);
+  assert.equal(details.find(row => row.key === `pool:${b}`).references, 0, "An unreferenced stored image remains visible");
+  assert.deepEqual(details.find(row => !row.shared), { key: "inline:3", source: image, sites: [], references: 1,
+    shared: false, bytes: Buffer.byteLength(JSON.stringify(image)) - 2 });
+  assert.equal(details.reduce((n, row) => n + row.bytes, 0), usage.iconBytes);
+  assert.deepEqual(snapshot, original, "Inspecting does not migrate or garbage collect images");
+});
+
+test("large icon lists paginate without retaining collection records or unlimited source examples", () => {
+  const image = "data:image/png;base64,AAAA", key = i => i.toString(16).padStart(64, "0");
+  const snapshot = {
+    laterOnItems: Array.from({ length: 1000 }, (_, i) => ({ favicon: `icon://${key(0)}`, url: `https://site-${i}.test/`, image: "large-cover" })),
+    laterOnIcons: Object.fromEntries(Array.from({ length: 55 }, (_, i) => [key(i), image]))
+  };
+  const index = createStorageIconIndex(snapshot);
+  assert.equal(index.length, 55);
+  assert.equal(index[0].references, 1000);
+  assert.equal(index[0].urls.length, 3, "Reference counts stay exact while source samples are bounded");
+  const pages = [0, 1, 2].map(page => storageIconPage(index, page));
+  assert.deepEqual(pages.map(rows => rows.length), [20, 20, 15]);
+  assert.equal(new Set(pages.flat().map(row => row.key)).size, 55);
+  assert.deepEqual(storageIconPage(index, -1), pages[0]);
+  assert.deepEqual(storageIconPage(index, 99), pages[2]);
+  assert.deepEqual(storageIconPage([], 0), []);
+  assert.deepEqual(pages[0][0].sites, ["site-0.test", "site-1.test", "site-2.test"]);
 });

@@ -124,8 +124,7 @@ test("图标去重：设置页区分使用量与存储份数，缺图提示后�
   const hashes = await seed(page, extension, values, true);
   await page.goto(new URL("settings.html", extension.url).href);
   const usage = page.getByRole("region", { name: "Storage usage" });
-  await expect(usage).toContainText("Pages with embedded icons: 14");
-  await expect(usage).toContainText("Embedded site images stored: 4.");
+  await expect(usage).toContainText("Embedded icons: 14 references · 4 stored");
   const bytes = values.reduce((n, value) => n + Buffer.byteLength(value), 0);
   const expected = `${new Intl.NumberFormat("en", { maximumFractionDigits: 2 }).format(bytes / 1024)} KiB`;
   await expect(usage.locator(".storage-breakdown > div").filter({ hasText: "Embedded site icons" }).locator("dd")).toHaveText(expected);
@@ -146,4 +145,147 @@ test("图标去重：设置页区分使用量与存储份数，缺图提示后�
   expect(payload.version).toBe(1);
   expect(payload.data.items).toHaveLength(14);
   expect(payload.data.items.every(item => item.favicon === "")).toBe(true);
+});
+
+for (const language of ["zh-CN", "en"]) {
+  test(`共享图标详情：${language} 折叠、键盘展开、预览和引用数，刷新只读且提示缺失`, async ({ page, extension }) => {
+    const errors = []; page.on("pageerror", error => errors.push(error.message));
+    const values = await images(page);
+    const hashes = await seed(page, extension, values, true);
+    await page.setViewportSize({ width: language === "en" ? 375 : 1360, height: 900 });
+    await extension.worker.evaluate(async language => {
+      const { laterOnItems: items, laterOnSettings: settings } = await chrome.storage.local.get(["laterOnItems", "laterOnSettings"]);
+      await chrome.storage.local.set({ laterOnSettings: { ...settings, language, theme: language === "en" ? "dark" : "light" },
+        laterOnItems: items.map((item, i) => ({ ...item, url: `https://${i < 11 ? "linux.do" : i === 11 ? "github.com" : "youtube.com"}/${i}` })) });
+    }, language);
+    await page.goto(new URL("settings.html", extension.url).href);
+    const usage = page.getByRole("region", { name: language === "en" ? "Storage usage" : "存储占用" });
+    const summary = usage.locator("summary");
+    await expect(usage.locator(".storage-icon-summary")).toHaveText(language === "en"
+      ? "Embedded icons: 14 references · 4 stored" : "内嵌图标：14 次引用 · 4 份存储");
+    await expect(usage.locator("details")).not.toHaveAttribute("open", "");
+    await expect(usage.locator("li")).toHaveCount(0);
+    await usage.screenshot({ path: `.output/icon-usage-${language}-collapsed.png`, animations: "disabled" });
+    const before = await extension.worker.evaluate(() => chrome.storage.local.get(null));
+    await summary.focus(); await page.keyboard.press("Enter");
+    const rows = usage.getByRole("listitem");
+    await expect(rows).toHaveCount(4);
+    await expect(rows.first()).toContainText(language === "en" ? "References: 9" : "9 次引用");
+    await expect(rows.first()).toContainText("linux.do");
+    for (let i = 0; i < 4; i += 1) {
+      await expect.poll(() => rows.nth(i).locator("img").evaluate(img => img.complete && img.naturalWidth)).toBe(32);
+    }
+    await expect(usage).toContainText(language === "en" ? "Linked icons: 0 · Embedded covers: 0" : "远程图标 0 · 内嵌封面 0");
+    expect(await extension.worker.evaluate(() => chrome.storage.local.get(null))).toEqual(before);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await usage.screenshot({ path: `.output/icon-usage-${language}-expanded.png`, animations: "disabled" });
+    await page.keyboard.press("Enter");
+    await expect(rows).toHaveCount(0);
+    await expect(summary).toBeFocused();
+
+    await extension.worker.evaluate(async hash => {
+      const { laterOnIcons: icons } = await chrome.storage.local.get("laterOnIcons");
+      delete icons[hash];
+      await chrome.storage.local.set({ laterOnIcons: { ...icons, ["f".repeat(64)]: "data:image/png;base64,AAAA" } });
+    }, hashes[0]);
+    await expect(usage.getByRole("status")).toBeVisible();
+    const damaged = await extension.worker.evaluate(() => chrome.storage.local.get(null));
+    await usage.getByRole("button", { name: language === "en" ? "Refresh" : "刷新", exact: true }).click();
+    await expect(usage).toContainText(language === "en" ? "Missing icons for 9 saved pages." : "9 条收藏的图标缺失。");
+    await summary.click();
+    await expect(rows).toHaveCount(4);
+    const orphan = rows.filter({ hasText: language === "en" ? "References: 0" : "0 次引用" });
+    await expect(orphan).toContainText(language === "en" ? "Preview unavailable" : "无法预览");
+    await expect(orphan.locator("img")).toHaveCount(0);
+    expect(await extension.worker.evaluate(() => chrome.storage.local.get(null))).toEqual(damaged);
+
+    await extension.worker.evaluate(() => chrome.storage.local.set({ laterOnItems: [], laterOnIcons: {} }));
+    await expect(usage.getByRole("status")).toBeVisible();
+    await usage.getByRole("button", { name: language === "en" ? "Refresh" : "刷新", exact: true }).click();
+    await expect(rows).toHaveCount(0);
+    await expect(usage).toContainText(language === "en" ? "No embedded icons." : "暂无内嵌图标。");
+    expect(errors).toEqual([]);
+  });
+}
+
+test("图标详情：展开才读取、折叠取消旧结果、分页上限和失败重试", async ({ page, extension }) => {
+  await seed(page, extension, await images(page));
+  const values = await page.evaluate(() => Array.from({ length: 55 }, (_, i) => {
+    const canvas = document.createElement("canvas"); canvas.width = 32; canvas.height = 32;
+    const ctx = canvas.getContext("2d"); ctx.fillStyle = `hsl(${i * 6} 70% 45%)`; ctx.fillRect(0, 0, 32, 32);
+    return canvas.toDataURL("image/png");
+  }));
+  const hashes = values.map(value => createHash("sha256").update(value).digest("hex"));
+  await extension.worker.evaluate(async ({ values, hashes }) => chrome.storage.local.set({
+    laterOnItems: values.map((_value, i) => ({ id: `large-${i}`, url: `https://old-${i}.test/`, favicon: `icon://${hashes[i]}`, savedAt: i })),
+    laterOnIcons: Object.fromEntries(values.map((value, i) => [hashes[i], value]))
+  }), { values, hashes });
+  await page.addInitScript(() => {
+    window.iconReads = { count: 0, hold: false, fail: false, release: null };
+    const read = chrome.storage.local.get.bind(chrome.storage.local);
+    chrome.storage.local.get = async keys => {
+      if (!Array.isArray(keys) || keys.length !== 2 || !keys.includes("laterOnItems") || !keys.includes("laterOnIcons")) return read(keys);
+      window.iconReads.count += 1;
+      if (window.iconReads.fail) throw Error("Unavailable");
+      const snapshot = await read(keys);
+      return window.iconReads.hold ? new Promise(resolve => { window.iconReads.release = () => resolve(snapshot); }) : snapshot;
+    };
+  });
+  await page.goto(new URL("settings.html", extension.url).href);
+  const usage = page.getByRole("region", { name: "Storage usage" });
+  const summary = usage.locator("summary"), rows = usage.getByRole("listitem");
+  const refresh = usage.getByRole("button", { name: "Refresh", exact: true });
+  const reads = () => page.evaluate(() => window.iconReads.count);
+  await expect(usage).toContainText("Embedded icons: 55 references · 55 stored");
+  await refresh.click();
+  await expect(refresh).toBeEnabled();
+  expect(await reads()).toBe(0);
+  await expect(usage.locator("img")).toHaveCount(0);
+
+  await page.evaluate(() => { window.iconReads.hold = true; });
+  await summary.click();
+  await expect.poll(reads).toBe(1);
+  await expect.poll(() => page.evaluate(() => typeof window.iconReads.release)).toBe("function");
+  await summary.click();
+  await extension.worker.evaluate(async () => {
+    const { laterOnItems: items } = await chrome.storage.local.get("laterOnItems");
+    await chrome.storage.local.set({ laterOnItems: items.map((item, i) => ({ ...item, url: `https://fresh-${i}.test/` })) });
+  });
+  await page.evaluate(() => { window.iconReads.hold = false; });
+  await summary.click();
+  await expect(rows).toHaveCount(20);
+  await expect(rows.first()).toContainText("fresh-");
+  await page.evaluate(() => window.iconReads.release());
+  await expect(rows.first()).toContainText("fresh-");
+  expect(await reads()).toBe(2);
+  const before = await extension.worker.evaluate(() => chrome.storage.local.get(null));
+  const navigation = usage.getByRole("navigation", { name: "Icon pages" });
+  await expect(navigation).toContainText("1 / 3");
+  await expect(navigation.getByRole("button", { name: "Previous" })).toBeDisabled();
+  await navigation.getByRole("button", { name: "Next" }).click();
+  await expect(rows).toHaveCount(20);
+  await expect(navigation).toContainText("2 / 3");
+  await navigation.getByRole("button", { name: "Next" }).click();
+  await expect(rows).toHaveCount(15);
+  await expect(navigation).toContainText("3 / 3");
+  await expect(navigation.getByRole("button", { name: "Next" })).toBeDisabled();
+  expect(await reads()).toBe(2, "Page changes reuse the open detail snapshot");
+  await refresh.click();
+  await expect(navigation).toContainText("1 / 3");
+  await expect(rows).toHaveCount(20);
+  expect(await reads()).toBe(3);
+  await summary.click();
+  await expect(rows).toHaveCount(0);
+  await expect(usage.locator("img")).toHaveCount(0);
+
+  await page.evaluate(() => { window.iconReads.fail = true; });
+  await summary.click();
+  await expect(usage.getByRole("alert")).toHaveText("Unable to load icons. Please retry.");
+  await expect(rows).toHaveCount(0);
+  await expect(usage).toContainText("Embedded icons: 55 references · 55 stored");
+  await page.evaluate(() => { window.iconReads.fail = false; });
+  await usage.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect(rows).toHaveCount(20);
+  expect(await reads()).toBe(5);
+  expect(await extension.worker.evaluate(() => chrome.storage.local.get(null))).toEqual(before);
 });
