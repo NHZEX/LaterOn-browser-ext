@@ -1,16 +1,22 @@
 import { sortCollectionItems } from "../shared/collection-sort";
 import type { StoredItem } from "../storage/contracts";
+import { isRecord } from "../storage/contracts";
+import { isInlineIcon, referencedIcons, type IconMap } from "../storage/icons";
 import type { PanelCollection } from "./shared";
 
 const KEY = "laterOnPanelCache";
+interface Preview { readonly items: readonly StoredItem[]; readonly icons: IconMap }
 export function usePanelCache(collection: () => PanelCollection) {
   let slow = false, alive = true;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  function read(): readonly StoredItem[] | null {
+  function read(): Preview | null {
     if (slow) return null;
     try {
       const parsed: unknown = JSON.parse(localStorage.getItem(KEY) || "null");
-      return Array.isArray(parsed) ? parsed.filter((item): item is StoredItem => !!item && typeof item === "object" && typeof item.id === "string") : null;
+      if (!isRecord(parsed) || parsed.version !== 2 || !Array.isArray(parsed.items) || !isRecord(parsed.icons)) return null;
+      const items = parsed.items.filter((item): item is StoredItem => isRecord(item) && typeof item.id === "string");
+      const icons = Object.fromEntries(Object.entries(parsed.icons).filter((entry): entry is [string, string] => /^[a-f0-9]{64}$/.test(entry[0]) && isInlineIcon(entry[1])));
+      return { items, icons: referencedIcons(items, icons) };
     } catch { return null; }
   }
   // 快照只服务下一次首屏，不是第二份数据库；12 条减轻冷读和 JSON.parse，完整存储随后校准。
@@ -21,10 +27,10 @@ export function usePanelCache(collection: () => PanelCollection) {
       timer = undefined;
       if (!alive || slow) return;
       try {
-        const { items, archivedProjectIds } = collection();
+        const { items, icons, archivedProjectIds } = collection();
         // 导入数组可能乱序，排除归档后取最新 12 条，不能直接截取原数组。
         const preview = sortCollectionItems(items.filter(item => !archivedProjectIds.has(item.projectId ?? "")), "newest").slice(0, 12);
-        const json = JSON.stringify(preview);
+        const json = JSON.stringify({ version: 2, items: preview, icons: referencedIcons(preview, icons ?? {}) });
         if (json.length < 2000000) localStorage.setItem(KEY, json);
         else localStorage.removeItem(KEY);
       } catch { /* 可选缓存失败不影响正常使用。 */ }

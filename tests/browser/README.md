@@ -38,6 +38,7 @@ Remove-Item Env:PANEL_TEST_ORDER
 | [picker.spec.cjs](picker.spec.cjs) | 网页浮层与独立选择页、样式隔离、重复打开、过期批次、确认 / 取消 |
 | [ui-modules.spec.cjs](ui-modules.spec.cjs) | 国际化、引导、图片上传 / 焦点、编辑器按需加载与样式失败重试 |
 | [storage-usage.spec.cjs](storage-usage.spec.cjs) | 设置页实际存储用量、内嵌图片分类、手动刷新、读取失败恢复及读取期间的数据变化 |
+| [icon-storage.spec.cjs](icon-storage.spec.cjs) | 两页图标迁移、实际 PNG 显示及字节减量、无广播命令响应、初始化广播竞态与侧栏共享图标缓存 |
 | [content-injections.spec.cjs](content-injections.spec.cjs) | 元数据、阅读恢复及 MAIN world 翻译，网络 / Translator API 是可控外部边界 |
 
 ## 夹具边界
@@ -45,5 +46,7 @@ Remove-Item Env:PANEL_TEST_ORDER
 源码定位用 `tests/helpers/source-path.cjs`；`read-runtime.cjs` 执行实际构建入口，浏览器和发布专项读取 `.output`。不得把源码目录写进扩展 URL 或恢复退休资源的复制清单。
 
 MV3 场景使用独立临时浏览器资料，执行真实扩展、后台、存储与消息；零依赖首屏场景另在网络边界扣住资源，只验证初始绘制。Node 场景按需控制浏览器 API、资源交付、存储失败 / 广播与调度，业务本身继续执行实际代码。验证自身写入后 UI 更新时显式关闭广播，避免依赖通知掩盖缺陷。
+
+[icon-storage.test.js](../icon-storage.test.js) 执行真实后台队列、单篇 / 批量保存、迁移、删除与自动清理、备份协议，覆盖共享引用、失败重试及 worker 状态重建；[icon-cache.test.js](../icon-cache.test.js) 在存储和时间边界控制下验证缓存版本、图标子集与容量上限。图标夹具为合成内容，不提交用户导出文件。
 
 这些自动化不代表原生侧栏外壳、系统通知展示、用户既有配置或 Edge 全部行为已验收。当前剩余验收只维护在 [roadmap](../../docs/roadmap.md#当前优先已发布版本验收)。

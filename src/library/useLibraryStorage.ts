@@ -1,6 +1,6 @@
 import { browser } from "wxt/browser";
 import { needsLegacyMigration, normalizeItems } from "../collection/item-state";
-import { ITEMS, PROJECTS, COVERS, ORDER, CURRENT, ACTIVE, EPOCH } from "../storage/contracts";
+import { ITEMS, PROJECTS, COVERS, ICONS, ORDER, CURRENT, ACTIVE, EPOCH } from "../storage/contracts";
 import type { CollectionSuccess } from "../storage/contracts";
 import { FILTER, FILTER_CHOSEN, SETTINGS, SIDEBAR_WIDTH } from "./page";
 import type { LibrarySnapshot } from "./page";
@@ -12,11 +12,12 @@ export function useLibraryStorage(view: LibraryView, applyScope: (snapshot: Libr
   let pending: LibrarySnapshot = {};
   function apply(snapshot: LibrarySnapshot, initial = false): void {
     const previous = view.collection.value;
-    if (ITEMS in snapshot || PROJECTS in snapshot || COVERS in snapshot) view.collection.value = {
+    if (ITEMS in snapshot || PROJECTS in snapshot || COVERS in snapshot || ICONS in snapshot) view.collection.value = {
       items: ITEMS in snapshot ? normalizeItems(snapshot[ITEMS]) : previous.items,
       projects: PROJECTS in snapshot ? pinnedProjects(snapshot[PROJECTS] ?? []) : previous.projects,
       // 用户上传封面体积大，独立于收藏列表存储，避免每次列表写入都搬运图片。
-      covers: COVERS in snapshot ? snapshot[COVERS] ?? {} : previous.covers
+      covers: COVERS in snapshot ? snapshot[COVERS] ?? {} : previous.covers,
+      icons: ICONS in snapshot ? snapshot[ICONS] ?? {} : previous.icons
     };
     // 每个范围各自保存自定义阅读顺序；其它范围的顺序不受当前排序影响。
     if (ORDER in snapshot) view.orders.value = snapshot[ORDER] ?? {};
@@ -35,7 +36,7 @@ export function useLibraryStorage(view: LibraryView, applyScope: (snapshot: Libr
     mounted = true;
     browser.storage.onChanged.addListener(changed);
     try {
-      const snapshot = await browser.storage.local.get<LibrarySnapshot>([ITEMS, PROJECTS, COVERS, ORDER, CURRENT, ACTIVE, EPOCH, SETTINGS, FILTER, FILTER_CHOSEN, SIDEBAR_WIDTH]);
+      const snapshot = await browser.storage.local.get<LibrarySnapshot>([ITEMS, PROJECTS, COVERS, ICONS, ORDER, CURRENT, ACTIVE, EPOCH, SETTINGS, FILTER, FILTER_CHOSEN, SIDEBAR_WIDTH]);
       if (!alive) return;
       globalThis.LaterOnStorage.initialize(snapshot);
       // 一次性把列表中的 base64 封面迁到独立键，并由共享队列补齐旧阅读状态。
@@ -46,6 +47,7 @@ export function useLibraryStorage(view: LibraryView, applyScope: (snapshot: Libr
       }
       if (!alive) return;
       apply({ ...snapshot, ...(migrated?.items ? { [ITEMS]: migrated.items } : {}),
+        ...(migrated?.icons ? { [ICONS]: migrated.icons } : {}),
         ...(migrated?.covers ? { [COVERS]: migrated.covers } : {}), ...pending }, true);
       pending = {}; ready = true;
     } catch { if (alive) failed(); }
@@ -53,6 +55,7 @@ export function useLibraryStorage(view: LibraryView, applyScope: (snapshot: Libr
   function accept(response: CollectionSuccess): void {
     if (!alive) return;
     apply({ ...(response.items ? { [ITEMS]: response.items } : {}), ...(response.projects ? { [PROJECTS]: response.projects } : {}),
+      ...(response.icons ? { [ICONS]: response.icons } : {}),
       ...(response.covers ? { [COVERS]: response.covers } : {}), ...(response.orders ? { [ORDER]: response.orders } : {}) });
     if (response.items && !response.items.some(item => item.id === view.state.currentItemId)) view.state.currentItemId = null;
   }

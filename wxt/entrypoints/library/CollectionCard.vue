@@ -8,6 +8,7 @@ import type { Translate } from "../../../src/shared/i18n";
 import type { LibrarySelection } from "../../../src/library/useLibrarySelection";
 import type { LibraryItems } from "../../../src/library/useLibraryItems";
 import CardCover from "./CardCover.vue";
+import { resolveFavicon } from "../../../src/storage/icons";
 
 const props = defineProps<{
   item: StoredItem;
@@ -24,6 +25,7 @@ const props = defineProps<{
 const emit = defineEmits<{ select: [id: string, force?: boolean] }>();
 const target = computed(() => cardTarget(props.item.url) || "#");
 const cover = computed(() => resolveImage(props.item, props.collection.covers));
+const favicon = computed(() => resolveFavicon(props.item.favicon, props.collection.icons));
 const readLabel = computed(() => props.translate(props.item.status === "done" ? "unreadButton" : "readButton"));
 const description = computed(() => isEmptySummary(props.item.description) ? props.translate("noDescription") : props.item.description);
 const savedTime = computed(() => formatSavedTime(props.item.savedAt ?? 0, Date.now(), props.translate, props.english));
@@ -83,7 +85,7 @@ function projectChange(event: Event): void {
   if (props.selection.active.value) { event.target.value = props.item.projectId || ""; return; }
   void props.actions.moveTo(props.item.id, event.target.value || null);
 }
-watch(() => props.item.favicon, () => { faviconFailed.value = false; });
+watch(favicon, () => { faviconFailed.value = false; });
 </script>
 
 <template>
@@ -95,7 +97,7 @@ watch(() => props.item.favicon, () => { faviconFailed.value = false; });
       <svg viewBox="0 0 24 24"><path d="M4 20h4L20 8l-4-4L4 16zM14 6l4 4" /></svg>
     </button>
     <div class="card-body">
-      <div class="source-row"><img class="favicon" :src="item.favicon || undefined" alt="" referrerpolicy="no-referrer"
+      <div class="source-row"><img class="favicon" :src="favicon || undefined" alt="" referrerpolicy="no-referrer"
         :style="{ visibility: faviconFailed ? 'hidden' : undefined }" @error="hideFavicon" /><span class="source-name">{{ item.source }}</span><span class="dot">·</span><time>{{ savedTime }}</time></div>
       <a class="title-link" :href="target" target="_blank" rel="noreferrer"><h2>{{ item.title }}</h2></a>
       <p class="description">{{ description }}</p>

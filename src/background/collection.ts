@@ -1,7 +1,8 @@
 import type { ResolvedProject, SaveInput, BackgroundItem } from "./shared";
 import type { BackgroundSnapshot } from "./shared";
 import { PROJECTS_KEY, STORAGE_KEY, safeHostname } from "./shared";
-import { enqueue as queueItemWrite } from "../storage/coordinator";
+import { enqueue as queueItemWrite, commit } from "../storage/coordinator";
+import { ICONS } from "../storage/icons";
 import { normalize as normalizeUrl } from "../shared/url-utils";
 import { mergeDuplicateMetadata } from "./duplicate-metadata";
 import { showActionFeedback } from "./feedback";
@@ -18,8 +19,8 @@ async function resolveProject(projectId?: string | null): Promise<ResolvedProjec
 
 async function saveItem(item: SaveInput, options: { readonly silent?: boolean } = {}) {
   const saved = await queueItemWrite(async () => {
-    const result = await chrome.storage.local.get<BackgroundSnapshot>(STORAGE_KEY);
-    const items = result[STORAGE_KEY] || [];
+    const result = await chrome.storage.local.get<BackgroundSnapshot>([STORAGE_KEY, ICONS]);
+    const items = (result[STORAGE_KEY] || []).map(entry => ({ ...entry }));
     const normalizedUrl = normalizeUrl(item.url);
     const index = items.findIndex((entry) => normalizeUrl(entry.url) === normalizedUrl);
 
@@ -28,8 +29,9 @@ async function saveItem(item: SaveInput, options: { readonly silent?: boolean } 
     if (index >= 0) {
       const existing = items[index]!;
       const refreshed = mergeDuplicateMetadata(existing, item);
-      if (refreshed) await chrome.storage.local.set({ [STORAGE_KEY]: items });
-      return { ok: true, item: existing, updated: true, duplicated: true, refreshed };
+      const written = await commit(result, { [STORAGE_KEY]: items });
+      return { ok: true, item: (written[STORAGE_KEY] || items).find(entry => entry.id === existing.id)!,
+        icons: written[ICONS] || result[ICONS] || {}, updated: true, duplicated: true, refreshed };
     }
 
     const normalized: BackgroundItem = {
@@ -45,9 +47,10 @@ async function saveItem(item: SaveInput, options: { readonly silent?: boolean } 
       status: "unread"
     };
     items.unshift(normalized);
-    await chrome.storage.local.set({ [STORAGE_KEY]: items });
+    const written = await commit(result, { [STORAGE_KEY]: items });
 
-    return { ok: true, item: normalized, updated: false, duplicated: false };
+    return { ok: true, item: (written[STORAGE_KEY] || items).find(entry => entry.id === normalized.id)!,
+      icons: written[ICONS] || result[ICONS] || {}, updated: false, duplicated: false };
   });
   if (!options.silent && !saved.duplicated) {
     await showActionFeedback("✓", "#111111", 1600);

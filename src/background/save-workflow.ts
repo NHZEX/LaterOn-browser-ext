@@ -7,7 +7,8 @@ import { recordDiag } from "./diagnostics";
 import { extractTabMetadata } from "./metadata";
 import { saveItem, resolveProject } from "./collection";
 import { pillTitle, showActionFeedback, showTabNotice, showActionError, reportFailure, showPagePills, showSystemNotice, notifyTab } from "./feedback";
-import { enqueue as queueItemWrite } from "../storage/coordinator";
+import { enqueue as queueItemWrite, commit } from "../storage/coordinator";
+import { ICONS } from "../storage/icons";
 import { cancelPendingBatch, showPickerOverlay, claimPendingBatch } from "./project-picker";
 import { mergeDuplicateMetadata, isIncomplete } from "./duplicate-metadata";
 
@@ -294,8 +295,8 @@ export async function runBatchSave({ tabs, source = "shortcut", notifyTabId = nu
       }
 
       const saved = await queueItemWrite(async () => {
-        const stored = await chrome.storage.local.get<BackgroundSnapshot>([STORAGE_KEY, PROJECTS_KEY]);
-        const items = stored[STORAGE_KEY] || [];
+        const stored = await chrome.storage.local.get<BackgroundSnapshot>([STORAGE_KEY, PROJECTS_KEY, ICONS]);
+        const items = (stored[STORAGE_KEY] || []).map(entry => ({ ...entry }));
         const targetProjectId = (stored[PROJECTS_KEY] || []).some((project) => project.id === projectId && !project.archived)
           ? projectId : null;
         const key = normalizeUrl(meta.url!);
@@ -305,7 +306,7 @@ export async function runBatchSave({ tabs, source = "shortcut", notifyTabId = nu
           const target = projectId && !targetProjectId ? existing.projectId || null : targetProjectId;
           const moved = (existing.projectId || null) !== target;
           if (moved) existing.projectId = target;
-          if (refreshed || moved) await chrome.storage.local.set({ [STORAGE_KEY]: items });
+          await commit(stored, { [STORAGE_KEY]: items });
           return { record: existing, duplicated: true, refreshed, moved };
         }
         const record: BackgroundItem = {
@@ -322,7 +323,7 @@ export async function runBatchSave({ tabs, source = "shortcut", notifyTabId = nu
         };
         const previousIndex = previousAddedId ? items.findIndex((entry) => entry.id === previousAddedId) : -1;
         items.splice(previousIndex + 1, 0, record);
-        await chrome.storage.local.set({ [STORAGE_KEY]: items });
+        await commit(stored, { [STORAGE_KEY]: items });
         return { record, duplicated: false };
       });
       const { record, refreshed, moved } = saved;

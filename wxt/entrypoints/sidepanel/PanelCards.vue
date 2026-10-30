@@ -28,6 +28,7 @@ onUpdated(committed);
     <section id="items" class="items" aria-live="polite" @dragover="actions.drag.over" @drop="actions.drag.drop" @dragend="actions.drag.cancel">
     <template v-if="controls.ready.value">
       <PanelCard v-for="item in batches.rendered.value" :key="item.id" :item="item" :covers="controls.covers.value"
+        :icons="controls.collection.value.icons"
         :current="item.id === controls.currentId.value" :actions="actions" :translate="translate" />
     </template>
     </section>

@@ -37,7 +37,7 @@ export function registerBackup() {
     const incoming = validate({ payload, mode });
     return store.enqueue(async () => {
       const base = await snapshot();
-      const current = core.fromStorage(base);
+      const current = core.fromStorage(base, { resolveIcons: mode !== "replace" });
       const result = plan(current, incoming, mode);
       // The UI retains the file and this revision. No in-memory preview session:
       // MV3 can stop the worker while the user is reading the confirmation.
@@ -54,11 +54,11 @@ export function registerBackup() {
     return store.enqueue(async () => {
       const latest = await snapshot();
       if (mode === "replace" && await fingerprint(latest) !== token.revision) throw new Error("IMPORT_DATA_CHANGED");
-      const current = core.fromStorage(latest);
+      const current = core.fromStorage(latest, { resolveIcons: mode !== "replace" });
       const result = plan(current, incoming, mode);
       const epoch = crypto.randomUUID();
       // A single storage write commits all references and invalidates old pages.
-      await chrome.storage.local.set({ ...core.toStorage(result.data), [store.EPOCH]: epoch,
+      await store.commit(latest, { ...core.toStorage(result.data), [store.EPOCH]: epoch,
         laterOnCurrentItem: null, laterOnActiveProject: "all" });
       return { ok: true, added: result.added, duplicates: result.duplicates, addedProjects: result.addedProjects, total: result.data.items.length };
     });
@@ -66,9 +66,9 @@ export function registerBackup() {
 
   async function wipe() {
     return store.enqueue(async () => {
-      const stored = await chrome.storage.local.get<BackgroundSnapshot>("laterOnProjects");
+      const stored = await snapshot();
       const projects = (stored.laterOnProjects || []).map(({ coverPick, ...project }) => project);
-      await chrome.storage.local.set({ laterOnItems: [], laterOnCovers: {}, laterOnOrder: {}, laterOnReadingPositions: {},
+      await store.commit(stored, { laterOnItems: [], laterOnCovers: {}, laterOnOrder: {}, laterOnReadingPositions: {},
         laterOnProjects: projects, laterOnCurrentItem: null, [store.EPOCH]: crypto.randomUUID() });
       return { ok: true };
     });

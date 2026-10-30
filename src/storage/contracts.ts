@@ -1,13 +1,17 @@
 import type { BackupItem, BackupProject } from "../backup/core";
+import type { IconMap } from "./icons";
+import { ICONS } from "./icons.ts";
+export { ICONS } from "./icons.ts";
 
 // Local records can predate the complete, validated backup format.
+// favicon may also hold an internal icon:// reference, resolved before backup validation.
 export type StoredItem = Pick<BackupItem, "id"> & Partial<Omit<BackupItem, "id">>;
 export type StoredProject = Pick<BackupProject, "id"> & Partial<Omit<BackupProject, "id">>;
 
 export const ITEMS = "laterOnItems", PROJECTS = "laterOnProjects", COVERS = "laterOnCovers";
 export const ORDER = "laterOnOrder", POSITIONS = "laterOnReadingPositions";
 export const CURRENT = "laterOnCurrentItem", ACTIVE = "laterOnActiveProject";
-export const KEYS = [ITEMS, PROJECTS, COVERS, ORDER, POSITIONS] as const;
+export const KEYS = [ITEMS, PROJECTS, COVERS, ICONS, ORDER, POSITIONS] as const;
 export const EPOCH = "laterOnCollectionEpoch";
 
 export interface EpochSnapshot {
@@ -18,6 +22,7 @@ export interface CollectionState extends EpochSnapshot {
   readonly laterOnItems?: readonly StoredItem[];
   readonly laterOnProjects?: readonly StoredProject[];
   readonly laterOnCovers?: Readonly<Record<string, string>>;
+  readonly laterOnIcons?: IconMap;
   readonly laterOnOrder?: Readonly<Record<string, readonly string[]>>;
   readonly laterOnReadingPositions?: Readonly<Record<string, number>>;
   readonly laterOnCurrentItem?: string | null;
@@ -67,6 +72,7 @@ export interface CollectionResponse {
   readonly projects?: readonly StoredProject[];
   readonly project?: StoredProject;
   readonly covers?: Readonly<Record<string, string>>;
+  readonly icons?: IconMap;
   readonly orders?: Readonly<Record<string, readonly string[]>>;
   readonly affected?: number;
   readonly existed?: boolean;

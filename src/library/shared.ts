@@ -10,6 +10,7 @@ export interface LibraryCollection {
   readonly items: readonly StoredItem[];
   readonly projects: readonly StoredProject[];
   readonly covers: Readonly<Record<string, string>>;
+  readonly icons: Readonly<Record<string, string>>;
 }
 
 export type CardOrders = Readonly<Record<string, readonly string[]>>;

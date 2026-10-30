@@ -1,4 +1,5 @@
 import type { StoredItem } from "../storage/contracts";
+import { isInlineIcon } from "../storage/icons.ts";
 
 export type ReadingStatus = NonNullable<StoredItem["status"]>;
 type LegacyItemState = Readonly<Pick<StoredItem, "status" | "read" | "doneAt">>;
@@ -26,6 +27,6 @@ export function nextStatus(status: ReadingStatus): "unread" | "done" {
 /** Both pages request the same queued migration; only the worker supplies missing timestamps. */
 export function needsLegacyMigration(list: readonly (StoredItem | null | undefined)[] | null | undefined): boolean {
   return Array.isArray(list) && list.some(item =>
-    !item || (typeof item.image === "string" && item.image.startsWith("data:"))
+    !item || isInlineIcon(item.favicon) || (typeof item.image === "string" && item.image.startsWith("data:"))
     || (normalizeItemState(item).status === "done" && !Number(item.doneAt)));
 }

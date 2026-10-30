@@ -1,9 +1,10 @@
 import { browser } from "wxt/browser";
 import { normalizeItemState } from "../collection/item-state";
 import {
-  ITEMS, PROJECTS, COVERS, ORDER, POSITIONS, CURRENT, ACTIVE, KEYS, EPOCH,
+  ITEMS, PROJECTS, COVERS, ICONS, ORDER, POSITIONS, CURRENT, ACTIVE, KEYS, EPOCH,
   isRecord, isCollectionCommand
 } from "./contracts";
+import { internIcons } from "./icons";
 import type {
   CollectionState, LegacyCollectionState, StoredItem, StoredProject, CollectionAction,
   CollectionCommand, CollectionResponse, CollectionSuccess, Operation
@@ -27,6 +28,30 @@ interface Mutation {
 }
 
 const isEqual = (left: unknown, right: unknown): boolean => JSON.stringify(left) === JSON.stringify(right);
+/** Caller owns the shared queue and supplies the latest items + icon snapshot. */
+export async function commit(stored: CollectionState, patch: CollectionState): Promise<CollectionState> {
+  if (!(ITEMS in patch)) {
+    if (Object.keys(patch).length) await browser.storage.local.set(patch);
+    return patch;
+  }
+  const normalized = await internIcons(patch[ITEMS] || [], stored[ICONS] || {});
+  const { laterOnItems: _items, laterOnIcons: _icons, ...rest } = patch;
+  const next = { ...rest,
+    ...(!isEqual(stored[ITEMS], normalized.items) ? { [ITEMS]: normalized.items } : {}),
+    ...(!isEqual(stored[ICONS] || {}, normalized.icons) ? { [ICONS]: normalized.icons } : {}) };
+  if (Object.keys(next).length) await browser.storage.local.set(next);
+  return next;
+}
+
+export function migrateIcons(): Promise<CollectionState> {
+  return enqueue(async () => {
+    const stored = await browser.storage.local.get<CollectionState>([ITEMS, ICONS]);
+    if (!stored[ITEMS]?.length && !Object.keys(stored[ICONS] || {}).length) return {};
+    // Legacy null entries are handled by the existing page migration.
+    if (stored[ITEMS]?.some(item => !item)) return {};
+    return commit(stored, { [ITEMS]: stored[ITEMS] || [] });
+  });
+}
 function fail(code: string): never { throw new Error(code); }
 const result = (patch: CollectionState, response: CollectionResponse = {}): Mutation => ({ patch, response });
 const assertEpoch = (stored: CollectionState, epoch: string | undefined): void => {
@@ -201,7 +226,7 @@ function migrateLegacyData(stored: LegacyCollectionState): Mutation {
 const readKeys = {
   createProject: [PROJECTS], updateProject: [PROJECTS, ITEMS], setProjectPinned: [PROJECTS], moveProject: [PROJECTS],
   deleteProject: [...KEYS, CURRENT, ACTIVE], moveItem: [ITEMS, PROJECTS, ORDER],
-  mutateItems: [...KEYS, CURRENT], migrateLegacyData: [ITEMS, COVERS]
+  mutateItems: [...KEYS, CURRENT], migrateLegacyData: [ITEMS, COVERS, ICONS]
 } satisfies Record<CollectionAction, readonly (keyof CollectionState)[]>;
 
 function applyOperation(stored: CollectionState, command: CollectionCommand): Mutation {
@@ -223,8 +248,8 @@ export async function execute(command: CollectionCommand): Promise<CollectionSuc
     const stored = await browser.storage.local.get<CollectionState>([...readKeys[command.action], EPOCH]);
     assertEpoch(stored, command.epoch);
     const { patch, response } = applyOperation(stored, command);
-    if (Object.keys(patch).length) await browser.storage.local.set(patch);
-    return { ok: true, ...response };
+    const written = await commit(stored, command.action === "migrateLegacyData" ? { ...patch, [ITEMS]: response.items } : patch);
+    return { ok: true, ...response, ...(response.items ? { items: written[ITEMS] || response.items, icons: written[ICONS] || stored[ICONS] || {} } : {}) };
   });
 }
 

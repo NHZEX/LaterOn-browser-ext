@@ -21,7 +21,7 @@ function boot(page, store, { failMigration = false, delayStorage = false, cache 
     url: `chrome-extension://lateron/${page}.html?from=sidepanel&project=unfiled` });
   const { window } = dom;
   window.scrollTo = () => {};
-  const memory = new Map(cache ? [["laterOnPanelCache", JSON.stringify(cache)]] : []);
+  const memory = new Map(cache ? [["laterOnPanelCache", JSON.stringify({ version: 2, items: cache, icons: {} })]] : []);
   Object.defineProperty(window, "localStorage", { value: {
     getItem: key => memory.get(key) ?? null,
     setItem: (key, value) => memory.set(key, String(value)),

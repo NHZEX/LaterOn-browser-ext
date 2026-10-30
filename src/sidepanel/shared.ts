@@ -12,6 +12,7 @@ export function panelSavedTime(timestamp: number | undefined, language: string, 
 
 export interface PanelCollection {
   readonly items: readonly StoredItem[];
+  readonly icons: Readonly<Record<string, string>>;
   readonly projects: readonly StoredProject[];
   readonly archivedProjectIds: ReadonlySet<string>;
   readonly orders: Readonly<Record<string, readonly string[]>>;

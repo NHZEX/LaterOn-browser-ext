@@ -73,6 +73,7 @@ onUnmounted(() => {
         <div v-for="category in categories" :key="category.key"><dt>{{ t(category.label) }}</dt><dd>{{ formatBytes(usage[category.key]) }}</dd></div>
       </dl>
       <p class="setting-note">{{ t('storageImageCounts', { inline: usage.inlineIconCount, remote: usage.remoteIconCount, covers: usage.inlineCoverCount }) }}</p>
+      <p class="setting-note">{{ t('storageStoredIcons', { n: usage.storedIconCount }) }}</p>
     </template>
     <p class="setting-note">{{ t('storageUsageHint') }}</p>
   </section>

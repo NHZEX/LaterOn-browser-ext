@@ -6,7 +6,7 @@ import { t } from "../shared/i18n";
 import type { StoredSettings } from "../settings/shared";
 
 export function useLibraryView() {
-  const collection = shallowRef<LibraryCollection>({ items: [], projects: [], covers: {} });
+  const collection = shallowRef<LibraryCollection>({ items: [], projects: [], covers: {}, icons: {} });
   const orders = shallowRef<CardOrders>({});
   const preferences = shallowRef<StoredSettings>({});
   const state = reactive({ filter: "unread" as ReadFilter, search: "", query: "", sort: "newest" as SortMode,

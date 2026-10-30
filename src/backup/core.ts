@@ -1,3 +1,4 @@
+import { isIconReference, resolveFavicon } from "../storage/icons.ts";
 // Portable collection format. No Chrome API, DOM, or implicit clock/randomness.
 export interface BackupItem {
   readonly id: string;
@@ -41,6 +42,7 @@ export interface CollectionSnapshot {
   readonly laterOnItems?: readonly unknown[];
   readonly laterOnProjects?: readonly unknown[];
   readonly laterOnCovers?: Readonly<Record<string, unknown>>;
+  readonly laterOnIcons?: Readonly<Record<string, string>>;
   readonly laterOnOrder?: Readonly<Record<string, unknown>>;
   readonly laterOnReadingPositions?: Readonly<Record<string, unknown>>;
 }
@@ -182,11 +184,14 @@ function validateData(value: unknown): BackupData {
 
 // Normalize existing local data and discard orphaned derived references.
 // Also handles the old inline covers/read flag without exporting caches.
-export function fromStorage(stored: CollectionSnapshot): BackupData {
+export function fromStorage(stored: CollectionSnapshot, { resolveIcons = true }: { readonly resolveIcons?: boolean } = {}): BackupData {
   const projects = (stored.laterOnProjects || []).map((entry) => normalizeProject(entry, "local.projects"));
   const projectIds = new Set(projects.map((entry) => entry.id));
   const items = (stored.laterOnItems || []).map((entry) => {
-    const item = normalizeItem(entry, "local.items");
+    const favicon = isRecord(entry) && typeof entry.favicon === "string" && isIconReference(entry.favicon)
+      ? (resolveIcons ? resolveFavicon(entry.favicon, stored.laterOnIcons || {}) : "") : null;
+    if (resolveIcons && favicon === "") throw new Error("MISSING_LOCAL_ICON");
+    const item = normalizeItem(favicon === null || !isRecord(entry) ? entry : { ...entry, favicon }, "local.items");
     return { ...item, projectId: item.projectId !== null && projectIds.has(item.projectId) ? item.projectId : null };
   });
   const itemById = new Map(items.map((entry) => [entry.id, entry]));
@@ -238,7 +243,7 @@ const withoutImageData = (data: BackupData): BackupData => ({
 });
 
 export function create(stored: CollectionSnapshot, appVersion: string, exportedAt: string, { includeImages = false }: { readonly includeImages?: boolean } = {}): BackupDocument {
-  const data = fromStorage(stored);
+  const data = fromStorage(stored, { resolveIcons: includeImages });
   return { format: FORMAT, version: VERSION, appVersion, exportedAt,
     data: includeImages ? data : withoutImageData(data) };
 }

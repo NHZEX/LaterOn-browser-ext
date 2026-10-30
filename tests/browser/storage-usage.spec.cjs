@@ -23,7 +23,7 @@ test("存储占用：真实总量、图片分类、手动刷新且不修改收�
   const usage = panel(page);
   await expect(usage).toContainText("Saved pages: 0 · Projects: 0");
   await expect(usage.locator(".storage-total strong")).toHaveText(await totalText(extension.worker));
-  await expect(usage).toContainText("Embedded icons: 0 · Linked icons: 0 · Embedded covers: 0.");
+  await expect(usage).toContainText("Pages with embedded icons: 0 · Linked icons: 0 · Embedded covers: 0.");
   await extension.worker.evaluate(async icon => chrome.storage.local.set({
     laterOnItems: [
       { id: "one", title: "中文标题", favicon: icon, image: "local://one" },
@@ -35,7 +35,7 @@ test("存储占用：真实总量、图片分类、手动刷新且不修改收�
   const before = await extension.worker.evaluate(() => chrome.storage.local.get(null));
   await usage.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(usage).toContainText("Saved pages: 2 · Projects: 1");
-  await expect(usage).toContainText("Embedded icons: 1 · Linked icons: 1 · Embedded covers: 4.");
+  await expect(usage).toContainText("Pages with embedded icons: 1 · Linked icons: 1 · Embedded covers: 4.");
   await expect(usage.locator(".storage-total strong")).toHaveText(await totalText(extension.worker));
   await expect(usage.locator(".storage-breakdown > div").filter({ hasText: "Embedded site icons" }).locator("dd")).toHaveText(`${Buffer.byteLength(icon)} B`);
   await expect(usage.locator(".storage-breakdown > div").filter({ hasText: "Embedded covers" }).locator("dd")).toHaveText(`${4 * Buffer.byteLength(icon)} B`);

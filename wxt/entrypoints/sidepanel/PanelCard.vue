@@ -7,12 +7,14 @@ import type { StoredItem } from "../../../src/storage/contracts";
 import type { Translate } from "../../../src/shared/i18n";
 import type { PanelActions } from "../../../src/sidepanel/usePanelActions";
 import PanelCover from "./PanelCover.vue";
+import { resolveFavicon } from "../../../src/storage/icons";
 
-const props = defineProps<{ item: StoredItem; covers: Readonly<Record<string, string>>; current: boolean; actions: PanelActions; translate: Translate }>();
+const props = defineProps<{ item: StoredItem; covers: Readonly<Record<string, string>>; icons: Readonly<Record<string, string>>; current: boolean; actions: PanelActions; translate: Translate }>();
 const faviconFailed = shallowRef(false);
 // 文字直接写明「标为已读 / 标为未读」；在读仍由打开文章进入。
 const readLabel = computed(() => props.translate(props.item.status === "done" ? "unreadButton" : "readButton"));
 const cover = computed(() => resolveImage(props.item, props.covers));
+const favicon = computed(() => resolveFavicon(props.item.favicon, props.icons));
 const savedTime = computed(() => {
   // 语言由上层响应式翻译入口驱动，日期的 locale 同步切换。
   props.translate("today");
@@ -23,7 +25,7 @@ function click(event: MouseEvent): void { props.actions.click(event, props.item.
 function contextmenu(event: MouseEvent): void { props.actions.openMenu(event, props.item.id); }
 function keydown(event: KeyboardEvent): void { props.actions.openMenu(event, props.item.id); }
 function dragstart(event: DragEvent): void { props.actions.drag.start(event, props.item.id); }
-watch(() => props.item.favicon, () => { faviconFailed.value = false; });
+watch(favicon, () => { faviconFailed.value = false; });
 </script>
 
 <template>
@@ -32,7 +34,7 @@ watch(() => props.item.favicon, () => { faviconFailed.value = false; });
     <a class="open-item" :href="cardTarget(item.url) || '#'" target="_blank" rel="noreferrer" :title="translate('openInNewTab')">
       <PanelCover :source="cover" />
       <div class="copy">
-        <div class="meta"><img :src="item.favicon || undefined" alt="" referrerpolicy="no-referrer" :style="{ visibility: faviconFailed ? 'hidden' : undefined }" @error="hideFavicon" /><span class="source">{{ item.source }}</span><span class="dot">·</span><time>{{ savedTime }}</time></div>
+        <div class="meta"><img :src="favicon || undefined" alt="" referrerpolicy="no-referrer" :style="{ visibility: faviconFailed ? 'hidden' : undefined }" @error="hideFavicon" /><span class="source">{{ item.source }}</span><span class="dot">·</span><time>{{ savedTime }}</time></div>
         <h2>{{ item.title }}</h2>
         <p class="description">{{ item.description }}</p>
       </div>

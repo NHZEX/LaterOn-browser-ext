@@ -1,11 +1,13 @@
 import type { Translate } from "../../../src/shared/i18n";
-import { COVERS as STORED_COVERS, ITEMS, PROJECTS, isRecord } from "../../../src/storage/contracts";
+import { COVERS as STORED_COVERS, ITEMS, PROJECTS, ICONS, isRecord } from "../../../src/storage/contracts";
+import { iconId, resolveFavicon } from "../../../src/storage/icons";
 
 export interface StorageUsage {
   readonly totalBytes: number;
   readonly itemCount: number;
   readonly projectCount: number;
   readonly inlineIconCount: number;
+  readonly storedIconCount: number;
   readonly remoteIconCount: number;
   readonly inlineCoverCount: number;
   readonly metadataBytes: number;
@@ -24,23 +26,27 @@ export function calculateStorageUsage(snapshot: Readonly<Record<string, unknown>
   const items = records(snapshot[ITEMS]);
   const projects = records(snapshot[PROJECTS]);
   const icons = items.map(item => item.favicon).filter(isInlineImage);
+  const pool = isRecord(snapshot[ICONS]) ? snapshot[ICONS] : {};
+  const pooledImages = Object.values(pool).filter(isInlineImage);
+  const usablePool = Object.fromEntries(Object.entries(pool).filter((entry): entry is [string, string] => isInlineImage(entry[1])));
+  const referencedCount = items.filter(item => typeof item.favicon === "string" && iconId(item.favicon) && resolveFavicon(item.favicon, usablePool)).length;
   const covers = [
     ...items.map(item => item.image), ...projects.map(project => project.cover),
     ...Object.values(isRecord(snapshot[STORED_COVERS]) ? snapshot[STORED_COVERS] : {})
   ].filter(isInlineImage);
-  const iconBytes = imageBytes(icons);
+  const iconBytes = imageBytes([...icons, ...pooledImages]);
   const coverBytes = imageBytes(covers);
-  const collectionKeys: readonly string[] = [ITEMS, PROJECTS, STORED_COVERS];
+  const collectionKeys: readonly string[] = [ITEMS, PROJECTS, STORED_COVERS, ICONS];
   const entryBytes = ([key, value]: readonly [string, unknown]): number => utf8.encode(key).byteLength + jsonBytes(value);
   const entries = Object.entries(snapshot);
   const collectionBytes = entries.filter(([key]) => collectionKeys.includes(key)).reduce((sum, entry) => sum + entryBytes(entry), 0);
   return {
     totalBytes, itemCount: items.length, projectCount: projects.length,
-    inlineIconCount: icons.length,
+    inlineIconCount: icons.length + referencedCount, storedIconCount: icons.length + pooledImages.length,
     remoteIconCount: items.filter(item => typeof item.favicon === "string" && /^https?:\/\//i.test(item.favicon)).length,
     inlineCoverCount: covers.length,
     metadataBytes: Math.max(0, collectionBytes - iconBytes - coverBytes), iconBytes, coverBytes,
-    otherBytes: entries.filter(([key]) => !collectionKeys.includes(key)).reduce((sum, entry) => sum + entryBytes(entry), 0)
+    otherBytes: entries.filter(([key]) => !collectionKeys.includes(key)).reduce((sum, entry) => sum + entryBytes(entry), 0),
   };
 }
 
@@ -60,7 +66,7 @@ export function backupErrorKey(error: unknown): string {
   if (code.startsWith("INVALID_BACKUP:")) return "backupInvalid";
   const keys: Readonly<Record<string, string>> = {
     UNSUPPORTED_BACKUP: "backupUnsupported", BACKUP_TOO_LARGE: "backupTooLarge",
-    IMPORT_PREVIEW_EXPIRED: "backupPreviewExpired", IMPORT_DATA_CHANGED: "backupDataChanged"
+    IMPORT_PREVIEW_EXPIRED: "backupPreviewExpired", IMPORT_DATA_CHANGED: "backupDataChanged", MISSING_LOCAL_ICON: "backupMissingIcon"
   };
   return keys[code] ?? "backupOperationFailed";
 }

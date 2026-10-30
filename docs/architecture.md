@@ -13,6 +13,7 @@
 | 收藏库、侧栏、设置页 | 各页的 [library](../wxt/entrypoints/library/main.ts)、[sidepanel](../wxt/entrypoints/sidepanel/main.ts)、[settings](../wxt/entrypoints/settings/main.ts) Vue 入口；页面业务位于 `src/library/`、`src/sidepanel/` |
 | 独立项目选择页 | [页面入口](../wxt/entrypoints/save-project-picker/main.ts) → [选择器](../src/picker/main.ts)，使用共享 DOM UI |
 | 页面数据命令与共享队列 | [客户端](../src/storage/client.ts)、[协调器](../src/storage/coordinator.ts)、[契约](../src/storage/contracts.ts) |
+| 内嵌网站图标共享与回收 | [图标规则](../src/storage/icons.ts)；收藏写入统一经过协调器的 `commit` |
 | 备份导出、预览、恢复与清空 | [后台协议](../src/backup/background.ts)、[纯数据核心](../src/backup/core.ts)；语义见 [备份说明](backup-format.md) |
 | URL 身份、标签复用与共享规则 | [URL](../src/shared/url-utils.ts)、[标签导航](../src/tabs/navigation.ts)、[筛选](../src/collection/filter.ts)、[排序](../src/shared/collection-sort.ts)、[编辑](../src/collection/item-edit.ts)、[阅读状态](../src/collection/item-state.ts) |
 | 公共界面 | [国际化](../src/shared/i18n.ts)、[弹窗加载](../src/ui/load-dialog.ts)、[弹窗](../src/ui/dialog.ts)、[引导](../src/ui/onboarding.ts) |
@@ -26,11 +27,17 @@ StaySide 是 LaterOn 的独立衍生版本。界面使用 StaySide 名称与图�
 
 队列在 `src/storage/coordinator.ts` 定义。页面命令由协调器执行；保存、自动清理、阅读位置及备份也直接导入同一个 `enqueue`，各自在后台模块内提交存储。网络抓取与用户等待不占用收藏读改写队列。主题、语言等偏好和临时界面状态不属于这一收藏事务边界。
 
-导入覆盖和清空更换收藏 epoch，使旧页面操作失效；备份提交原子更新关联数据，详见备份说明。页面响应还需处理自身写入没有存储广播的情形，测试约定见 AGENTS。
+内嵌网站图标的完整 DataURL 按 UTF-8 内容计算 SHA-256，`laterOnIcons` 保存摘要到原图的映射，收藏 `favicon` 保存 `icon://<摘要>`。只合并完全相同的字符串，同站不同图分别保留；不解码、压缩、缩放或下载远程图标。普通 URL、空值及迁移失败后的旧内嵌值继续可用。共享表属于正式收藏数据，不是可淘汰缓存；独有图标会增加索引开销，收益取决于重复分布。
 
-侧栏首屏缓存位于页面 `localStorage`，待确认收藏批次使用 `chrome.storage.session`；二者都不替代正式收藏数据。缓存、诊断和界面状态不进入收藏备份。
+启动时幂等迁移图标，页面旧数据迁移和后续收藏写入也会归档内嵌图标。写入方在队列内读取最新列表与共享表，`commit` 将图标内容与引用同批保存；散列失败或已有摘要内容冲突时保留原始内嵌值，写入失败保留原快照供重试。迁移不更换收藏 epoch。删除、项目级联删除、自动清理、图标替换及导入均根据最终收藏重新整理共享表，最后一条引用消失后回收，不持久化引用计数。浏览器存储不额外假定提供数据库级事务。
+
+导入覆盖和清空更换收藏 epoch，使旧页面操作失效；备份在单次存储调用中更新关联数据，详见备份说明。页面响应还需处理自身写入没有存储广播的情形，测试约定见 AGENTS。
+
+侧栏首屏缓存位于页面 `localStorage`，版本化快照只保留最近十二条非归档收藏及被这些收藏引用的图标子集，同一图标在缓存内只保存一次；旧版本缓存丢弃重建。缓存首屏与完整列表读取并行，后续广播优先于旧读取结果。两页使用共享解析函数显示图标，命令响应携带图标表，发起页不依赖广播更新。待确认收藏批次使用 `chrome.storage.session`；二者都不替代正式收藏数据。缓存、诊断和界面状态不进入收藏备份。
 
 设置页的存储占用总量由 `storage.local.getBytesInUse` 读取；分类按当前存储内容的 UTF-8 JSON 字节估算，内嵌图片包含编码开销，远程图片仅计地址，不代表浏览器缓存或实际磁盘大小。统计只在面板挂载及手动刷新时读取；本地存储变化仅提示刷新，不修改收藏或保存统计快照。
+
+内嵌图标分类包含共享表原图及尚未迁移的内嵌值，每份实际存储内容只计一次；摘要索引、JSON 结构和收藏引用归入网页信息。使用内嵌图标的收藏数与实际保存图像份数分别展示，未被引用但尚存于共享表的内容也计入实际占用。
 
 ## 构建与保留的边界
 

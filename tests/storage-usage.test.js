@@ -4,7 +4,7 @@ const { calculateStorageUsage, formatStorageBytes } = require("./helpers/load-mo
 
 test("empty storage and binary units", () => {
   assert.deepEqual(calculateStorageUsage({}, 0), {
-    totalBytes: 0, itemCount: 0, projectCount: 0, inlineIconCount: 0, remoteIconCount: 0,
+    totalBytes: 0, itemCount: 0, projectCount: 0, inlineIconCount: 0, storedIconCount: 0, remoteIconCount: 0,
     inlineCoverCount: 0, metadataBytes: 0, iconBytes: 0, coverBytes: 0, otherBytes: 0
   });
   assert.equal(formatStorageBytes(0, "en"), "0 B");
@@ -54,4 +54,20 @@ test("legacy partial records and absent collections do not break usage", () => {
   assert.equal(usage.iconBytes, 0);
   assert.equal(usage.coverBytes, 0);
   assert.equal(usage.otherBytes, 14);
+});
+
+test("shared icons count stored images once, while references and pool keys stay in metadata", () => {
+  const hash = "a".repeat(64), icon = "data:image/png;base64,AAAA";
+  const snapshot = { laterOnItems: [{ id: "one", favicon: `icon://${hash}` }, { id: "two", favicon: `icon://${hash}` },
+    { id: "legacy", favicon: icon }, { id: "missing", favicon: `icon://${"b".repeat(64)}` }],
+    laterOnIcons: { [hash]: icon }, laterOnProjects: [] };
+  const before = structuredClone(snapshot);
+  const usage = calculateStorageUsage(snapshot, 9000);
+  assert.equal(usage.inlineIconCount, 3);
+  assert.equal(usage.storedIconCount, 2, "One shared image plus one remaining inline occurrence");
+  assert.equal(usage.iconBytes, 2 * Buffer.byteLength(icon));
+  assert.equal(usage.otherBytes, 0);
+  const bytes = Object.entries(snapshot).reduce((n, [key, value]) => n + Buffer.byteLength(key) + Buffer.byteLength(JSON.stringify(value)), 0);
+  assert.equal(usage.metadataBytes + usage.iconBytes, bytes);
+  assert.deepEqual(snapshot, before);
 });

@@ -40,10 +40,10 @@ export function usePanelPage(controls: SidepanelControls, commands: PanelCommand
     const cacheStart = panelNow(), cached = cache.read();
     seg.cache = Math.round(panelNow() - cacheStart);
     if (seg.cache > 400) cache.disable(); // 慢 localStorage 本次不再碰，避免反复叠加卡顿。
-    const hit = !!cached?.length;
+    const hit = !!cached?.items.length;
     if (hit) {
       const paint = panelNow();
-      controls.collection.value = { ...controls.collection.value, items: normalizeItems(cached) };
+      controls.collection.value = { ...controls.collection.value, items: normalizeItems(cached.items), icons: cached.icons };
       controls.ready.value = true;
       await controls.afterPaint();
       if (!alive) return;

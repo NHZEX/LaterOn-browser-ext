@@ -1,7 +1,7 @@
 import { browser } from "wxt/browser";
 import { needsLegacyMigration, normalizeItems } from "../collection/item-state";
 import { normalizeFilter } from "../collection/filter";
-import { ITEMS, PROJECTS, COVERS, CURRENT, ACTIVE, ORDER, EPOCH } from "../storage/contracts";
+import { ITEMS, PROJECTS, COVERS, ICONS, CURRENT, ACTIVE, ORDER, EPOCH } from "../storage/contracts";
 import type { CollectionSuccess } from "../storage/contracts";
 import { FILTER, FILTER_CHOSEN, SETTINGS, type PanelSnapshot } from "./page";
 import { normalizePanelProject } from "./shared";
@@ -19,8 +19,9 @@ export function usePanelStorage(controls: SidepanelControls, onItems: () => void
     // 两页共享筛选；首次未选择时默认未读，异常值仍规范为三档。
     if (initial) controls.state.filter = snapshot[FILTER_CHOSEN] ? normalizeFilter(snapshot[FILTER]) : "unread";
     else if (FILTER in snapshot) controls.state.filter = normalizeFilter(snapshot[FILTER]);
-    if (ITEMS in snapshot || PROJECTS in snapshot || ORDER in snapshot || SETTINGS in snapshot) controls.collection.value = {
+    if (ITEMS in snapshot || ICONS in snapshot || PROJECTS in snapshot || ORDER in snapshot || SETTINGS in snapshot) controls.collection.value = {
       items: ITEMS in snapshot ? normalizeItems(snapshot[ITEMS]) : previous.items, projects,
+      icons: ICONS in snapshot ? snapshot[ICONS] ?? {} : previous.icons,
       archivedProjectIds: PROJECTS in snapshot ? new Set((snapshot[PROJECTS] ?? []).filter(project => project.archived).map(project => project.id)) : previous.archivedProjectIds,
       orders: ORDER in snapshot ? snapshot[ORDER] ?? {} : previous.orders,
       sortMode: SETTINGS in snapshot ? snapshot[SETTINGS]?.defaultSort ?? "newest" : previous.sortMode
@@ -47,7 +48,7 @@ export function usePanelStorage(controls: SidepanelControls, onItems: () => void
   };
   function mount(): void { if (!mounted) { mounted = true; browser.storage.onChanged.addListener(changed); } }
   // 封面可能大于整个列表，故意不在初始读取中；先让列表最快出来。
-  function read(): Promise<PanelSnapshot> { return browser.storage.local.get<PanelSnapshot>([ITEMS, PROJECTS, ACTIVE, CURRENT, SETTINGS, FILTER, FILTER_CHOSEN, ORDER, EPOCH]); }
+  function read(): Promise<PanelSnapshot> { return browser.storage.local.get<PanelSnapshot>([ITEMS, ICONS, PROJECTS, ACTIVE, CURRENT, SETTINGS, FILTER, FILTER_CHOSEN, ORDER, EPOCH]); }
   // 缓存可操作时本地选择和外部切换都可能先于读取返回，按最后发生的一次恢复。
   function latest(snapshot: PanelSnapshot): PanelSnapshot {
     const localPreferences: PanelSnapshot = {
@@ -64,7 +65,8 @@ export function usePanelStorage(controls: SidepanelControls, onItems: () => void
       try { migrated = await globalThis.LaterOnStorage.run("migrateLegacyData"); } catch { /* 原始数据仍可使用。 */ }
     }
     if (!alive) return;
-    apply(latest({ ...snapshot, ...(migrated?.items ? { [ITEMS]: migrated.items } : {}), ...(migrated?.covers ? { [COVERS]: migrated.covers } : {}) }), true);
+    apply(latest({ ...snapshot, ...(migrated?.items ? { [ITEMS]: migrated.items } : {}),
+      ...(migrated?.icons ? { [ICONS]: migrated.icons } : {}), ...(migrated?.covers ? { [COVERS]: migrated.covers } : {}) }), true);
     pending = {}; ready = true;
   }
   function failed(): void { if (alive) { apply(latest({})); pending = {}; ready = true; } }
@@ -79,6 +81,7 @@ export function usePanelStorage(controls: SidepanelControls, onItems: () => void
   function accept(response: CollectionSuccess): void {
     if (!alive) return;
     apply({ ...(response.items ? { [ITEMS]: response.items } : {}), ...(response.covers ? { [COVERS]: response.covers } : {}),
+      ...(response.icons ? { [ICONS]: response.icons } : {}),
       ...(response.orders ? { [ORDER]: response.orders } : {}) });
     if (response.items && controls.currentId.value && !response.items.some(item => item.id === controls.currentId.value)) controls.locate(null);
   }

@@ -11,7 +11,7 @@ export function useSidepanelControls() {
   const covers = shallowRef<Readonly<Record<string, string>>>({});
   const currentId = shallowRef<string | null>(null);
   const locateRequest = shallowRef(0);
-  const collection = shallowRef<PanelCollection>({ items: [], projects: [], archivedProjectIds: new Set(), orders: {}, sortMode: "newest" });
+  const collection = shallowRef<PanelCollection>({ items: [], icons: {}, projects: [], archivedProjectIds: new Set(), orders: {}, sortMode: "newest" });
   const visible = computed(() => visiblePanelItems(collection.value, state));
   const projects = computed(() => panelProjects(collection.value));
   const message = shallowRef("");

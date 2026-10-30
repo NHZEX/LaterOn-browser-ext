@@ -1,6 +1,7 @@
 import type { BackgroundItem } from "./shared";
 import type { BackgroundSnapshot } from "./shared";
-import { enqueue as queueItemWrite } from "../storage/coordinator";
+import { enqueue as queueItemWrite, commit, migrateIcons } from "../storage/coordinator";
+import { ICONS } from "../storage/icons";
 import { STORAGE_KEY, ORDER_KEY, SETTINGS_KEY, COVERS_KEY } from "./shared";
 import { resetActionAppearance } from "./feedback";
 
@@ -32,7 +33,7 @@ export async function purgeExpiredItems() {
 
 async function purgeExpiredItemsNow() {
   try {
-    const stored = await chrome.storage.local.get<BackgroundSnapshot>([STORAGE_KEY, ORDER_KEY, SETTINGS_KEY, COVERS_KEY]);
+    const stored = await chrome.storage.local.get<BackgroundSnapshot>([STORAGE_KEY, ORDER_KEY, SETTINGS_KEY, COVERS_KEY, ICONS]);
     const settings = stored[SETTINGS_KEY] || {};
     // 缺少开关的旧设置仍沿用已开启的行为。
     if (settings.autoCleanEnabled === false) return 0;
@@ -60,7 +61,7 @@ async function purgeExpiredItemsNow() {
     // 设置页不走收藏写队列：提交前重读策略，放弃已关闭或期限已改变的清理。
     const latest = (await chrome.storage.local.get<BackgroundSnapshot>(SETTINGS_KEY))[SETTINGS_KEY] || {};
     if (latest.autoCleanEnabled === false || normalizeCleanDays(latest.autoCleanDays) !== days) return 0;
-    await chrome.storage.local.set({ [STORAGE_KEY]: kept, [ORDER_KEY]: nextOrders, [COVERS_KEY]: nextCovers });
+    await commit(stored, { [STORAGE_KEY]: kept, [ORDER_KEY]: nextOrders, [COVERS_KEY]: nextCovers });
     return expiredIds.size;
   } catch {
     return 0;
@@ -81,7 +82,7 @@ export async function ensureLegacyCleanup() {
 // contentHtml / wordCount / byline 字段从已有收藏上移除，释放本地空间。
 async function cleanupLegacyContent() {
   return queueItemWrite(async () => {
-    const result = await chrome.storage.local.get<BackgroundSnapshot>(STORAGE_KEY);
+    const result = await chrome.storage.local.get<BackgroundSnapshot>([STORAGE_KEY, ICONS]);
     const items = result[STORAGE_KEY] || [];
     let changed = false;
     const cleaned = items.map((item) => {
@@ -90,11 +91,13 @@ async function cleanupLegacyContent() {
       changed = true;
       return rest;
     });
-    if (changed) await chrome.storage.local.set({ [STORAGE_KEY]: cleaned });
+    if (changed) await commit(result, { [STORAGE_KEY]: cleaned });
   });
 }
 
 export function registerMaintenance() {
+  // Idempotent and queued with every writer; also runs after a worker restart.
+  void migrateIcons().catch(() => {});
   // 定时跑：服务worker 会被浏览器回收，用 alarms 才能在后台稳定触发。
   // 每 12 小时扫一次（粒度足够，删除时间差半天不影响体验）。
   if (chrome.alarms) {

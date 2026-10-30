@@ -58,7 +58,7 @@ async function search(ctx) {
     await panel.w.chrome.storage.local.set({laterOnProjects:[{id:'p1',name:'Archive fixture',archived:true}]});
     await wait(400);
     assert(!panel.w.document.querySelector('.item[data-id="a"]'), '打开侧栏期间归档也立即隐藏');
-    assert.deepStrictEqual(JSON.parse(panel.cache.get('laterOnPanelCache')), [], '侧栏首屏缓存也不保留归档网页');
+    assert.deepStrictEqual(JSON.parse(panel.cache.get('laterOnPanelCache')).items, [], '侧栏首屏缓存也不保留归档网页');
     assert.deepStrictEqual([...panel.errors,...library.errors], []);
     console.log('PASS 归档普通搜索隐藏、归档视图搜索、恢复及侧栏实时归档');
   } finally { panel.dom.window.close(); library.dom.window.close(); }

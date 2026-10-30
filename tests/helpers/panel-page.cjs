@@ -49,7 +49,7 @@ function createPanelPage(t, {
   const store = clone(initialStore);
   const calls = [];
   const cacheWrites = [];
-  const memory = new Map(cache === null ? [] : [["laterOnPanelCache", JSON.stringify(cache)]]);
+  const memory = new Map(cache === null ? [] : [["laterOnPanelCache", JSON.stringify(Array.isArray(cache) ? { version: 2, items: cache, icons: {} } : cache)]]);
   let sequence = 0;
   let releaseGet;
   let writeError = null;
@@ -176,7 +176,7 @@ function createPanelPage(t, {
     pendingFrames: () => [...frames.values()],
     failNextWrite: (message = "storage unavailable") => { writeError = message; },
     item: (id) => [...window.document.querySelectorAll("#items .item")].find(element => element.dataset.id === id) ?? null,
-    cached: () => JSON.parse(memory.get("laterOnPanelCache") || "null"),
+    cached: () => JSON.parse(memory.get("laterOnPanelCache") || "null")?.items ?? null,
     count: () => window.document.querySelectorAll("#items .item").length,
     click: (element) => {
       assert.ok(element, "点击目标必须存在");
