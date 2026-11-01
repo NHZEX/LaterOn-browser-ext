@@ -9,6 +9,7 @@
 | 当前结构、入口和保留这些边界的原因 | [架构与代码入口](architecture.md) |
 | 未完成任务、搁置项和待验收范围 | [roadmap](roadmap.md) |
 | 备份格式与导入语义 | [本地备份与导入](backup-format.md) |
+| 商店上架文案、权限用途、隐私披露依据与提交步骤 | [商店上架资料](store.md) |
 | 测试分层、执行方式和验证限制 | [测试说明](../tests/browser/README.md) |
 | 最近一次本机部署证据 | [本机发布记录](releases.md) |
 | 用户可感知的版本变化 | [CHANGELOG](../CHANGELOG.md) |

@@ -147,6 +147,8 @@ production 模式的产物为 `.output/chrome-mv3` 和 `.output/StaySide-<版本
 
 store 模式的产物为 `.output/chrome-mv3-store` 和 `.output/StaySide-<版本>-store.zip`，构建时通过 WXT 的 manifest 配置函数省略 `key`，根 manifest 保持不变。GitHub 下载和本地加载使用普通 ZIP；上传 Chrome 商店使用 store ZIP，商店版本的 ID 由商店条目确定。该命令只生成上传包，不自动上传或发布到商店。
 
+商店详情文案、权限用途、隐私披露依据和提交步骤统一见 [商店上架资料](docs/store.md)；截图与展示顺序见 [商店素材](assets/store/README.md)。
+
 扩展版本由 `manifest.json` 定义。发布前按[测试说明](tests/browser/README.md#执行)确认对应代码的验证结果，已通过的业务代码仅改版本或发布说明时复用结果，不为打 tag 重跑全套。`pnpm build` 仅构建，即使发布开关开启也不部署。部署前检查 ZIP，安装目录的父目录须已存在，已有目录必须为同一扩展。旧版本保存在安装目录同级的 `<目录名>-backups/` 中，发布后需在浏览器中重新加载扩展。
 
 浏览器安装、测试执行与验证限制见 [测试说明](tests/browser/README.md)。CI 步骤以 [工作流](.github/workflows/ci.yml) 为准。
