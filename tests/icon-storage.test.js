@@ -19,7 +19,7 @@ const source = buildSync({ stdin: { loader: "ts", resolveDir: resolve(__dirname,
   import { registerBackup } from './src/backup/background';
   registerBackup();
   globalThis.iconTest = { ...store, ...collection, runBatchSave, purgeExpiredItems };
-` }, bundle: true, write: false, platform: "browser", format: "iife" }).outputFiles[0].text;
+` }, bundle: true, write: false, platform: "browser", format: "iife", loader: { ".css": "text" } }).outputFiles[0].text;
 
 function fixture(initial = {}, crypto = webcrypto) {
   const state = { laterOnItems: [], laterOnProjects: [], laterOnSettings: { autoCleanEnabled: false }, ...clone(initial) };

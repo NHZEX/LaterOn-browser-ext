@@ -5,7 +5,7 @@ const sourcePath = require("./source-path.cjs");
 
 const root = resolve(__dirname, "../..");
 // Compile real entries and native backend modules; standalone tests need no prior build.
-const entries = [
+const entries = new Map([
   ["background-test-api.js", `
     import entry from "./wxt/entrypoints/background";
     import * as workflow from "./src/background/save-workflow";
@@ -22,11 +22,14 @@ const entries = [
   ["collection-backend.js", 'import * as api from "./src/storage/coordinator"; api.registerMessages(); globalThis.collectionBackend = api;'],
   ...["url-utils", "collection-filter", "item-edit", "item-state", "tab-navigation", "storage-client", "theme"].map(entry =>
     [`${entry}.js`, `import entry from "./wxt/entrypoints/${entry}"; entry.main();`])
-];
-const scripts = Object.fromEntries(entries.map(([name, contents]) => {
+]);
+const scripts = new Map();
+
+function compiledScript(name) {
+  if (scripts.has(name)) return scripts.get(name);
   const { outputFiles } = buildSync({
     stdin: {
-      contents,
+      contents: entries.get(name),
       resolveDir: root,
       loader: "ts"
     },
@@ -37,8 +40,10 @@ const scripts = Object.fromEntries(entries.map(([name, contents]) => {
     platform: "browser",
     target: "esnext"
   });
-  return [name, outputFiles[0].text];
-}));
+  const script = outputFiles[0].text;
+  scripts.set(name, script);
+  return script;
+}
 
 module.exports = (name) => {
   if (["i18n.js", "dialog.js", "onboarding.js"].includes(name)) return require("./ui-modules.cjs");
@@ -49,5 +54,5 @@ module.exports = (name) => {
   if (name === "sidepanel-page.js") return require("./library-page.cjs")(undefined, "sidepanel").script;
   if (name === "library.html") return require("./library-page.cjs")().html;
   if (name === "library-page.js") return require("./library-page.cjs")().script;
-  return scripts[name] ?? readFileSync(sourcePath(name), "utf8");
+  return entries.has(name) ? compiledScript(name) : readFileSync(sourcePath(name), "utf8");
 };

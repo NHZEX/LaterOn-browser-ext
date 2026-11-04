@@ -14,10 +14,14 @@ const path = require("path");
 const vm = require("vm");
 const { webcrypto } = require("crypto");
 const { URL } = require("url");
+const FakeTimers = require("@sinonjs/fake-timers");
 
 const SOURCE = sourcePath("background-test-api.js");
 const src = require("./helpers/read-runtime.cjs")("background-test-api.js");
 const { EXTRACT_TIMEOUT_MS: TIMEOUT_MS } = require("./helpers/load-module.cjs")("src/background/metadata.ts");
+const clock = FakeTimers.install({ now: Date.now(), toFake: ["Date", "setTimeout", "clearTimeout"] });
+// Preserve timer/Promise ordering while jumping directly to each scheduled deadline.
+clock.setTickMode({ mode: "nextAsync" });
 
 const PENDING_KEY = "laterOnPendingBatch";
 const LAST_PROJECT_KEY = "laterOnLastProjectId";
@@ -68,6 +72,7 @@ let pendingOverlayPayload = null;
 const bus = {};           // 页面 → 后台的消息通道（模拟 chrome.runtime.onMessage）
 let pickerOpen = false;
 const extractionLog = [];
+const extractionTimes = new Map();
 let inflight = 0;
 let inflightMax = 0;
 
@@ -143,6 +148,7 @@ const chrome = {
       }
       if (!options.files?.includes("content-metadata.js")) return Promise.resolve([{ result: undefined }]);
       extractionLog.push(tabId);
+      extractionTimes.set(tabId, Date.now() - start);
       inflight += 1;
       inflightMax = Math.max(inflightMax, inflight);
       if (tabId === HANG_ID) {
@@ -247,6 +253,7 @@ const check = (label, ok, extra = "") => {
   console.log("\n── 第 2 步：选了「工作」项目并确认 ──");
   const confirmReply = await sendFromPage({ type: "CONFIRM_BATCH_SAVE", projectId: FOLDER_ID });
   check("浮层点确认后立刻收到回执（好让它马上关闭）", confirmReply?.ok === true && confirmReply?.tabCount === 12, JSON.stringify(confirmReply));
+  check("确认回执不等待整批收藏完成", store.laterOnItems.length === 2);
 
   // 回执之后后台才逐篇收藏，这里等它跑完（平时它同时会往网页里弹药丸，我们看最终结果）。
   const deadline = Date.now() + 8000;
@@ -293,6 +300,8 @@ const check = (label, ok, extra = "") => {
   check("总结里既说新增、也说有几篇搬了家", summaryPill.includes("新增 11 篇") && summaryPill.includes("1 篇已添加网页移入「工作」"), summaryPill);
   check("收藏库新增 11 条、按标签页顺序排列", addedItems.length === 11 && items[0].title === "文章一", `最上面是「${items[0].title}」`);
   check("卡死的页面降级为新收藏（没有丢）", items.some((i) => i.title === "卡死页面"));
+  check("卡死页面满三秒后才降级并通知", pills[3]?.at - extractionTimes.get(HANG_ID) === TIMEOUT_MS,
+    `等待 ${pills[3]?.at - extractionTimes.get(HANG_ID)}ms / 超时 ${TIMEOUT_MS}ms`);
   check("未抓全的 3 篇被标记", result.degraded === 3, `degraded=${result.degraded}`);
   check("诊断记录为「完成」", diag.lastStage === "完成", JSON.stringify({ stage: diag.lastStage, added: diag.lastAdded, dup: diag.lastDuplicated }));
 
@@ -381,6 +390,6 @@ const check = (label, ok, extra = "") => {
 })().catch((error) => {
   console.error("测试脚本自身出错：", error);
   process.exitCode = 1;
-});
+}).finally(() => clock.uninstall());
 
 // 说明：最后一步依赖「设置里 askFolderOnBatch 为 false」，这里在跑之前改一下。

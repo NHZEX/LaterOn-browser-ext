@@ -38,6 +38,7 @@ test("F3d：主页面脚本失败时独立启动，异步样式恢复且十二�
     await expect(page.locator("#bootTip")).toBeHidden();
     const styleCount = await page.locator("link[data-boot-style]").count();
     expect(styleCount).toBeGreaterThan(0);
+    expect(await page.locator('head > link[rel="stylesheet"]').count()).toBe(styleCount);
     expect(await page.locator("link[data-boot-style]").evaluateAll(links => links.every(link => link.media === "print"))).toBe(true);
     await expect.poll(() => blockedStyles.length).toBe(styleCount);
     await page.clock.runFor(1400);
@@ -290,6 +291,8 @@ for (const colorScheme of ["light", "dark"]) {
         await expect(page.locator("#bootTip")).toBeHidden();
         await expect(page.locator("body")).toHaveCSS("background-color", colorScheme === "dark" ? "rgb(22, 22, 26)" : "rgb(247, 246, 244)");
         await expect.poll(() => page.evaluate(() => performance.getEntriesByType("paint").some((entry) => entry.name === "first-contentful-paint"))).toBe(true);
+        expect(await page.locator('head > link[rel="stylesheet"]').evaluateAll(links =>
+          links.every(link => link.media === "print" && link.hasAttribute("data-boot-style")))).toBe(true);
         expect(blocked.length).toBeGreaterThan(0);
       } finally {
         await Promise.all(blocked.map((route) => route.abort()));

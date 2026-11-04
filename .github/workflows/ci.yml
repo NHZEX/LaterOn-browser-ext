@@ -74,7 +74,7 @@ jobs:
       - name: Test built extension in Chromium
         id: browser
         timeout-minutes: 8
-        run: pnpm exec playwright test
+        run: pnpm exec playwright test --workers=2 --reporter=list
       - name: Save browser failure diagnostics
         timeout-minutes: 2
         if: failure() && steps.browser.outcome == 'failure'

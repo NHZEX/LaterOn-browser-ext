@@ -14,6 +14,7 @@ const sourcePath = require("./helpers/source-path.cjs");
 const fs = require("fs");
 const path = require("path");
 const { JSDOM, VirtualConsole } = require("jsdom");
+const FakeTimers = require("@sinonjs/fake-timers");
 
 const ROOT = path.resolve(__dirname, "..");
 const html = require("./helpers/read-runtime.cjs")("sidepanel.html");
@@ -27,7 +28,9 @@ const check = (label, ok, extra = "") => {
   console.log(`${ok ? "✅" : "❌"} ${label}${extra ? "  → " + extra : ""}`);
   if (!ok) failures += 1;
 };
-const tick = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms));
+const pages = [];
+// Advance every live page together, including callbacks that arrive after a tab switch.
+const tick = (ms = 20) => Promise.all(pages.map(({ clock }) => clock.tickAsync(ms)));
 
 const now = Date.now();
 const CARD_H = 100;      // 一张卡片占的高度（含间距）
@@ -69,6 +72,12 @@ function boot({ store, dropSmooth = false, activeTab: initialTab = null, stickyB
   });
   const { window } = dom;
   const { document } = window;
+  const clock = FakeTimers.withGlobal(window).install({
+    now,
+    toFake: ["Date", "performance", "setTimeout", "clearTimeout", "setInterval", "clearInterval",
+      "requestAnimationFrame", "cancelAnimationFrame"]
+  });
+  pages.push({ window, clock });
 
   const memStore = new Map();
   Object.defineProperty(window, "localStorage", {
@@ -411,8 +420,14 @@ function bigStore(currentIndex, overrides = {}) {
   check("高亮卡片完整落在吸顶栏下方", envH.inView("a-45") === true, String(envH.inView("a-45")));
 
   console.log(`\n${failures === 0 ? "🎉 全部通过" : `❌ 有 ${failures} 项没通过`}`);
-  process.exit(failures ? 1 : 0);
+  process.exitCode = failures ? 1 : 0;
 })().catch((error) => {
   console.error("测试跑挂了：", error);
-  process.exit(1);
+  process.exitCode = 1;
+}).finally(() => {
+  pages.toReversed().forEach(({ window, clock }) => {
+    window.dispatchEvent(new window.Event("pagehide"));
+    window.close();
+    clock.uninstall();
+  });
 });

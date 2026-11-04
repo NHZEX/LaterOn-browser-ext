@@ -28,6 +28,7 @@ for (const name of ["library", "sidepanel"]) {
       const originalPages = context.pages();
       const original = await extension.worker.evaluate(() => chrome.storage.local.get(["laterOnItems", "laterOnCovers", "laterOnCurrentItem", "laterOnReadingPositions"]));
       const text = labels[language];
+      await expect(card.getByRole("group", { name: text.copy, exact: true })).toHaveCSS("display", "flex");
       const edit = card.locator(".edit");
       await edit.focus(); await page.keyboard.press("Enter");
       const dialog = page.getByRole("dialog");

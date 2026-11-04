@@ -8,9 +8,10 @@ const { buildSync } = require("esbuild");
 
 const ROOT = path.resolve(__dirname, "..");
 const { metafile } = buildSync({ entryPoints: [path.join(ROOT, "wxt/entrypoints/background.ts")],
-  bundle: true, write: false, metafile: true, platform: "browser" });
+  bundle: true, write: false, metafile: true, platform: "browser", loader: { ".css": "text" } });
 const sources = Object.keys(metafile.inputs).filter(file => file.startsWith("src/") || file.startsWith("wxt/"));
-assert.ok(!sources.some(file => file.startsWith("src/content/")), "网页注入实现不进入后台模块图");
+assert.ok(sources.filter(file => file.startsWith("src/content/")).every(file => file === "src/content/page-notice.ts"),
+  "后台仅内联轻量的结果提示函数；大型网页脚本继续按需注入");
 const boot = buildSync({ entryPoints: [path.join(ROOT, "wxt/entrypoints/boot.ts")],
   bundle: true, write: false, metafile: true, platform: "browser" });
 assert.deepEqual(Object.keys(boot.metafile.inputs).filter(file => file.startsWith("src/") || file.startsWith("wxt/")).sort(),
@@ -38,7 +39,7 @@ function visit(node, tree) {
   }
   ts.forEachChild(node, child => visit(child, tree));
 }
-for (const file of sources) {
+for (const file of sources.filter(file => /\.[cm]?[jt]sx?$/.test(file))) {
   const tree = ts.createSourceFile(file, fs.readFileSync(path.join(ROOT, file), "utf8"), ts.ScriptTarget.Latest, true);
   visit(tree, tree);
 }
