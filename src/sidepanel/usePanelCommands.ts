@@ -19,8 +19,13 @@ export function usePanelCommands(controls: SidepanelControls) {
   const stopFeedback = bindStorageFeedback(loadDialog);
   let dialogPending = false;
   const active = new Set<string>();
-  function notify(key: string): void {
-    if (alive) controls.message.value = t(key);
+  let toastTimer: ReturnType<typeof setTimeout> | undefined;
+  function notify(key: string, presentation: "inline" | "toast" = "inline"): void {
+    if (!alive) return;
+    if (presentation === "inline") { controls.message.value = t(key); return; }
+    clearTimeout(toastTimer);
+    controls.toast.value = t(key);
+    toastTimer = setTimeout(() => { controls.toast.value = ""; }, 3000);
   }
   function bind(next: PanelCommandBoundary): void { if (alive) boundary = next; }
   async function execute<A extends CollectionAction>(action: A, fields: CommandFields<A>, beforeAccept?: () => void,
@@ -75,6 +80,7 @@ export function usePanelCommands(controls: SidepanelControls) {
   }
   function dispose(): void {
     alive = false; boundary = null; active.clear();
+    clearTimeout(toastTimer); controls.toast.value = "";
     stopFeedback();
     loadedDialog?.dispose();
   }

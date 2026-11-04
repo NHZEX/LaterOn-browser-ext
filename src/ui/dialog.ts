@@ -239,6 +239,7 @@ function renderFields(fields: PromptOptions["fields"] | null | undefined) {
     control.className = field.multiline ? "lod-textarea" : "lod-input";
     control.dataset.field = field.name || "";
     control.value = String(field.value ?? "");
+    control.readOnly = field.readOnly === true;
     if (field.placeholder) control.placeholder = field.placeholder;
     if (field.maxLength) control.maxLength = field.maxLength;
     if (control instanceof HTMLTextAreaElement) control.rows = field.rows || 4;

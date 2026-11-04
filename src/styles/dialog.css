@@ -125,6 +125,7 @@
   transition: border-color .15s, box-shadow .15s, background .15s;
 }
 .lod-textarea { min-height: 96px; max-height: 38vh; resize: vertical; }
+.lod-textarea[readonly] { min-height: 0; overflow-wrap: anywhere; font-size: 12px; background: var(--lod-card); }
 .lod-input::placeholder, .lod-textarea::placeholder { color: var(--lod-subtle); }
 .lod-input:focus, .lod-textarea:focus {
   border-color: var(--accent, #945200);

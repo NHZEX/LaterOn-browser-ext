@@ -4,6 +4,7 @@ import type { ItemChanges } from "../storage/contracts";
 import type { SidepanelControls } from "./useSidepanelControls";
 import type { PanelCommands } from "./usePanelCommands";
 import { t } from "../shared/i18n";
+import { copyItemLink, type ItemLinkFormat } from "../collection/item-link";
 
 export function usePanelItems(controls: SidepanelControls, commands: PanelCommands) {
   function update(id: string, patch: ItemChanges) { return commands.execute("mutateItems", { operation: "update", ids: [id], patch }); }
@@ -24,6 +25,7 @@ export function usePanelItems(controls: SidepanelControls, commands: PanelComman
         // 共享弹窗压缩上传图片或移除封面，协调器原子保存封面与指针。
         cover: { name: "cover", label: t("cover"), value: cover }, fields: [
           { name: "title", label: t("title"), value: item.title ?? "", maxLength: 200 },
+          { name: "url", label: t("pageUrl"), value: item.url, multiline: true, rows: 2, readOnly: true },
           { name: "description", label: t("summary"), value: isEmptySummary(item.description) ? "" : item.description ?? "",
             placeholder: t("summaryPlaceholder"), multiline: true, maxLength: 500 }
         ], confirmText: t("save") }), "dialogLoadFailed");
@@ -45,6 +47,12 @@ export function usePanelItems(controls: SidepanelControls, commands: PanelComman
       if (confirmed && commands.current() && commands.find(id)) await commands.execute("mutateItems", { operation: "delete", ids: [id] });
     });
   }
-  return { update, read, edit, remove };
+  async function copy(id: string, format: ItemLinkFormat): Promise<void> {
+    const item = commands.find(id);
+    if (!item || !commands.current()) return;
+    const copied = await copyItemLink(item, format);
+    if (commands.current()) commands.notify(copied ? "linkCopied" : "linkCopyFailed", "toast");
+  }
+  return { update, read, edit, remove, copy };
 }
 export type PanelItems = ReturnType<typeof usePanelItems>;

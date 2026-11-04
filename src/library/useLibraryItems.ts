@@ -3,6 +3,7 @@ import { buildEditPatch, isEmptySummary, resolveImage } from "../collection/item
 import type { ItemChanges } from "../storage/contracts";
 import type { LibraryCommands } from "./useLibraryCommands";
 import { nextStatus, normalizeItemState } from "../collection/item-state";
+import { copyItemLink, type ItemLinkFormat } from "../collection/item-link";
 
 export function useLibraryItems(commands: LibraryCommands, createProject: (name: string) => Promise<{ readonly id: string; readonly name?: string } | null>, clearSearch: () => void) {
   const find = (id: string) => commands.collection.value.items.find(item => item.id === id);
@@ -27,6 +28,7 @@ export function useLibraryItems(commands: LibraryCommands, createProject: (name:
       const result = await commands.prompt({ title: t("editItem"), message: isEmptySummary(item.description) ? t("missingSummaryHint") : "",
         cover: { name: "cover", label: t("cover"), value: cover }, fields: [
           { name: "title", label: t("title"), value: item.title ?? "", maxLength: 200 },
+          { name: "url", label: t("pageUrl"), value: item.url, multiline: true, rows: 2, readOnly: true },
           { name: "description", label: t("summary"), value: isEmptySummary(item.description) ? "" : item.description ?? "",
             placeholder: t("summaryPlaceholder"), multiline: true, maxLength: 500 }], confirmText: t("save") });
       if (!result?.ok || !commands.current() || !find(id)) return;
@@ -47,6 +49,12 @@ export function useLibraryItems(commands: LibraryCommands, createProject: (name:
       if (commands.current() && find(id) && await commands.mutate("delete", [id])) toast("itemDeleted");
     });
   }
+  async function copy(id: string, format: ItemLinkFormat): Promise<void> {
+    const item = find(id);
+    if (!item || !commands.current()) return;
+    const copied = await copyItemLink(item, format);
+    if (commands.current()) toast(copied ? "linkCopied" : "linkCopyFailed");
+  }
   function move(id: string, anchor: HTMLElement): void {
     // 复用收藏网页时的项目选择器，锚定卡片控件；选择 / 新建成功后直接修改所属项目。
     const item = find(id); if (!item || !commands.current()) return;
@@ -65,7 +73,7 @@ export function useLibraryItems(commands: LibraryCommands, createProject: (name:
   }
   const stopCollection = watch(commands.collection, () => { if (picker && pickerId && !find(pickerId)) closePicker(); }, { flush: "sync" });
   function dispose(): void { stopCollection(); closePicker(); }
-  return { update, read, edit, remove, move, moveTo, dispose };
+  return { update, read, edit, remove, copy, move, moveTo, dispose };
 }
 
 export type LibraryItems = ReturnType<typeof useLibraryItems>;

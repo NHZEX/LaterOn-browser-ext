@@ -15,6 +15,7 @@ export function useSidepanelControls() {
   const visible = computed(() => visiblePanelItems(collection.value, state));
   const projects = computed(() => panelProjects(collection.value));
   const message = shallowRef("");
+  const toast = shallowRef("");
   const preferenceVersion = { filter: 0, project: 0 };
   let painted: (() => void) | undefined;
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -54,6 +55,6 @@ export function useSidepanelControls() {
   }
   function dispose(): void { alive = false; clearTimeout(searchTimer); painted = undefined; }
   return { state, search, collection, visible, projects, ready, autoMarkRead, covers, currentId, locateRequest,
-    message, preferenceVersion, connect, didPaint, afterPaint, locate, cardElement, setSearch, setFilter, selectProject, dispose };
+    message, toast, preferenceVersion, connect, didPaint, afterPaint, locate, cardElement, setSearch, setFilter, selectProject, dispose };
 }
 export type SidepanelControls = ReturnType<typeof useSidepanelControls>;

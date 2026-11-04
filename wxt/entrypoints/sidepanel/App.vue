@@ -44,6 +44,7 @@ onBeforeUnmount(() => {
   <Teleport to="#panelDiagnostics"><div id="slowBanner" class="slow-banner" role="status" :hidden="!page.banner.value">{{ page.banner.value }}</div></Teleport>
   <Teleport to="#panelCurrent"><PanelCurrent :current="page.current" :translate="translate" /></Teleport>
   <Teleport to="#panelStatus"><p id="status" role="status">{{ controls.message.value }}</p></Teleport>
+  <Teleport to="body"><p id="panelToast" class="panel-toast" role="status" aria-atomic="true" :hidden="!controls.toast.value">{{ controls.toast.value }}</p></Teleport>
   <Teleport to="#panelControls"><PanelControls :controls="controls" :translate="translate" /></Teleport>
   <PanelCards :controls="controls" :actions="actions" :translate="translate" />
   <Teleport to="body"><PanelMenu :controls="controls" :actions="actions" :translate="translate" /></Teleport>

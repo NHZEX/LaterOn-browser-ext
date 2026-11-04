@@ -8,6 +8,8 @@ import type { Translate } from "../../../src/shared/i18n";
 import type { PanelActions } from "../../../src/sidepanel/usePanelActions";
 import PanelCover from "./PanelCover.vue";
 import { resolveFavicon } from "../../../src/storage/icons";
+import ItemCopyMenu from "../../components/ItemCopyMenu.vue";
+import type { ItemLinkFormat } from "../../../src/collection/item-link";
 
 const props = defineProps<{ item: StoredItem; covers: Readonly<Record<string, string>>; icons: Readonly<Record<string, string>>; current: boolean; actions: PanelActions; translate: Translate }>();
 const faviconFailed = shallowRef(false);
@@ -25,6 +27,7 @@ function click(event: MouseEvent): void { props.actions.click(event, props.item.
 function contextmenu(event: MouseEvent): void { props.actions.openMenu(event, props.item.id); }
 function keydown(event: KeyboardEvent): void { props.actions.openMenu(event, props.item.id); }
 function dragstart(event: DragEvent): void { props.actions.drag.start(event, props.item.id); }
+function copy(format: ItemLinkFormat): void { void props.actions.items.copy(props.item.id, format); }
 watch(favicon, () => { faviconFailed.value = false; });
 </script>
 
@@ -40,6 +43,7 @@ watch(favicon, () => { faviconFailed.value = false; });
       </div>
     </a>
     <button class="read-toggle" :class="{ 'is-on': item.status === 'done' }" :aria-label="readLabel" :title="readLabel">{{ readLabel }}</button>
+    <ItemCopyMenu :translate="translate" :disabled="!item.url" @copy="copy" />
     <button class="edit" :title="translate('editItemAria')" :aria-label="translate('editItemAria')"><svg viewBox="0 0 24 24"><path d="M4 20h4L20 8l-4-4L4 16zM14 6l4 4" /></svg></button>
     <button class="delete" :title="translate('deleteSave')" :aria-label="translate('deleteSave')"><svg viewBox="0 0 24 24"><path d="M4 7h16m-10 4v6m4-6v6M9 7l1-3h4l1 3m3 0-1 13H7L6 7" /></svg></button>
   </article>

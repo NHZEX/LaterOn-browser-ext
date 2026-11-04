@@ -3,7 +3,7 @@ export interface PromptOptions {
   readonly message?: string;
   readonly confirmText: string;
   readonly fields: readonly { readonly name: string; readonly label: string; readonly value?: string;
-    readonly placeholder?: string; readonly maxLength?: number; readonly multiline?: boolean; readonly rows?: number }[];
+    readonly placeholder?: string; readonly maxLength?: number; readonly multiline?: boolean; readonly rows?: number; readonly readOnly?: boolean }[];
   readonly cover?: { readonly name: string; readonly label: string; readonly value: string; readonly derived?: boolean;
     readonly note?: string; readonly removedNote?: string; readonly candidates?: readonly { readonly id: string; readonly src: string; readonly title: string }[];
     readonly picks?: readonly string[]; readonly picksName?: string; readonly picksLabel?: string; readonly maxPicks?: number; readonly picksNote?: string };

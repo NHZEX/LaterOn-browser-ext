@@ -9,6 +9,8 @@ import type { LibrarySelection } from "../../../src/library/useLibrarySelection"
 import type { LibraryItems } from "../../../src/library/useLibraryItems";
 import CardCover from "./CardCover.vue";
 import { resolveFavicon } from "../../../src/storage/icons";
+import ItemCopyMenu from "../../components/ItemCopyMenu.vue";
+import type { ItemLinkFormat } from "../../../src/collection/item-link";
 
 const props = defineProps<{
   item: StoredItem;
@@ -72,6 +74,7 @@ function menuKey(event: KeyboardEvent): void {
 function edit(): void { void props.actions.edit(props.item.id); }
 function read(): void { void props.actions.read(props.item.id); }
 function remove(): void { void props.actions.remove(props.item.id); }
+function copy(format: ItemLinkFormat): void { void props.actions.copy(props.item.id, format); }
 // 所属项目仍显示原生 select，但鼠标按下及 Enter / Space / 上下键统一打开共享锚定浮层。
 // 实际选择由浮层提交，不让原生下拉再处理同一次操作。
 function move(event: MouseEvent | KeyboardEvent): void {
@@ -93,6 +96,7 @@ watch(favicon, () => { faviconFailed.value = false; });
     :class="{ 'is-read': item.status === 'done', 'is-reading': item.status === 'reading', 'is-current': current, selected }" @click.capture="select" @keydown.capture="preventProjectChange" @click="open" @contextmenu="menu" @keydown="menuKey">
     <label class="select-badge" :aria-label="translate('selectItem')"><input type="checkbox" class="select-check" :checked="selected" @change="changeSelection" /></label>
     <a class="cover-link" :href="target" target="_blank" rel="noreferrer"><CardCover :source="cover" /></a>
+    <ItemCopyMenu :translate="translate" :disabled="!item.url" @copy="copy" />
     <button class="edit" :title="translate('editItemAria')" :aria-label="translate('editItemAria')" @click="edit">
       <svg viewBox="0 0 24 24"><path d="M4 20h4L20 8l-4-4L4 16zM14 6l4 4" /></svg>
     </button>
