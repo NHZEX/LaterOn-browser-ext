@@ -13,7 +13,7 @@
 | 测试分层、执行方式和验证限制 | [测试说明](../tests/browser/README.md) |
 | 最近一次本机部署证据 | [本机发布记录](releases.md) |
 | 用户可感知的版本变化 | [CHANGELOG](../CHANGELOG.md) |
-| 再次评估候选功能时的历史来源 | [上游调研摘要](research/2026-10-20-baseline-and-upstream.md) |
+| 候选功能的外部分支依据、评估建议与接入限制 | [上游调研摘要](research/2026-10-20-baseline-and-upstream.md) |
 
 ## 事实来源
 
