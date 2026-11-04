@@ -3,7 +3,7 @@ import { errorMessage } from "./shared";
 import { saveAllTabsInWindow, quickSave, confirmBatchSave } from "./save-workflow";
 import { unwrapSuspendedTab } from "../shared/url-utils";
 import { isWebUrl, usesEnglish } from "./shared";
-import { registerFeedback, showLibraryCommandNotice, showActionError, toggleTranslation, reportFailure } from "./feedback";
+import { registerFeedback, showLibraryCommandNotice, showActionError, toggleTranslation, reportFailure, testSystemNotice } from "./feedback";
 import { MENU_SAVE_ALL, MENU_SAVE_PAGE } from "./browser-setup";
 import { saveItem } from "./collection";
 import { openLibrary, type LibraryContext } from "./navigation";
@@ -18,6 +18,7 @@ import { registerBrowserSetup } from "./browser-setup";
 import { registerMaintenance } from "./maintenance";
 
 type BackgroundMessage =
+  | { readonly type: "TEST_SAVE_NOTIFICATION" }
   | { readonly type: "SAVE_ITEM"; readonly item: SaveInput }
   | { readonly type: "OPEN_LIBRARY"; readonly context?: LibraryContext }
   | { readonly type: "CONFIRM_BATCH_SAVE"; readonly projectId?: string | null; readonly batchId?: string }
@@ -76,6 +77,10 @@ export function registerBackground() {
   });
 
   chrome.runtime.onMessage.addListener((message: BackgroundMessage, _sender, sendResponse) => {
+    if (message.type === "TEST_SAVE_NOTIFICATION") {
+      testSystemNotice().then(sendResponse);
+      return true;
+    }
     if (message.type === "SAVE_ITEM") {
       saveItem(message.item)
         .then(sendResponse)

@@ -78,6 +78,8 @@ function worker() {
   let failNotification = false;
   let notificationPermission = true;
   let failPermissionCheck = false;
+  let notificationLevel = "granted";
+  let failLevelCheck = false;
   const event = () => ({ addListener() {} });
   const chrome = {
     storage: { local: storage(local), session: storage(session), onChanged: event() },
@@ -102,7 +104,10 @@ function worker() {
       },
       async request(request) { permissionRequests.push(clone(request)); return false; }
     },
-    notifications: { async create(id, options) {
+    notifications: { async getPermissionLevel() {
+      if (failLevelCheck) throw new Error("LEVEL_CHECK_FAILED");
+      return notificationLevel;
+    }, async create(id, options) {
       notificationAttempts.push({ id, ...clone(options) });
       if (failNotification) throw new Error("NOTIFICATIONS_DISABLED");
       notifications.push({ id, ...clone(options) });
@@ -136,7 +141,10 @@ function worker() {
     failWrites() { failItemWrite = true; }, allowWrites() { failItemWrite = false; },
     disableNotifications() { failNotification = true; },
     setNotificationPermission(granted) { notificationPermission = granted; },
-    failPermissionCheck() { failPermissionCheck = true; } };
+    failPermissionCheck() { failPermissionCheck = true; },
+    setNotificationLevel(level) { notificationLevel = level; },
+    failLevelCheck() { failLevelCheck = true; },
+    removeNotificationApi() { chrome.notifications = undefined; } };
 }
 
 async function until(check, label) {
@@ -336,13 +344,63 @@ async function until(check, label) {
   assert.equal((await checkFailure.send({ type: "QUICK_SAVE_TAB", tabId: 1 })).ok, true);
   assert.equal(checkFailure.badges.at(-1), "✓", "权限查询异常时仍成功收藏并保留角标");
   assert.equal(checkFailure.notificationAttempts.length, 0);
+  assert.equal(checkFailure.local.laterOnDiag.lastNotificationStatus, "failed");
+  assert.equal(checkFailure.local.laterOnDiag.lastNotificationError, "PERMISSION_CHECK_FAILED");
+
+  const blocked = worker();
+  blocked.setNotificationLevel("denied");
+  assert.equal((await blocked.send({ type: "QUICK_SAVE_TAB", tabId: 1 })).ok, true);
+  assert.equal(blocked.local.laterOnItems.length, 1, "Chrome 禁用通知不影响收藏写入");
+  assert.equal(blocked.badges.at(-1), "✓");
+  assert.equal(blocked.notificationAttempts.length, 0, "已授权但通知被禁用时不盲目发送");
+  assert.equal(blocked.local.laterOnDiag.lastNotificationStatus, "blocked");
+  assert.equal(blocked.local.laterOnDiag.lastNotificationSource, "save");
+
+  const levelFailure = worker();
+  levelFailure.failLevelCheck();
+  assert.equal((await levelFailure.send({ type: "TEST_SAVE_NOTIFICATION" })).status, "failed");
+  assert.equal(levelFailure.local.laterOnDiag.lastNotificationError, "LEVEL_CHECK_FAILED");
+
+  const unavailableApi = worker();
+  unavailableApi.removeNotificationApi();
+  assert.equal((await unavailableApi.send({ type: "TEST_SAVE_NOTIFICATION" })).status, "unavailable");
+  assert.equal(unavailableApi.local.laterOnDiag.lastNotificationStatus, "unavailable");
+
+  for (const language of ["zh-CN", "en"]) {
+    const manual = worker();
+    await manual.ctx.backgroundTest.ensureLegacyCleanup();
+    manual.local.laterOnSettings.language = language;
+    const beforeTest = clone(manual.local);
+    const result = await manual.send({ type: "TEST_SAVE_NOTIFICATION" });
+    assert.deepEqual(clone(result), { status: "sent" });
+    assert.match(manual.notifications[0].message, language === "en" ? /^Test notification:/ : /^测试通知：/);
+    assert.equal(manual.local.laterOnDiag.lastNotificationSource, "test");
+    assert.equal(manual.local.laterOnDiag.lastNotificationStatus, "sent");
+    assert.ok(manual.local.laterOnDiag.lastNotificationAt > 0);
+    assert.deepEqual(clone(manual.local), { ...beforeTest, laterOnDiag: clone(manual.local.laterOnDiag) }, "测试仅更新诊断，不更改收藏、项目或设置");
+    manual.setNotificationPermission(false);
+    assert.equal((await manual.send({ type: "TEST_SAVE_NOTIFICATION" })).status, "permission-missing");
+    assert.equal(manual.notificationAttempts.length, 1);
+    assert.equal(manual.permissionRequests.length, 0, "手动测试也不请求权限");
+    manual.setNotificationPermission(true);
+    manual.disableNotifications();
+    assert.equal((await manual.send({ type: "TEST_SAVE_NOTIFICATION" })).status, "failed");
+    assert.equal(manual.local.laterOnDiag.lastNotificationError, "NOTIFICATIONS_DISABLED");
+    manual.setNotificationLevel("denied");
+    assert.equal((await manual.send({ type: "TEST_SAVE_NOTIFICATION" })).status, "blocked");
+    assert.equal(manual.local.laterOnDiag.lastNotificationError, "", "新结果清除旧的发送异常");
+  }
 
   const disabled = worker();
   await disabled.ctx.backgroundTest.ensureLegacyCleanup();
   disabled.disableNotifications();
+  disabled.local.laterOnDiag = { lastError: "EARLIER_SAVE_ERROR", lastErrorAt: 1 };
   assert.equal((await disabled.send({ type: "QUICK_SAVE_TAB", tabId: 1 })).ok, true, "通知失败不把收藏成功误报为失败");
   assert.equal(disabled.local.laterOnItems.length, 1);
   assert.equal(disabled.badges.at(-1), "✓", "系统通知不可用时保留成功角标");
+  assert.equal(disabled.local.laterOnDiag.lastNotificationStatus, "failed");
+  assert.equal(disabled.local.laterOnDiag.lastNotificationError, "NOTIFICATIONS_DISABLED");
+  assert.equal(disabled.local.laterOnDiag.lastError, "EARLIER_SAVE_ERROR", "发送异常单独记录，不覆盖收藏错误诊断");
   disabled.tabs[0].url = frozenUrl("https://example.com/disabled-failure");
   disabled.failWrites();
   assert.equal((await disabled.send({ type: "QUICK_SAVE_TAB", tabId: 1 })).ok, false);

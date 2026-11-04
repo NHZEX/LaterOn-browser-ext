@@ -66,6 +66,7 @@ for (const language of ["zh-CN", "en"]) {
     await expect(toggle(page)).toBeEnabled();
     await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
     await expect(toggle(page)).toHaveAccessibleName(language === "en" ? "Save notifications for suspended tabs" : "冻结页收藏通知");
+    await expect(page.getByRole("button", { name: language === "en" ? "Send test notification" : "发送测试通知", exact: true })).toBeDisabled();
     await expect(page.locator("#notificationsHint")).toContainText(language === "en" ? "toolbar badges" : "工具栏角标");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: test.info().outputPath(`notification-setting-${language}.png`), fullPage: true });
@@ -107,6 +108,109 @@ test("可选通知：点击后才申请，拒绝可重试，等待授权时锁�
   expect(actions.every(call => call.request.permissions.length === 1 && call.request.permissions[0] === "notifications")).toBe(true);
   expect(actions.filter(call => call.method === "request").every(call => call.userGesture)).toBe(true);
   expect((await extension.worker.evaluate(() => chrome.storage.local.get("laterOnSettings"))).laterOnSettings).toEqual({ language: "en", theme: "dark", autoCleanEnabled: false });
+});
+
+// Keep the settings UI, runtime messages, backend checks and persisted diagnostics real.
+// Only the browser/OS permission and notification APIs are controlled.
+async function notificationBackend(worker) {
+  await worker.evaluate(() => {
+    const fixture = globalThis.notificationBackend = {
+      granted: true, level: "granted", attempts: [], failCreate: false, holdCreate: false, release: null
+    };
+    chrome.permissions.contains = async () => fixture.granted;
+    chrome.notifications = {
+      async getPermissionLevel() { return fixture.level; },
+      async create(id, options) {
+        fixture.attempts.push({ id, ...options });
+        if (fixture.failCreate) throw Error("NOTIFICATION_TEST_FAILED");
+        if (fixture.holdCreate) await new Promise(resolve => { fixture.release = resolve; });
+        return id;
+      }
+    };
+  });
+}
+
+for (const language of ["zh-CN", "en"]) {
+  test(`测试通知：${language} 经后台发送、失败重试且保留诊断，不改变收藏或设置`, async ({ page, extension }) => {
+    const en = language === "en";
+    const button = page.getByRole("button", { name: en ? "Send test notification" : "发送测试通知", exact: true });
+    await seed(extension.worker, language);
+    await notificationBackend(extension.worker);
+    await permissionBoundary(page, true);
+    const keys = ["laterOnItems", "laterOnProjects", "laterOnSettings"];
+    const before = await extension.worker.evaluate(keys => chrome.storage.local.get(keys), keys);
+    await page.setViewportSize({ width: en ? 375 : 1360, height: 950 });
+    await page.goto(settingsUrl(extension));
+    await expect(button).toBeEnabled();
+    await button.focus(); await page.keyboard.press("Enter");
+    await expect(page.getByRole("status")).toContainText(en ? "Chrome accepted the notification" : "Chrome 已接收通知");
+    await expect.poll(() => extension.worker.evaluate(() => notificationBackend.attempts.length)).toBe(1);
+    const diag = await extension.worker.evaluate(() => chrome.storage.local.get("laterOnDiag"));
+    expect(diag.laterOnDiag).toMatchObject({ lastNotificationStatus: "sent", lastNotificationSource: "test", lastNotificationError: "" });
+    await extension.worker.evaluate(() => { notificationBackend.failCreate = true; });
+    await button.click();
+    await expect(page.getByRole("alert")).toContainText("NOTIFICATION_TEST_FAILED");
+    await expect(button).toBeEnabled();
+    expect((await extension.worker.evaluate(() => chrome.storage.local.get("laterOnDiag"))).laterOnDiag)
+      .toMatchObject({ lastNotificationStatus: "failed", lastNotificationError: "NOTIFICATION_TEST_FAILED" });
+    await page.screenshot({ path: test.info().outputPath(`notification-test-${language}-failure.png`), fullPage: true });
+    await extension.worker.evaluate(() => { notificationBackend.failCreate = false; });
+    await button.click();
+    await expect(page.getByRole("status")).toContainText(en ? "Chrome accepted" : "Chrome 已接收");
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    expect(await extension.worker.evaluate(keys => chrome.storage.local.get(keys), keys)).toEqual(before);
+    expect(await page.evaluate(() => window.notificationPermission.calls.filter(call => call.method !== "contains"))).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.getByRole("tab", { name: en ? "Data & maintenance" : "数据与维护", exact: true }).click();
+    await page.locator(".settings-diagnostics > summary").click();
+    await expect(page.locator("#diagNotification")).toContainText(en ? "Manual test" : "手动测试");
+    await expect(page.locator("#diagNotification")).toContainText(en ? "Chrome accepted" : "Chrome 已接收");
+    await page.reload();
+    await page.locator(".settings-diagnostics > summary").click();
+    await expect(page.locator("#diagNotification")).toContainText(en ? "Chrome accepted" : "Chrome 已接收");
+    expect((await extension.worker.evaluate(() => chrome.storage.local.get("laterOnDiag"))).laterOnDiag.lastNotificationError).toBe("");
+  });
+}
+
+test("测试通知：Chrome 禁用、权限已丢失与接口不可用均明确提示", async ({ page, extension }) => {
+  await seed(extension.worker);
+  await notificationBackend(extension.worker);
+  await permissionBoundary(page, true);
+  await page.goto(settingsUrl(extension));
+  const button = page.getByRole("button", { name: "Send test notification", exact: true });
+  await expect(button).toBeEnabled();
+  await extension.worker.evaluate(() => { notificationBackend.level = "denied"; });
+  await button.click();
+  await expect(page.getByRole("alert")).toContainText("Chrome has blocked StaySide notifications");
+  await expect(toggle(page)).toHaveAttribute("aria-checked", "true");
+  expect(await extension.worker.evaluate(() => notificationBackend.attempts.length)).toBe(0);
+  await extension.worker.evaluate(() => { notificationBackend.granted = false; });
+  await button.click();
+  await expect(page.getByRole("alert")).toContainText("Notification permission is missing");
+  await extension.worker.evaluate(() => { notificationBackend.granted = true; chrome.notifications = undefined; });
+  await button.click();
+  await expect(page.getByRole("alert")).toContainText("The notification API is unavailable");
+});
+
+test("测试通知：等待期间防重复，外部撤销后迟到成功不覆盖界面", async ({ page, extension }) => {
+  await seed(extension.worker);
+  await notificationBackend(extension.worker);
+  await extension.worker.evaluate(() => { notificationBackend.holdCreate = true; });
+  await permissionBoundary(page, true);
+  await page.goto(settingsUrl(extension));
+  await page.getByRole("button", { name: "Send test notification", exact: true }).click();
+  const pending = page.getByRole("button", { name: "Sending…", exact: true });
+  await expect(pending).toBeDisabled();
+  await expect(pending).toHaveAttribute("aria-busy", "true");
+  await expect(toggle(page)).toBeDisabled();
+  await expect.poll(() => extension.worker.evaluate(() => typeof notificationBackend.release)).toBe("function");
+  await page.evaluate(() => window.notificationPermission.change(false));
+  await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
+  await extension.worker.evaluate(() => notificationBackend.release());
+  await expect(page.getByRole("button", { name: "Send test notification", exact: true })).toBeDisabled();
+  await expect(toggle(page)).toBeEnabled();
+  await expect(page.locator("#notificationsTestResult")).toHaveCount(0);
+  expect(await extension.worker.evaluate(() => notificationBackend.attempts.length)).toBe(1);
 });
 
 test("可选通知：已有授权显示开启，外部撤销立即同步，迟到查询不覆盖新状态", async ({ page, extension }) => {

@@ -9,6 +9,7 @@ import { errorMessage } from "./shared";
 import { usesEnglish, isWebUrl, SETTINGS_KEY } from "./shared";
 import { recordDiag } from "./diagnostics";
 import { unwrapSuspendedTab } from "../shared/url-utils";
+import type { SystemNoticeResult } from "../shared/notifications";
 
 // translation.css 只需给每个标签页注入一次，避免反复收藏时堆叠重复样式表。
 const injectedCssTabs = new Set<number>();
@@ -102,16 +103,32 @@ async function reportFailure(error: unknown, targetTab: BackgroundTab | null = n
 }
 
 // 冻结页属于其他扩展，不能注入药丸；通知失败也不能改变已经完成的收藏结果。
-async function showSystemNotice(text: string): Promise<void> {
-  try {
-    if (!await chrome.permissions.contains({ permissions: ["notifications"] })) return;
-    await chrome.notifications?.create?.("lateron-save-result", {
-      type: "basic", title: "StaySide", message: text,
-      iconUrl: chrome.runtime.getURL("icon128.png"), silent: true
-    });
-  } catch {
-    // 权限被撤销、通知被禁用或接口不可用时，保留调用方已经显示的工具栏角标。
-  }
+async function createSystemNotice(text: string): Promise<SystemNoticeResult> {
+  if (!await chrome.permissions.contains({ permissions: ["notifications"] })) return { status: "permission-missing" };
+  const api = chrome.notifications;
+  if (!api?.create || !api.getPermissionLevel) return { status: "unavailable" };
+  if (await api.getPermissionLevel() !== "granted") return { status: "blocked" };
+  await api.create("lateron-save-result", {
+    type: "basic", title: "StaySide", message: text,
+    iconUrl: chrome.runtime.getURL("icon128.png"), silent: true
+  });
+  // API 接收成功不能证明操作系统已经展示横幅。
+  return { status: "sent" };
+}
+
+async function showSystemNotice(text: string, source: "save" | "test" = "save"): Promise<SystemNoticeResult> {
+  const result = await createSystemNotice(text).catch((error: unknown): SystemNoticeResult => ({
+    status: "failed", error: String(errorMessage(error))
+  }));
+  await recordDiag({ lastNotificationAt: Date.now(), lastNotificationStatus: result.status,
+    lastNotificationSource: source, lastNotificationError: result.error || "" });
+  return result;
+}
+
+export async function testSystemNotice(): Promise<SystemNoticeResult> {
+  const en = await usesEnglish();
+  return showSystemNotice(en ? "Test notification: save results for suspended tabs appear here."
+    : "测试通知：冻结页收藏结果会显示在这里。", "test");
 }
 
 async function showTabNotice(tab: BackgroundTab | null | undefined, text: string | PageNotice, kind: NoticeKind = "", allowSystem = true): Promise<void> {

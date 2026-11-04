@@ -1,6 +1,8 @@
 import type { Translate } from "../../../src/shared/i18n";
 import { COVERS as STORED_COVERS, ITEMS, PROJECTS, ICONS, isRecord } from "../../../src/storage/contracts";
 import { iconId, isIconReference, resolveFavicon } from "../../../src/storage/icons";
+import { SYSTEM_NOTICE_MESSAGES } from "../../../src/shared/notifications";
+import type { SystemNoticeResult } from "../../../src/shared/notifications";
 
 export interface StorageIconUsage {
   readonly key: string;
@@ -136,6 +138,8 @@ export interface DiagnosticsSnapshot {
     readonly lastStage?: string; readonly lastStageAt?: number; readonly lastProgress?: string;
     readonly lastTabCount?: number; readonly lastCoverAt?: number; readonly lastTitleFrom?: string;
     readonly lastCoverFrom?: string; readonly lastCoverTitle?: string;
+    readonly lastNotificationAt?: number; readonly lastNotificationStatus?: SystemNoticeResult["status"];
+    readonly lastNotificationSource?: "save" | "test"; readonly lastNotificationError?: string;
   };
   readonly laterOnPanelDiag?: {
     readonly at: number; readonly total: number;
@@ -235,6 +239,10 @@ export function formatDiagnostics(snapshot: DiagnosticsSnapshot, t: Translate, l
       t("coverLine", { title: sourceLabel(diag.lastTitleFrom, TITLES), cover: sourceLabel(diag.lastCoverFrom, COVERS) }) + titleSuffix].join(" · ") : t("coverNever") },
     { id: "diagPanelSpeed", label: "panelSpeedLabel", text: panelParts.join(" · ") },
     { id: "diagLocate", label: "panelLocateLabel", text: locateParts.join(" · ") },
+    { id: "diagNotification", label: "lastNotificationLabel", text: diag.lastNotificationAt && diag.lastNotificationStatus ? [
+      relativeTime(diag.lastNotificationAt), t(diag.lastNotificationSource === "test" ? "notificationsFromTest" : "notificationsFromSave"),
+      t(SYSTEM_NOTICE_MESSAGES[diag.lastNotificationStatus] || "unknown", { error: diag.lastNotificationError || "" })
+    ].join(" · ") : t("notificationsNever") },
     ...(diag.lastError ? [{ id: "diagError", label: "lastErrorLabel", text: t("errorLine", { time: relativeTime(diag.lastErrorAt), msg: diag.lastError }) }] : [])
   ];
 }

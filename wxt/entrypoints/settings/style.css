@@ -66,6 +66,9 @@ body {
 .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 14px 0; }
 .setting-row + .setting-row { border-top: 1px solid var(--hairline); }
 .setting-label { min-width: 0; }
+.notification-test { margin-top: 10px; }
+#notificationsTestResult { overflow-wrap: anywhere; }
+.setting-label .notification-test-error { color: var(--danger); }
 .setting-label strong { display: block; font-size: 14px; font-weight: 650; }
 .setting-label span { display: block; margin-top: 4px; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
 .setting-note { margin: 0 0 6px; color: var(--muted); font-size: 12.5px; line-height: 1.7; }
