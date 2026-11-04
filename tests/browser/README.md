@@ -54,6 +54,7 @@ Remove-Item Env:PANEL_TEST_ORDER
 | [background.spec.cjs](background.spec.cjs) | 真实 MV3 后台、收藏、阅读位置、备份及浏览器重启 |
 | [library.spec.cjs](library.spec.cjs)、[sidepanel.spec.cjs](sidepanel.spec.cjs) | 布局、键盘、菜单、编辑 / 批量 / 拖拽、同步及持久化；侧栏独立启动与 CSS 延迟 / 主脚本失败 |
 | [picker.spec.cjs](picker.spec.cjs) | 网页浮层与独立选择页、样式隔离、重复打开、过期批次、确认 / 取消 |
+| [save-feedback.spec.cjs](save-feedback.spec.cjs) | 真实侧栏保存后的主题卡片、高亮 / 停留颜色、网页样式隔离、重复收藏、定时清理、系统主题与减少动态效果 |
 | [ui-modules.spec.cjs](ui-modules.spec.cjs) | 国际化、引导、图片上传 / 焦点、编辑器按需加载与样式失败重试 |
 | [storage-usage.spec.cjs](storage-usage.spec.cjs) | 设置页实际存储用量、内嵌图片分类、手动刷新、读取失败恢复及读取期间的数据变化 |
 | [settings-tabs.spec.cjs](settings-tabs.spec.cjs) | 中英文设置分层、键盘切换和面板链接、存储按需读取、诊断展开轮询 / 停止 / 迟到结果及重试，以及切换期间导入导出继续完成或失败重试、选项保留和操作锁 |

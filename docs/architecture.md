@@ -17,9 +17,11 @@
 | 备份导出、预览、恢复与清空 | [后台协议](../src/backup/background.ts)、[纯数据核心](../src/backup/core.ts)；语义见 [备份说明](backup-format.md) |
 | URL 身份、标签复用与共享规则 | [URL](../src/shared/url-utils.ts)、[标签导航](../src/tabs/navigation.ts)、[筛选](../src/collection/filter.ts)、[排序](../src/shared/collection-sort.ts)、[编辑](../src/collection/item-edit.ts)、[阅读状态](../src/collection/item-state.ts) |
 | 公共界面 | [国际化](../src/shared/i18n.ts)、[弹窗加载](../src/ui/load-dialog.ts)、[弹窗](../src/ui/dialog.ts)、[引导](../src/ui/onboarding.ts) |
-| 共享配色 | 页面入口共同加载 [强调色与状态色](../src/styles/accent-vars.css) 和 [主题表面](../src/styles/theme-vars.css)，侧栏将两者显式列为异步样式，避免原样发布的 CSS 依赖未打包的导入；[项目选择器](../src/picker/ui.ts) 将同一份强调色 CSS 内嵌到 Shadow DOM，浮层根节点独立定义变量，隔离宿主网页样式 |
+| 共享配色 | 页面入口共同加载 [强调色与状态色](../src/styles/accent-vars.css) 和 [主题表面](../src/styles/theme-vars.css)，侧栏将两者显式列为异步样式，避免原样发布的 CSS 依赖未打包的导入；[项目选择器](../src/picker/ui.ts) 和 [页内结果提示](../src/content/page-notice.ts) 将同一份强调色 CSS 内嵌到 Shadow DOM，浮层根节点独立定义变量，隔离宿主网页样式 |
 
 ## 数据边界
+
+页内收藏提示跟随扩展主题（包括系统主题选项），不推断网页自身的主题。新增收藏短暂亮为品牌金色，再停留在浅琥珀 / 暖棕底；重复、移动、进度与失败使用独立状态，不播放新增高亮。减少动态效果时关闭位移和勾号弹动，保留单次、稍慢的主题色反馈；提示的定时移除不依赖动画事件。
 
 StaySide 是 LaterOn 的独立衍生版本。界面使用 StaySide 名称与图标；为兼容已有安装与备份，保留根 manifest 公钥、`laterOn*` 存储键、`lateron.collection` / 旧备份读取协议、经典脚本全局与注入消息标识，以及地址栏 `lo` 入口。部署环境变量继续使用 `LATERON_*`，现有本机配置无需迁移。图标母版与导出方式见 [品牌资源](../assets/brand/README.md)。
 

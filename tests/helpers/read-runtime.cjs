@@ -31,6 +31,7 @@ const scripts = Object.fromEntries(entries.map(([name, contents]) => {
       loader: "ts"
     },
     bundle: true,
+    loader: { ".css": "text" },
     write: false,
     format: "iife",
     platform: "browser",

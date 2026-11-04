@@ -1,8 +1,12 @@
 import type { TranslationResult } from "../content/translation";
-import type { BackgroundTab } from "./shared";
-interface Pill { readonly text: string; readonly kind?: string; }
+import type { BackgroundTab, BackgroundSnapshot } from "./shared";
+import type { StoredSettings } from "../settings/shared";
+import type { PageNotice, NoticeKind } from "../content/page-notice";
+import { showPageNotices } from "../content/page-notice";
+import accentStyles from "../styles/accent-vars.css?raw";
+import noticeStyles from "../styles/page-notice.css?raw";
 import { errorMessage } from "./shared";
-import { usesEnglish, isWebUrl } from "./shared";
+import { usesEnglish, isWebUrl, SETTINGS_KEY } from "./shared";
 import { recordDiag } from "./diagnostics";
 import { unwrapSuspendedTab } from "../shared/url-utils";
 
@@ -91,7 +95,7 @@ async function reportFailure(error: unknown, targetTab: BackgroundTab | null = n
   await showActionError();
   try {
     const tab = targetTab || (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
-    await showTabNotice(tab, en ? `Failed: ${pillTitle(message)}` : `操作失败：${pillTitle(message)}`);
+    await showTabNotice(tab, en ? `Failed: ${pillTitle(message)}` : `操作失败：${pillTitle(message)}`, "error");
   } catch {
     // 页面不支持注入时只保留角标提示。
   }
@@ -110,62 +114,32 @@ async function showSystemNotice(text: string): Promise<void> {
   }
 }
 
-async function showTabNotice(tab: BackgroundTab | null | undefined, text: string, kind = "", allowSystem = true): Promise<void> {
+async function showTabNotice(tab: BackgroundTab | null | undefined, text: string | PageNotice, kind: NoticeKind = "", allowSystem = true): Promise<void> {
+  const notice = typeof text === "string" ? { text, kind } : text;
   if ((tab && unwrapSuspendedTab(tab))?.suspended) {
-    if (allowSystem) await showSystemNotice(text);
+    if (allowSystem) await showSystemNotice(notice.text);
     return;
   }
-  if (tab?.id && isWebUrl(tab.url)) await showPagePills(tab.id, [{ text, kind }]);
+  if (tab?.id && isWebUrl(tab.url)) await showPagePills(tab.id, [notice]);
 }
 
-// 在页面上弹「药丸」通知：显示在右上角（工具栏图标正下方）。
-// messages 支持两种写法：纯文本，或 { text, kind }。
-// kind="skip" 显示为灰色的次要提示；kind="move" 显示为橙色的「已搬家」提示。
-// 逐条收藏时会一次弹一条，这里限制同屏最多 6 条，超出就让最早的先退场。
-async function showPagePills(tabId: number | undefined, messages: readonly (string | Pill)[]): Promise<void> {
+// 页内结果卡片隔离网页样式；只有新增收藏播放主题色高亮，同屏最多保留 6 条。
+async function showPagePills(tabId: number | undefined, messages: readonly (string | PageNotice)[]): Promise<void> {
   const list = (messages || [])
-    .map((item) => (typeof item === "string" ? { text: item, kind: "" } : item))
+    .map((item): PageNotice => (typeof item === "string" ? { text: item } : item))
     .filter((item) => item && item.text);
   if (!tabId || !list.length) return;
 
   const MAX_PILLS = 10;
   const shown = list.slice(0, MAX_PILLS);
   const overflow = list.length - shown.length;
-  const en = await usesEnglish();
-
-  await ensureTranslationCss(tabId);
+  const settings: StoredSettings = await chrome.storage.local.get<BackgroundSnapshot>(SETTINGS_KEY)
+    .then(stored => stored[SETTINGS_KEY] || {}, () => ({}));
+  const en = settings.language === "en";
   await chrome.scripting.executeScript({
     target: { tabId },
-    func: (items: readonly Pill[], extra: number, overflowText: string) => {
-      const hostId = "lateron-pill-stack";
-      let host = document.getElementById(hostId);
-      if (!host) {
-        host = document.createElement("div");
-        host.id = hostId;
-        document.documentElement.appendChild(host);
-      }
-      const MAX_STACK = 6;
-      const all = extra > 0 ? [...items, { text: overflowText, kind: "" }] : [...items];
-      all.forEach((item, index) => {
-        const pill = document.createElement("div");
-        pill.className = "lateron-pill";
-        if (item.kind) pill.classList.add(`is-${item.kind}`);
-        pill.textContent = item.text;
-        host.appendChild(pill);
-        while (host.childElementCount > MAX_STACK) host.firstElementChild!.remove();
-        const hide = () => {
-          pill.classList.add("is-out");
-          window.setTimeout(() => {
-            pill.remove();
-            if (!host.childElementCount) host.remove();
-          }, 260);
-        };
-        const delay = index * 90;
-        window.setTimeout(() => pill.classList.add("is-in"), 30 + delay);
-        window.setTimeout(hide, 4200 + delay);
-      });
-    },
-    args: [shown, overflow, en ? `${overflow} more added` : `还有 ${overflow} 篇已添加`]
+    func: showPageNotices,
+    args: [shown, overflow, en ? `${overflow} more added` : `还有 ${overflow} 篇已添加`, settings.theme || "light", `${accentStyles}\n${noticeStyles}`]
   });
 }
 
@@ -176,7 +150,7 @@ function pillTitle(text: string | undefined): string {
 }
 
 // 把通知发到指定标签页；标签已关闭或不是普通网页时，退回「当前活动标签页」。
-function notifyTab(tabId: number | null | undefined, text: string, kind = "", allowSystem = true): Promise<void> {
+function notifyTab(tabId: number | null | undefined, text: string | PageNotice, kind: NoticeKind = "", allowSystem = true): Promise<void> {
   if (tabId == null) return notifyOnActiveTab(text, kind, allowSystem);
   return chrome.tabs
     .get(tabId)
@@ -187,7 +161,7 @@ function notifyTab(tabId: number | null | undefined, text: string, kind = "", al
 
 // 在当前窗口的「活动标签页」上弹一条药丸通知。
 // 若当前停在 Chrome 内部页面（新标签页 / 设置页等）无法注入，则只保留角标提示。
-async function notifyOnActiveTab(text: string, kind = "", allowSystem = true): Promise<void> {
+async function notifyOnActiveTab(text: string | PageNotice, kind: NoticeKind = "", allowSystem = true): Promise<void> {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     await showTabNotice(tab, text, kind, allowSystem);

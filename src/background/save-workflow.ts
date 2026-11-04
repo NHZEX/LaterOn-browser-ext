@@ -11,6 +11,7 @@ import { enqueue as queueItemWrite, commit } from "../storage/coordinator";
 import { ICONS } from "../storage/icons";
 import { cancelPendingBatch, showPickerOverlay, claimPendingBatch } from "./project-picker";
 import { mergeDuplicateMetadata, isIncomplete } from "./duplicate-metadata";
+import type { PageNotice, NoticeKind } from "../content/page-notice";
 
 async function quickSave(tab: BackgroundTab, source = "shortcut") {
   tab = unwrapSuspendedTab(tab);
@@ -59,7 +60,9 @@ async function quickSave(tab: BackgroundTab, source = "shortcut") {
       ? (en ? "This page is already added" : "这个网页已经添加过了")
       : (en ? `Added: ${pillTitle(baseItem.title)}` : `已添加：${pillTitle(baseItem.title)}`);
   if (tab.suspended) await showActionFeedback("✓", "#25834b", 1600);
-  await showTabNotice(tab, message).catch(() => {});
+  await showTabNotice(tab, saved.duplicated
+    ? { text: message, kind: "skip" }
+    : { text: message, kind: "success", title: en ? "Saved" : "已收藏", detail: baseItem.title }).catch(() => {});
   // 把结果回传，好让侧边栏 / 工具栏小窗口的按钮显示正确的字样。
   return { ok: true, duplicated: !!saved.duplicated, refreshed: !!saved.refreshed, updated: !!saved.updated };
 }
@@ -242,8 +245,8 @@ export async function runBatchSave({ tabs, source = "shortcut", notifyTabId = nu
   // 跟以前「一键收藏」一样只弹一条结果，不再多出「开始收藏」「全部完成」两条。
   const single = (tabs || []).length === 1;
   // 原冻结页即使已关闭或选择页抢走焦点，也必须收到结果；整窗只发最终系统通知。
-  const notify = (text: string, kind = "", result = single) => {
-    if (notifySuspended) return result ? showSystemNotice(text) : Promise.resolve();
+  const notify = (text: string | PageNotice, kind: NoticeKind = "", result = single) => {
+    if (notifySuspended) return result ? showSystemNotice(typeof text === "string" ? text : text.text) : Promise.resolve();
     return notifyTab(notifyTabId, text, kind, result);
   };
 
@@ -351,7 +354,8 @@ export async function runBatchSave({ tabs, source = "shortcut", notifyTabId = nu
       if (isIncomplete(record)) degraded += 1;
       // ③ 成功一篇就通知一篇，并顺手更新角标数字（切到别的标签页也看得到进度）。
       await showActionFeedback(`+${added}`, "#2f9e44", 2600);
-      await notify(en ? `Added: ${pillTitle(record.title)}` : `已添加：${pillTitle(record.title)}`);
+      await notify({ text: en ? `Added: ${pillTitle(record.title)}` : `已添加：${pillTitle(record.title)}`,
+        kind: "success", title: en ? "Saved" : "已收藏", detail: record.title });
     }
 
     // 收尾：角标停一会儿再清掉，页面上再补一条总结。
@@ -398,7 +402,7 @@ export async function runBatchSave({ tabs, source = "shortcut", notifyTabId = nu
     }).catch(() => {});
     await showActionError();
     const message = String(errorMessage(error));
-    await notify(en ? `Failed: ${pillTitle(message)}` : `操作失败：${pillTitle(message)}`, "", true);
+    await notify(en ? `Failed: ${pillTitle(message)}` : `操作失败：${pillTitle(message)}`, "error", true);
     return { ok: false, added: 0, duplicated: 0 };
   }
 }

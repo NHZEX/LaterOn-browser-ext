@@ -1,0 +1,75 @@
+.lon-root {
+  --notice-surface: var(--accent-soft);
+  --notice-on: var(--accent-on);
+  --notice-edge: #ad7a2a;
+  --notice-shadow: 0 8px 24px rgba(69, 43, 0, .16);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 320px;
+  max-width: calc(100vw - 36px);
+  color-scheme: light;
+  font: 400 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  letter-spacing: normal;
+  text-align: left;
+  direction: ltr;
+}
+.lon-root[data-dark="1"] {
+  --notice-on: #fff3d6;
+  --notice-edge: #ba8a3e;
+  --notice-shadow: 0 8px 24px rgba(0, 0, 0, .28), inset 0 1px rgba(255, 232, 173, .08);
+  color-scheme: dark;
+}
+*, *::before, *::after { box-sizing: border-box; }
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 15px 16px;
+  border: 1px solid var(--notice-edge);
+  border-radius: 14px;
+  background: var(--notice-surface);
+  color: var(--notice-on);
+  box-shadow: var(--notice-shadow);
+  animation: notice-enter 180ms ease-out both;
+}
+.mark {
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  height: 28px;
+  border: 1px solid var(--accent-fill);
+  border-radius: 50%;
+  background: #3a2a10;
+  color: var(--accent-fill);
+  font-size: 17px;
+  font-weight: 750;
+}
+.mark svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.copy { display: grid; gap: 3px; min-width: 0; }
+.headline { font-size: 15px; font-weight: 650; overflow-wrap: anywhere; }
+.detail { font-size: 13px; opacity: .8; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.notice.is-success { animation: notice-enter 180ms ease-out both, notice-highlight 1200ms linear both; }
+.is-success .mark { animation: notice-check 260ms 60ms ease-out both; }
+.notice.is-skip .mark { background: transparent; color: var(--accent); border-color: var(--notice-edge); }
+.notice.is-error { --notice-surface: var(--danger-soft); --notice-on: var(--danger); --notice-edge: var(--danger); }
+.notice.is-error .mark { background: transparent; color: var(--danger); border-color: var(--danger); }
+.notice.is-out { animation: notice-exit 140ms ease-in forwards; animation-delay: 0ms !important; }
+@keyframes notice-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes notice-exit { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(-2px); } }
+@keyframes notice-check { 0% { transform: scale(.82); } 65% { transform: scale(1.06); } 100% { transform: scale(1); } }
+@keyframes notice-highlight {
+  0%, 15%, 100% { background: var(--notice-surface); color: var(--notice-on); border-color: var(--notice-edge); box-shadow: var(--notice-shadow); }
+  30%, 52% {
+    background: var(--accent-fill);
+    color: var(--accent-on);
+    border-color: #ffe8ad;
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent-fill) 22%, transparent), 0 0 30px color-mix(in srgb, var(--accent-fill) 45%, transparent), var(--notice-shadow);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .notice, .is-success .mark { animation: none; }
+  .notice.is-success { animation: notice-highlight 1600ms linear both; }
+  .notice.is-out { animation: none; opacity: 0; transition: opacity 140ms ease; }
+}
