@@ -1,4 +1,4 @@
-import type { BackgroundTab, ResolvedProject, BatchOptions, BackgroundItem } from "./shared";
+import type { BackgroundTab, ResolvedProject, BatchOptions, BackgroundItem, SavedTabTarget } from "./shared";
 import type { BackgroundSnapshot } from "./shared";
 import { errorMessage } from "./shared";
 import { unwrapSuspendedTab, normalize as normalizeUrl } from "../shared/url-utils";
@@ -12,11 +12,13 @@ import { ICONS } from "../storage/icons";
 import { cancelPendingBatch, showPickerOverlay, claimPendingBatch } from "./project-picker";
 import { mergeDuplicateMetadata, isIncomplete } from "./duplicate-metadata";
 import type { PageNotice, NoticeKind } from "../content/page-notice";
+import { closeSavedTab } from "./save-and-close";
 
-async function quickSave(tab: BackgroundTab, source = "shortcut") {
+async function quickSave(tab: BackgroundTab, source = "shortcut", close = false) {
   tab = unwrapSuspendedTab(tab);
   const en = await usesEnglish();
   if (!tab?.id || !isWebUrl(tab.url)) return { ok: false, error: en ? "The current page can’t be added" : "当前页面无法添加" };
+  const closeAfterSave = close ? { id: tab.id, url: tab.url! } : undefined;
   // 设置里打开了「收藏单篇前先选项目」：跟整窗收藏走同一套流程——
   // 只在当前网页里弹出选项目浮层，用户选好之后再真正开始收藏。
   if (await shouldAskFolderForSingle()) {
@@ -30,7 +32,7 @@ async function quickSave(tab: BackgroundTab, source = "shortcut") {
       lastRunAt: Date.now(),
       lastTabCount: 1
     });
-    return askFolderThenSave({ tabs: [tab], source, activeTab: tab, savedCount });
+    return askFolderThenSave({ tabs: [tab], source, activeTab: tab, savedCount, closeAfterSave });
   }
 
   // 统一走 extractTabMetadata：它会在抓取前处理抖音「站内切换视频」的滞后问题，
@@ -63,6 +65,7 @@ async function quickSave(tab: BackgroundTab, source = "shortcut") {
   await showTabNotice(tab, saved.duplicated
     ? { text: message, kind: "skip" }
     : { text: message, kind: "success", title: en ? "Saved" : "已收藏", detail: baseItem.title }).catch(() => {});
+  if (closeAfterSave) await closeSavedTab(closeAfterSave);
   // 把结果回传，好让侧边栏 / 工具栏小窗口的按钮显示正确的字样。
   return { ok: true, duplicated: !!saved.duplicated, refreshed: !!saved.refreshed, updated: !!saved.updated };
 }
@@ -152,7 +155,7 @@ async function shouldAskFolderForSingle() {
 // 把这一批标签页暂存起来，弹出「选项目」浮层，等用户选好再真正收藏。
 // 单篇收藏和整窗收藏共用这一段，所以两条路径的体验完全一致：
 // 都是先选项目 → 再抓取收藏 → 已收藏过的会被搬进所选项目。
-async function askFolderThenSave({ tabs, source = "shortcut", activeTab = null, savedCount = 0, remembered = null }: { readonly tabs: readonly BackgroundTab[]; readonly source?: string; readonly activeTab?: BackgroundTab | null; readonly savedCount?: number; readonly remembered?: ResolvedProject | null }) {
+async function askFolderThenSave({ tabs, source = "shortcut", activeTab = null, savedCount = 0, remembered = null, closeAfterSave }: { readonly tabs: readonly BackgroundTab[]; readonly source?: string; readonly activeTab?: BackgroundTab | null; readonly savedCount?: number; readonly remembered?: ResolvedProject | null; readonly closeAfterSave?: SavedTabTarget }) {
   const targets = tabs || [];
   const batchId = crypto.randomUUID();
   const last = remembered || (await resolveProject((await chrome.storage.local.get<BackgroundSnapshot>(LAST_PROJECT_KEY))[LAST_PROJECT_KEY] || ""));
@@ -165,6 +168,7 @@ async function askFolderThenSave({ tabs, source = "shortcut", activeTab = null, 
       source,
       notifyTabId: activeTab?.id ?? null,
       notifySuspended: !!activeTab?.suspended,
+      ...(closeAfterSave ? { closeAfterSave } : {}),
       projectId: last.id || "",
       savedCount,
       tabs: targets.map((tab) => ({
@@ -233,7 +237,7 @@ async function askFolderThenSave({ tabs, source = "shortcut", activeTab = null, 
 //  2. 顺序处理可以「完成一篇就立刻通知一篇」，进度马上看得见，感知上快得多；
 //  3. 某一篇卡住（未加载完、被冻结）只影响它自己，不会拖住后面的标签。
 // 与单篇收藏一样抓取标题 / 摘要 / 封面 / 图标；不抓取正文；已收藏过的网址自动去重。
-export async function runBatchSave({ tabs, source = "shortcut", notifyTabId = null, notifySuspended = false, projectId = null, projectName = "" }: BatchOptions) {
+export async function runBatchSave({ tabs, source = "shortcut", notifyTabId = null, notifySuspended = false, projectId = null, projectName = "", closeAfterSave }: BatchOptions) {
   const en = await usesEnglish();
   // 每一步都记一笔：万一中途卡住或失败，去设置页就能看出停在哪一步。
   const stage = (patch: Parameters<typeof recordDiag>[0]) => recordDiag({ lastTrigger: source, lastStageAt: Date.now(), ...patch });
@@ -392,6 +396,7 @@ export async function runBatchSave({ tabs, source = "shortcut", notifyTabId = nu
       lastError: "",
       lastResultAt: Date.now()
     });
+    if (single && closeAfterSave && tabs[0]?.id === closeAfterSave.id) await closeSavedTab(closeAfterSave);
     return { ok: true, added, duplicated, moved: movedCount, enriched, degraded };
   } catch (error) {
     // 任何一步抛错都要留下痕迹，避免再次出现「按了没反应、也不知道为什么」。

@@ -7,6 +7,7 @@ import { SETTINGS_KEY } from "./shared";
 // 右键菜单任何时候都能用，作为兜底。
 const MENU_SAVE_ALL = "lateron-save-all-tabs";
 const MENU_SAVE_PAGE = "lateron-save-page";
+const MENU_SAVE_AND_CLOSE = "lateron-save-and-close";
 let contextMenuRefresh = Promise.resolve();
 
 function setupContextMenus() {
@@ -17,8 +18,8 @@ function setupContextMenus() {
     const stored = await chrome.storage.local.get<BackgroundSnapshot>(SETTINGS_KEY).catch((): BackgroundSnapshot => ({}));
     const language = stored[SETTINGS_KEY]?.language === "en" ? "en" : "zh-CN";
     const titles = language === "en"
-      ? { page: "Add this page to StaySide", all: "Add all tabs in this window to StaySide" }
-      : { page: "添加此页面到 StaySide", all: "添加本窗口所有标签页到 StaySide" };
+      ? { page: "Add this page to StaySide", close: "Add this page to StaySide and close", all: "Add all tabs in this window to StaySide" }
+      : { page: "添加此页面到 StaySide", close: "添加此页面到 StaySide 并关闭", all: "添加本窗口所有标签页到 StaySide" };
     await new Promise<void>((resolve) => {
       try {
         chrome.contextMenus.removeAll(() => {
@@ -37,6 +38,7 @@ function setupContextMenus() {
       }
     };
     create({ id: MENU_SAVE_PAGE, title: titles.page, contexts: ["page", "action"] });
+    create({ id: MENU_SAVE_AND_CLOSE, title: titles.close, contexts: ["page", "action"] });
     create({ id: MENU_SAVE_ALL, title: titles.all, contexts: ["page", "action"] });
   });
   return contextMenuRefresh;
@@ -77,4 +79,4 @@ export function registerBrowserSetup() {
   });
 }
 
-export { MENU_SAVE_ALL, MENU_SAVE_PAGE };
+export { MENU_SAVE_ALL, MENU_SAVE_PAGE, MENU_SAVE_AND_CLOSE };

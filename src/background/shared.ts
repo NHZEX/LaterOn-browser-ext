@@ -9,6 +9,7 @@ export type BackgroundTab = Omit<Partial<Browser.tabs.Tab>, "status"> & { status
 export interface ResolvedProject { readonly id: string | null; readonly name: string; }
 export type Metadata = Mutable<Omit<PageMetadata, "videoId" | "title" | "url">> & { title: string | undefined; url: string | undefined };
 export type SaveInput = Partial<PageMetadata> & { readonly url: string };
+export interface SavedTabTarget { readonly id: number; readonly url: string; }
 export interface BatchOptions {
   readonly tabs: readonly BackgroundTab[];
   readonly source?: string;
@@ -16,6 +17,7 @@ export interface BatchOptions {
   readonly notifySuspended?: boolean;
   readonly projectId?: string | null;
   readonly projectName?: string;
+  readonly closeAfterSave?: SavedTabTarget;
 }
 export interface PendingBatch extends Omit<BatchOptions, "projectId" | "tabs"> {
   readonly projectId: string;

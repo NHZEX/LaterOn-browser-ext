@@ -122,6 +122,7 @@ async function claimPendingBatch(projectId: string | null | undefined, batchId?:
       source: pending.source || "shortcut",
       notifyTabId: pending.notifyTabId ?? null,
       notifySuspended: !!pending.notifySuspended,
+      closeAfterSave: pending.closeAfterSave,
       projectId: chosen.id,
       projectName: chosen.name
     };
