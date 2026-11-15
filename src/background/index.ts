@@ -25,7 +25,7 @@ type BackgroundMessage =
   | { readonly type: "CANCEL_BATCH_SAVE" | "GET_PENDING_PICKER"; readonly batchId?: string }
   | { readonly type: "CREATE_PROJECT"; readonly name: string; readonly epoch?: string }
   | { readonly type: "EXTRACT_METADATA"; readonly tabId?: number }
-  | { readonly type: "QUICK_SAVE_TAB"; readonly tabId?: number; readonly source?: string };
+  | { readonly type: "QUICK_SAVE_TAB"; readonly tabId?: number; readonly source?: string; readonly close?: boolean };
 
 export async function handleCommand(command: string, commandTab?: BackgroundTab) {
   // 「收藏当前窗口所有标签页」不依赖当前激活页是否为网页，单独处理。
@@ -163,8 +163,9 @@ export function registerBackground() {
             sendResponse({ ok: false, error: (await usesEnglish()) ? "The current page can’t be added" : "当前页面无法添加" });
             return;
           }
-          const result = await quickSave(tab, message.source || "panel");
+          const result = await quickSave(tab, message.source || "panel", !!message.close);
           // result.pending 为真 = 已经弹出选项目浮层，真正的收藏要等用户确认。
+          // close=true 时与右键「添加并关闭」同一路径；浏览器回归用消息触发，不依赖系统右键菜单。
           sendResponse(result || { ok: true });
         } catch (error) {
           if (tab?.suspended) await reportFailure(error, tab);
