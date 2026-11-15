@@ -4,7 +4,7 @@
 
 ## StaySide 1.77.0 · 2026-11-05（本机工作区构建）
 
-- 构建源码：`next` 分支基于 `ab420cf` 的本次提交内代码；版本标签为 `v1.77.0`，产品变化见 CHANGELOG。
+- 构建源码：`next` 分支基于 `f2b613f`（`feat: release StaySide 1.77.0 with save-and-close action`）；版本标签为 `v1.77.0`（annotated tag 指向该提交），产品变化见 CHANGELOG。其后文档提交 `d5a17da` 不改变本机安装产物。
 - 安装目录：`D:/浏览器扩展/LaterOn`。在扩展管理页重新加载 StaySide 后，右键菜单即可使用「添加此页面到 StaySide 并关闭」。
 - 产物：`.output/StaySide-1.77.0.zip`，47 个文件，434,707 字节；未压缩 868,428 字节。同目录附有 `.zip.sha256` 校验文件。
 - ZIP SHA-256：`4451358cc5f525dfb852921bf6649a783e7fd9d488fecbe247795a29f1edbcbb`。包内资源契约检查通过，构建目录、ZIP 和安装目录全部文件逐项 SHA-256 一致。
@@ -13,4 +13,4 @@
 
 本轮功能已通过类型检查、构建、8 项收藏后关闭 Node 专项，以及单篇 / 批量收藏、冻结页、后台依赖边界和工具栏侧栏动作回归；7 项提示卡片与项目选择浏览器回归通过。专项经实际注册的右键菜单入口执行保存与持久化，在浏览器 API 和时间边界控制切换标签、项目确认 / 取消、保存 / 关闭失败、跳转、待跳转、刷新及手动关闭场景。浏览器结果位于 `.output/browser-results/`，由下一轮测试复用。
 
-本次本机发布复用上述业务验证，执行 `pnpm zip`、`pnpm release:check` 与 `pnpm release:prepare --tag v1.77.0`，核对安装文件及旧版本备份；未重复执行全部历史回归。既有 Chrome / Edge 的原生右键入口与关闭体验仍待重新加载后验收，剩余范围见 roadmap。
+本次本机发布复用上述业务验证，执行 `pnpm zip`、`pnpm release:check` 与 `pnpm release:prepare --tag v1.77.0`，核对安装文件及旧版本备份；未重复执行全部历史回归。既有 Chrome / Edge 的**原生右键菜单与关闭体验仍仅人工验收**（见 roadmap）；自动化不覆盖系统右键菜单与真实系统通知横幅。
