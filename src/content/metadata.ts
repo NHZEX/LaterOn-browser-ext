@@ -1,3 +1,5 @@
+import { searchTitle } from "../shared/url-utils";
+
 export interface PageMetadata {
   readonly title: string;
   readonly titleFrom: string;
@@ -633,8 +635,10 @@ export function extractPageMetadataForShortcut(): PageMetadata {
   // 抖音的文案（h1）常常很长——带一堆话题标签和 @提及，卡片上放不下，
   // 所以给它单独限长到 140 字并加省略号。先剥后缀、再截断，避免把「 - 抖音」切一半留着。
   const clipTitle = (text: string, max?: number) => (max && text.length > max ? `${text.slice(0, max).trim()}…` : text);
+  // 搜索结果页的分享元数据常是「搜索结果」一类泛化标题；优先用 URL 查询词。
   // 每个候选都过一遍「剥站点后缀」——og:title 之类同样常带尾巴。
   const titleCandidates = [
+    { text: searchTitle(location.href), from: "search" },
     { text: douyin?.title || "", from: "douyin", max: 140 },
     { text: douyin?.larkTitle || "", from: "douyin-lark", max: 140 },
     { text: headline, from: "dom-headline" },

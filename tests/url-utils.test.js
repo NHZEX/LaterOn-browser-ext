@@ -4,7 +4,7 @@ const vm = require("vm");
 const source = require("./helpers/read-runtime.cjs")("url-utils.js");
 const context = vm.createContext({ URL, globalThis: {} });
 vm.runInContext(source, context, { filename: "url-utils.js" });
-const normalize = context.globalThis.LaterOnUrl.normalize;
+const { normalize, searchTitle } = context.globalThis.LaterOnUrl;
 
 assert.strictEqual(
   normalize("https://www.Example.com/article/?utm_source=news&b=2&a=1#comments"),
@@ -56,4 +56,11 @@ assert.strictEqual(normalize(suspended), normalize(route), "冻结占位网址�
 for (const value of [route, suspended, "https://example.com/#!/a?z=%23%25&x=1#keep", expectedVideo])
   assert.strictEqual(normalize(normalize(value)), normalize(value), "规范化必须幂等");
 
-console.log("PASS shared URL identity: hash routes, anchors, query boundaries, Suspender and YouTube");
+assert.strictEqual(searchTitle("https://www.google.com/search?q=stay+side"), "stay side - Google");
+assert.strictEqual(searchTitle("https://www.baidu.com/s?wd=%E6%94%B6%E8%97%8F"), "收藏 - 百度");
+assert.strictEqual(searchTitle("https://www.bing.com/search?q=hello"), "hello - Bing");
+assert.strictEqual(searchTitle("https://google.example.com/search?q=nope"), "");
+assert.strictEqual(searchTitle("https://example.com/article"), "");
+assert.ok(searchTitle(`https://www.google.com/search?q=${"x".repeat(300)}`).endsWith("… - Google"));
+
+console.log("PASS shared URL identity: hash routes, anchors, query boundaries, Suspender, YouTube and search titles");
