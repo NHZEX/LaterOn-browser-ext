@@ -125,6 +125,10 @@ jobs:
         shell: bash
         run: |
           sha256sum --check --strict "StaySide-$VERSION.zip.sha256"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; skipping create to protect against duplicate publish."
+            exit 0
+          fi
           gh release create "$RELEASE_TAG" \
             "StaySide-$VERSION.zip" "StaySide-$VERSION.zip.sha256" \
             --verify-tag --draft --title "StaySide $VERSION" --notes-file RELEASE_NOTES.md
