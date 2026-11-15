@@ -12,7 +12,7 @@
 | 收藏抓取、项目选择与保存 | [保存流程](../src/background/save-workflow.ts)、[单条保存](../src/background/collection.ts)、[项目选择](../src/background/project-picker.ts) |
 | 收藏后关闭原标签 | [关闭逻辑](../src/background/save-and-close.ts) 仅由独立右键入口启用，保存确认后的结果提示完成后固定等待 800ms；选择项目时将原标签 ID 与 URL 随待处理批次保存在 session，关闭前核对原页面并取消导航中的关闭，失败不回滚已保存收藏 |
 | 收藏库、侧栏、设置页 | 各页的 [library](../wxt/entrypoints/library/main.ts)、[sidepanel](../wxt/entrypoints/sidepanel/main.ts)、[settings](../wxt/entrypoints/settings/main.ts) Vue 入口；页面业务位于 `src/library/`、`src/sidepanel/` |
-| 独立项目选择页 | [页面入口](../wxt/entrypoints/save-project-picker/main.ts) → [选择器](../src/picker/main.ts)，使用共享 DOM UI |
+| 独立项目选择页 | [页面入口](../wxt/entrypoints/save-project-picker/main.ts) → [选择器](../src/picker/main.ts)，使用共享 DOM UI；归属快照见 [picker-save-context](../src/collection/picker-save-context.ts)，由 [buildPayload](../src/collection/picker.ts) 写入选项目弹窗 |
 | 页面数据命令与共享队列 | [客户端](../src/storage/client.ts)、[协调器](../src/storage/coordinator.ts)、[契约](../src/storage/contracts.ts) |
 | 内嵌网站图标共享与回收 | [图标规则](../src/storage/icons.ts)；收藏写入统一经过协调器的 `commit` |
 | 备份导出、预览、恢复与清空 | [后台协议](../src/backup/background.ts)、[纯数据核心](../src/backup/core.ts)；语义见 [备份说明](backup-format.md) |

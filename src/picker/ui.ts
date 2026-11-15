@@ -1,6 +1,6 @@
 import { errorText } from "../shared/errors";
 import accentStyles from "../styles/accent-vars.css?raw";
-import type { FolderPickerOptions, PickerProject } from "./types";
+import type { FolderPickerOptions, PickerFolder, PickerPage } from "./types";
 
 // 收藏库（全屏页）和网页浮层（content script）共用的「选项目」面板。
 //
@@ -16,8 +16,8 @@ import type { FolderPickerOptions, PickerProject } from "./types";
 
 // 新建项目：默认走后台的 CREATE_PROJECT（content script 和扩展页都通用）；
 // 调用方也可以自己传 onCreateProject 覆盖（比如扩展页想顺带刷新本地列表）。
-async function defaultCreateProject(name: string): Promise<PickerProject | null> {
-  let response: { readonly project?: PickerProject } | null = null;
+async function defaultCreateProject(name: string): Promise<{ readonly id: string; readonly name?: string } | null> {
+  let response: { readonly project?: { readonly id: string; readonly name?: string } } | null = null;
   try { response = await chrome.runtime.sendMessage({ type: "CREATE_PROJECT", name }); }
   catch { /* 扩展更新后旧网页里的浮层可能还在；上下文失效时安静失败 */ }
   return response?.project || null;
@@ -28,6 +28,15 @@ function safeRuntimeUrl(path: string): string {
   catch { return ""; }
 }
 
+declare global {
+  interface Window {
+    __laterOnActivePickerClose?: () => void;
+    LaterOnPickerKeyboard?: {
+      capture: (handler: (event: Event) => void, active: () => boolean) => () => void;
+    };
+  }
+}
+
 /** @param {import("./types").FolderPickerOptions} options
  * @returns {{ readonly close: () => void }} */
 export function openFolderPicker(options: FolderPickerOptions): { readonly close: () => void } {
@@ -35,49 +44,84 @@ export function openFolderPicker(options: FolderPickerOptions): { readonly close
   const isPopover = !!data.anchor;
   const language = data.language === "en" || (!data.language && document.documentElement.lang === "en") ? "en" : "zh-CN";
   const copy = language === "en" ? {
-    projects: "Choose a project", newProject: "New project name", cancel: "Cancel", moveTitle: "Move this save to which project?",
+    projects: "Choose a project", cancel: "Cancel", moveTitle: "Move this save to which project?",
     saveTitle: "Add to which project?", saveSingleTitle: "Add this page to which project?",
     singleSaved: "This page is already added — confirming will move it to the selected project", singleNew: "Choose a project to add this page",
     batchSaved: (total: number, saved: number) => `${total} tabs, including ${saved} already added — confirming will move them to the selected project`,
     batchNew: (total: number) => `${total} tabs — choose a project to start adding them one by one`, pages: (n: number) => `View the ${n} pages to be added`,
-    newMove: "Type a new project name and press Enter to move", newSave: "Type a new project name and press Enter to add", inbox: "Inbox",
+    inbox: "Inbox",
     processing: "Working…", createMove: (name: string) => `Create “${name}” and move`, createSave: (name: string) => `Create “${name}” and add`,
     moveTo: (name: string) => `Move to “${name}”`, saveTo: (name: string) => `Add to “${name}”`, createFailed: "Couldn’t create the project. Try again.",
-    failed: "Something went wrong. Try again."
+    failed: "Something went wrong. Try again.", search: "Filter or name a new project…", noMatch: "No matching projects. Confirm to create this project.", nameTooLong: "New project names can contain up to 28 characters."
   } : {
-    projects: "选择项目", newProject: "新建项目名称", cancel: "取消", moveTitle: "把这篇放到哪个项目？",
+    projects: "选择项目", cancel: "取消", moveTitle: "把这篇放到哪个项目？",
     saveTitle: "添加到哪个项目？", saveSingleTitle: "把这个网页添加到哪个项目？",
     singleSaved: "这个网页已经添加过——确认后会一并移进你选的项目", singleNew: "选好项目后就会添加这个网页",
     batchSaved: (total: number, saved: number) => `共 ${total} 个标签页，其中 ${saved} 个已经添加过——确认后会一并移进你选的项目`,
     batchNew: (total: number) => `共 ${total} 个标签页，选好项目后就会开始逐个添加`, pages: (n: number) => `查看将要添加的 ${n} 个网页`,
-    newMove: "输入新项目名，回车直接移入", newSave: "输入新项目名，回车直接添加进去", inbox: "等待整理",
+    inbox: "等待整理",
     processing: "正在处理…", createMove: (name: string) => `新建「${name}」并移入`, createSave: (name: string) => `新建「${name}」并添加`,
     moveTo: (name: string) => `移动到「${name}」`, saveTo: (name: string) => `添加到「${name}」`, createFailed: "新建项目失败，请重试。",
-    failed: "操作失败，请重试。"
+    failed: "操作失败，请重试。", search: "筛选项目，或输入新项目名…", noMatch: "没有匹配的项目，确认后将新建这个项目。", nameTooLong: "新项目名称最多 28 个字，请缩短后再确认。"
+  };
+  const contextCopy = language === "en" ? {
+    allSaved: (n: number, name: string) => n === 1 ? `This page is already in “${name}”` : `All ${n} pages are already in “${name}”`,
+    pages: (n: number, total: number) => n > total
+      ? `View ${n} ${n === 1 ? "tab" : "tabs"} (${total} unique ${total === 1 ? "page" : "pages"})`
+      : `View ${n} ${n === 1 ? "page and its current project" : "pages and their current projects"}`,
+    mixed: (n: number, saved: number) => `${n} to add · ${saved} already saved`,
+    group: (name: string, n: number) => `“${name}” · ${n}`, more: (n: number) => `${n} more ${n === 1 ? "project" : "projects"}`,
+    allHere: "All already here", here: (n: number) => `${n} already here`,
+    pending: "To add", savedIn: (name: string) => `Already in “${name}”`,
+    keepTo: (name: string) => `Keep in “${name}”`, moveTo: (name: string) => `Move to “${name}”`,
+    addMove: (n: number, moved: number) => `Add ${n} and move ${moved} pages`,
+    preview: (n: number, kept: number, moved: number) => `Add ${n} · Keep ${kept} · Move ${moved}`,
+    target: (name: string) => `To “${name}”`, newTarget: (name: string) => `New project “${name}”`,
+    projectTotal: (n: number) => `${n} pages in this project`
+  } : {
+    allSaved: (n: number, name: string) => `这${n}篇都已在「${name}」`,
+    pages: (n: number, total: number) => n > total ? `查看 ${n} 个标签页（共 ${total} 个网页）` : `查看 ${n} 个网页及当前归属`,
+    mixed: (n: number, saved: number) => `${n}篇待添加 · ${saved}篇已存`,
+    group: (name: string, n: number) => `「${name}」· ${n}篇`, more: (n: number) => `另${n}个项目`,
+    allHere: "全部已在这里", here: (n: number) => `已在这里 ${n}篇`,
+    pending: "待添加", savedIn: (name: string) => `已在「${name}」`,
+    keepTo: (name: string) => `保留在「${name}」`, moveTo: (name: string) => `移入「${name}」`,
+    addMove: (n: number, moved: number) => `添加${n}篇并移入${moved}篇`,
+    preview: (n: number, kept: number, moved: number) => `新增${n} · 保留${kept} · 移入${moved}`,
+    target: (name: string) => `到「${name}」`, newTarget: (name: string) => `新项目「${name}」`,
+    projectTotal: (n: number) => `项目共${n}篇`
   };
 
+  try { window.__laterOnActivePickerClose?.(); } catch { /* 旧实例收尾失败也不挡新开 */ }
   const HOST_ID = "lateron-folder-picker";
   const stale = document.getElementById(HOST_ID);
   if (stale) {
     stale.dispatchEvent(new Event("lateron-picker-dispose"));
     stale.remove();
   }
+  const previousFocus = document.activeElement as HTMLElement | null;
 
   // 主题：跟着设置走；设置为「跟随系统」时看系统偏好。
   const themeSetting = data.theme || "light";
   const prefersDark = !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
   const dark = themeSetting === "dark" || (themeSetting !== "light" && prefersDark);
 
-  let folders = Array.isArray(data.folders) ? data.folders.slice() : [];
-  const pages = Array.isArray(data.pages) ? data.pages : [];
+  let folders: PickerFolder[] = Array.isArray(data.folders) ? [...data.folders] : [];
+  const pages: PickerPage[] = Array.isArray(data.pages) ? [...data.pages] : [];
   const savedCount = Number(data.savedCount) || 0;
+  const saveContext = !isPopover && data.saveContext && typeof data.saveContext === "object" ? data.saveContext : null;
+  const contextSaved = saveContext ? Math.max(0, Number(saveContext.savedCount) || 0) : 0;
+  const contextNew = saveContext ? Math.max(0, Number(saveContext.newCount) || 0) : 0;
+  const contextTotal = saveContext ? Math.max(0, Number(saveContext.total) || 0) : 0;
+  const hasSavedContext = !!saveContext && contextSaved > 0;
+  const contextGroups = saveContext && Array.isArray(saveContext.groups) ? saveContext.groups : [];
   let selected = typeof data.selected === "string" ? data.selected : "";
   let busy = false;
   let closed = false;
+  let releaseKeyboard: (() => void) | null = null;
 
   const host = document.createElement("div");
   host.id = HOST_ID;
-  // 双保险：内联 !important 能压过页面自己的样式表，保证浮层不被页面搞变形。
   host.style.setProperty("all", "initial", "important");
 
   const shadow = host.attachShadow({ mode: "open" });
@@ -86,9 +130,6 @@ export function openFolderPicker(options: FolderPickerOptions): { readonly close
   style.textContent = buildStyle();
   shadow.appendChild(style);
 
-  // 品牌标识（图标 + StaySide）只在「整屏弹窗」里出现——那是网页里 Alt+1 收藏时弹的那个，
-  // 用户需要它说明这是谁弹的窗。贴按钮的浮层（收藏库卡片上点「所属项目」）不出这一行：
-  // 人已经在收藏库里了，顶部再写一遍品牌纯属重复，还把项目列表往下挤了一截。
   const brandIcon = safeRuntimeUrl("icon128.png");
   const brandHtml = isPopover
     ? ""
@@ -104,17 +145,20 @@ export function openFolderPicker(options: FolderPickerOptions): { readonly close
         ${brandHtml}
         <h2 class="lon-title" id="lateron-picker-title"></h2>
         <p class="lon-summary"></p>
+        <div class="lon-existing" hidden></div>
       </header>
       <details class="lon-pages">
         <summary><span class="lon-chev">▸</span><span class="lon-pages-label"></span></summary>
         <ul class="lon-page-list"></ul>
       </details>
       <div class="lon-box">
+        <input class="lon-search-input lon-new-input" type="search" placeholder="${copy.search}" aria-label="${copy.search}" aria-describedby="lateron-project-status" autocomplete="off" />
         <div class="lon-folders" role="radiogroup" aria-label="${copy.projects}">
           <div class="lon-folder-list"></div>
-          <input class="lon-new-input" maxlength="28" placeholder="" aria-label="${copy.newProject}" />
+          <p class="lon-empty" id="lateron-project-status" role="status" hidden>${copy.noMatch}</p>
         </div>
       </div>
+      <p class="lon-action-preview" hidden></p>
       <footer class="lon-foot">
         <button type="button" class="lon-ghost">${copy.cancel}</button>
         <button type="button" class="lon-primary"></button>
@@ -127,22 +171,22 @@ export function openFolderPicker(options: FolderPickerOptions): { readonly close
   const $ = <T extends HTMLElement = HTMLElement>(selector: string): T => root.querySelector<T>(selector)!;
   const panel = $(".lon-panel");
   const summaryEl = $(".lon-summary");
+  const existingEl = $(".lon-existing");
+  const previewEl = $(".lon-action-preview");
   const pagesLabel = $(".lon-pages-label");
   const pageList = $(".lon-page-list");
   const folderList = $(".lon-folder-list");
-  const newForm = $(".lon-new");
-  const newInput = $<HTMLInputElement>(".lon-new-input");
+  const searchInput = $<HTMLInputElement>(".lon-search-input");
   const confirmBtn = $<HTMLButtonElement>(".lon-primary");
   const cancelBtn = $<HTMLButtonElement>(".lon-ghost");
+  const emptyEl = $(".lon-empty");
 
-  // 标题 / 摘要 / 页面清单：浮层（改卡片项目）和整屏弹窗（收藏网页）文案不同。
   if (isPopover) {
     $(".lon-title").textContent = data.titleText || copy.moveTitle;
     summaryEl.textContent = "";
     $(".lon-pages").hidden = true;
   } else {
     const single = pages.length <= 1;
-    // 整屏弹窗的默认标题；单篇收藏时再换成更具体的那句。
     $(".lon-title").textContent = copy.saveTitle;
     if (single) {
       $(".lon-title").textContent = copy.saveSingleTitle;
@@ -152,7 +196,37 @@ export function openFolderPicker(options: FolderPickerOptions): { readonly close
       summaryEl.textContent = savedCount > 0 ? copy.batchSaved(pages.length, savedCount) : copy.batchNew(pages.length);
     }
   }
-  pagesLabel.textContent = copy.pages(pages.length);
+  if (hasSavedContext) {
+    const sameGroup = contextGroups.find((group) => group.projectId === saveContext!.sameProjectId);
+    summaryEl.textContent = contextNew === 0 && typeof saveContext!.sameProjectId === "string"
+      ? contextCopy.allSaved(contextTotal, sameGroup?.projectName || folders.find((folder) => folder.id === saveContext!.sameProjectId)?.name || copy.inbox)
+      : contextCopy.mixed(contextNew, contextSaved);
+    summaryEl.setAttribute("role", "status");
+    summaryEl.setAttribute("aria-live", "polite");
+    summaryEl.setAttribute("aria-atomic", "true");
+    if (contextGroups.length && !(contextNew === 0 && typeof saveContext!.sameProjectId === "string")) {
+      existingEl.hidden = false;
+      contextGroups.slice(0, 3).forEach((group) => {
+        const chip = document.createElement("span");
+        chip.className = "lon-existing-group";
+        chip.textContent = contextCopy.group(group.projectName || copy.inbox, group.count);
+        chip.title = chip.textContent;
+        existingEl.append(chip);
+      });
+      if (contextGroups.length > 3) {
+        const more = document.createElement("span");
+        more.className = "lon-existing-more";
+        more.textContent = contextCopy.more(contextGroups.length - 3);
+        existingEl.append(more);
+      }
+    }
+    previewEl.hidden = false;
+    previewEl.setAttribute("role", "status");
+    previewEl.setAttribute("aria-live", "polite");
+    previewEl.setAttribute("aria-atomic", "true");
+    $(".lon-pages").hidden = false;
+  }
+  pagesLabel.textContent = hasSavedContext ? contextCopy.pages(pages.length, contextTotal) : copy.pages(pages.length);
   pages.forEach((page, index) => {
     const li = document.createElement("li");
     const no = document.createElement("span");
@@ -162,32 +236,64 @@ export function openFolderPicker(options: FolderPickerOptions): { readonly close
     title.className = "lon-page-title";
     title.textContent = page.title || page.url;
     title.title = page.url || "";
-    li.append(no, title);
+    if (saveContext) {
+      const info = document.createElement("span");
+      info.className = "lon-page-info";
+      const url = document.createElement("span");
+      url.className = "lon-page-url";
+      url.textContent = page.url || "";
+      const status = document.createElement("span");
+      status.className = "lon-page-status";
+      status.textContent = page.saved ? contextCopy.savedIn(page.projectName || copy.inbox) : contextCopy.pending;
+      info.append(title, url, status);
+      li.append(no, info);
+    } else {
+      li.append(no, title);
+    }
     pageList.append(li);
   });
 
-  newInput.placeholder = isPopover ? copy.newMove : copy.newSave;
-
-  // 输入框里写下的新项目名（空 = 用上面选中的那个项目）。
-  const pendingNewName = () => newInput.value.trim();
+  const queryName = () => searchInput.value.replace(/\s+/g, " ").trim();
+  const visibleFolders = () => {
+    const query = queryName().toLocaleLowerCase();
+    if (!query) return folders;
+    return folders.filter((folder) => String(folder.name || "").replace(/\s+/g, " ").trim().toLocaleLowerCase().includes(query));
+  };
+  const pendingNewName = () => (visibleFolders().length ? "" : queryName());
   const selectedName = () => {
     if (!selected) return copy.inbox;
     return folders.find((folder) => folder.id === selected)?.name || copy.inbox;
   };
+  const actionCounts = () => {
+    const name = pendingNewName();
+    const folder = name ? null : folders.find((item) => item.id === selected);
+    const kept = Math.min(contextSaved, Math.max(0, Number(folder?.matchedCount) || 0));
+    return { added: contextNew, kept, moved: contextSaved - kept };
+  };
   const applyLabel = () => {
     const name = pendingNewName();
+    confirmBtn.disabled = busy || name.length > 28;
+    searchInput.readOnly = busy;
+    searchInput.setAttribute("aria-invalid", String(name.length > 28));
     if (name) {
       confirmBtn.textContent = busy
         ? copy.processing
-        : (isPopover ? copy.createMove(name) : copy.createSave(name));
+        : (isPopover || (hasSavedContext && contextNew === 0) ? copy.createMove(name) : copy.createSave(name));
     } else {
+      const { added, moved } = actionCounts();
       confirmBtn.textContent = busy
         ? copy.processing
-        : (isPopover ? copy.moveTo(selectedName()) : copy.saveTo(selectedName()));
+        : (hasSavedContext
+          ? (added > 0 ? (moved > 0 ? contextCopy.addMove(added, moved) : copy.saveTo(selectedName()))
+            : (moved > 0 ? contextCopy.moveTo(selectedName()) : contextCopy.keepTo(selectedName())))
+          : (isPopover ? copy.moveTo(selectedName()) : copy.saveTo(selectedName())));
+    }
+    if (hasSavedContext) {
+      const { added, kept, moved } = actionCounts();
+      previewEl.textContent = `${name ? contextCopy.newTarget(name) : contextCopy.target(selectedName())} · ${contextCopy.preview(added, kept, moved)}`;
     }
   };
 
-  // 没有封面时的占位缩略图：用项目名首字做一个色块，视觉上仍是「图板缩略图」而不是文件夹。
   function makePlaceholder(name: string | undefined) {
     const span = document.createElement("span");
     span.className = "lon-folder-ph";
@@ -195,8 +301,6 @@ export function openFolderPicker(options: FolderPickerOptions): { readonly close
     return span;
   }
 
-  // HTTPS 页面不能加载 HTTP 封面，尤其是 127.0.0.1 这类地址不会被浏览器自动升级。
-  // 先在创建 img 之前过滤掉不安全来源，避免触发 Mixed Content 请求和控制台告警。
   function isSafeCoverSource(value: string | undefined): value is string {
     const source = String(value || "").trim();
     if (!source) return false;
@@ -213,7 +317,10 @@ export function openFolderPicker(options: FolderPickerOptions): { readonly close
 
   const renderFolders = () => {
     folderList.replaceChildren();
-    folders.forEach((folder) => {
+    const visible = visibleFolders();
+    emptyEl.hidden = visible.length > 0;
+    emptyEl.textContent = pendingNewName().length > 28 ? copy.nameTooLong : copy.noMatch;
+    visible.forEach((folder) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = `lon-folder${selected === folder.id ? " is-selected" : ""}`;
@@ -228,7 +335,6 @@ export function openFolderPicker(options: FolderPickerOptions): { readonly close
         img.src = folder.cover;
         img.alt = "";
         img.loading = "lazy";
-        // 封面加载失败（比如远程图被防盗链挡掉）就退回占位色块，不会留个破图。
         img.addEventListener("error", () => icon.replaceChildren(makePlaceholder(folder.name)));
         icon.append(img);
       } else {
@@ -240,17 +346,31 @@ export function openFolderPicker(options: FolderPickerOptions): { readonly close
       const count = document.createElement("strong");
       count.className = "lon-folder-count";
       count.textContent = String(folder.count || 0);
+      if (hasSavedContext) count.title = contextCopy.projectTotal(folder.count || 0);
       const tick = document.createElement("span");
       tick.className = "lon-folder-tick";
       tick.textContent = "✓";
-      button.append(icon, name, count, tick);
+      if (hasSavedContext && Number(folder.matchedCount) > 0) {
+        const label = document.createElement("span");
+        label.className = "lon-folder-matched";
+        const matched = Number(folder.matchedCount) || 0;
+        label.textContent = matched === contextTotal && contextNew === 0
+          ? contextCopy.allHere : contextCopy.here(matched);
+        const info = document.createElement("span");
+        info.className = "lon-folder-info";
+        info.append(name, label);
+        button.append(icon, info, count, tick);
+      } else {
+        button.append(icon, name, count, tick);
+      }
 
       button.addEventListener("click", () => {
-        newInput.value = "";
+        if (busy) return;
         selected = folder.id;
         renderFolders();
       });
       button.addEventListener("dblclick", () => {
+        if (busy) return;
         selected = folder.id;
         renderFolders();
         submitSelection();
@@ -260,12 +380,6 @@ export function openFolderPicker(options: FolderPickerOptions): { readonly close
     applyLabel();
   };
 
-  // ── 播放守卫：浮层开着的时候，网页里的视频不该被我们的按键打断 ──────
-  // 为什么光拦事件还不够：视频网站的「空格 = 播放/暂停」很可能挂在 window 的捕获阶段，
-  // 而且是页面加载时就注册好的 —— 比浮层的监听早，stopPropagation 拦不住；
-  // 再加上 Shadow DOM 会把事件目标改写成浮层的根宿主，
-  // 网站那句「焦点在输入框里就不响应快捷键」的判断也会失效。
-  // 所以这里补最后一道：浮层还开着时被意外暂停的视频，立刻恢复播放。
   let keepPlaying = new WeakSet<HTMLMediaElement>();
   const rememberPlaying = () => {
     document.querySelectorAll<HTMLMediaElement>("video, audio").forEach((media) => {
@@ -279,9 +393,7 @@ export function openFolderPicker(options: FolderPickerOptions): { readonly close
     try {
       const playing = media.play?.();
       if (playing && typeof playing.catch === "function") playing.catch(() => {});
-    } catch {
-      // 播不回去就算了，不能因为这里把浮层搞坏。
-    }
+    } catch { /* 播不回去就算了 */ }
   };
   const onMediaEnded = (event: Event) => { if (event.target instanceof HTMLMediaElement) keepPlaying.delete(event.target); };
   rememberPlaying();
@@ -293,7 +405,6 @@ export function openFolderPicker(options: FolderPickerOptions): { readonly close
     const rect = data.anchor.getBoundingClientRect();
     const pw = panel.offsetWidth || 360;
     const ph = panel.offsetHeight || 360;
-    // 优先放在按钮下方；放不下就翻到上方。水平方向贴着按钮左缘并夹在视口内。
     let top = rect.bottom + 8;
     if (top + ph > window.innerHeight - 8) top = rect.top - ph - 8;
     if (top < 8) top = 8;
@@ -305,8 +416,12 @@ export function openFolderPicker(options: FolderPickerOptions): { readonly close
   const close = () => {
     if (closed) return;
     closed = true;
-    window.removeEventListener("keydown", onKeydown, true);
-    window.removeEventListener("keyup", onKeyup, true);
+    const ownedFocus = document.activeElement === host;
+    host.inert = true;
+    if (ownedFocus && previousFocus?.isConnected) previousFocus.focus?.({ preventScroll: true });
+    releaseKeyboard?.();
+    if (window.__laterOnActivePickerClose === close) delete window.__laterOnActivePickerClose;
+    for (const type of ["keydown", "keypress", "keyup"]) window.removeEventListener(type, onModalKeyboard, true);
     window.removeEventListener("keydown", onPopoverKeydown, true);
     window.removeEventListener("scroll", positionPanel, true);
     window.removeEventListener("resize", positionPanel);
@@ -318,27 +433,27 @@ export function openFolderPicker(options: FolderPickerOptions): { readonly close
     window.setTimeout(() => host.remove(), 260);
   };
 
-  // 再次打开（包括重新注入整个 bundle）时，旧实例必须连同键盘和播放守卫一起清理。
   host.addEventListener("lateron-picker-dispose", close, { once: true });
 
-  // 输入框里写了新项目名 → 先建项目，再应用进去。
   const resolveProjectId = async () => {
     const name = pendingNewName();
-    if (!name) return { ok: true, projectId: selected || null };
+    if (!name) return { ok: true as const, projectId: selected || null };
     const create = data.onCreateProject || defaultCreateProject;
     let project = null;
     try { project = await create(name); } catch { /* 调用方失效时留在浮层里显示失败 */ }
-    if (!project || !project.id) return { ok: false, error: copy.createFailed };
+    if (!project || !project.id) return { ok: false as const, error: copy.createFailed };
     if (!folders.some((folder) => folder.id === project.id)) {
-      folders = [...folders, { id: project.id, name: project.name, count: 0 }];
+      folders = [...folders, { id: project.id, name: project.name, count: 0, matchedCount: 0 }];
     }
     selected = project.id;
+    const created = folders.find((folder) => folder.id === selected);
+    if (created?.name) searchInput.value = created.name;
     renderFolders();
-    return { ok: true, projectId: project.id };
+    return { ok: true as const, projectId: project.id };
   };
 
   const submitSelection = async () => {
-    if (busy || closed) return;
+    if (busy || closed || confirmBtn.disabled) return;
     busy = true;
     confirmBtn.disabled = true;
     applyLabel();
@@ -350,13 +465,11 @@ export function openFolderPicker(options: FolderPickerOptions): { readonly close
       summaryEl.textContent = target.error ?? "";
       return;
     }
-    // onPick 返回 { ok:false, error } 表示这次没成功（比如这一批已经被处理过），
-    // 留在浮层里说明原因，让用户再操作一次；其余情况（成功 / 没返回值）直接关掉。
     let result;
     try {
       result = data.onPick ? await data.onPick(target.projectId ?? null, selectedName()) : null;
     } catch (error) {
-      result = { ok: false, error: errorText(error) || copy.failed };
+      result = { ok: false as const, error: errorText(error) || copy.failed };
     }
     if (result && result.ok === false) {
       busy = false;
@@ -375,39 +488,54 @@ export function openFolderPicker(options: FolderPickerOptions): { readonly close
     close();
   };
 
-  // 键盘事件统一在捕获阶段处理：比页面自己的快捷键听得早，抢得到；
-  // 用 composedPath 判断焦点是否在浮层的输入框里（Shadow DOM 里的 target 会被重定向）。
-  const typingInInput = (event: Event) => event.composedPath().includes(newInput);
+  const typingInInput = (event: Event) => event.composedPath().includes(searchInput);
 
   function onKeydown(event: KeyboardEvent) {
     if (closed) return;
+    event.stopImmediatePropagation();
+    if (event.isComposing || event.keyCode === 229) return;
     if (event.key === "Escape") {
       event.preventDefault();
-      event.stopPropagation();
       cancel();
       return;
     }
-    if (event.isComposing || event.keyCode === 229 || event.altKey || event.ctrlKey || event.metaKey) return;
-    if (typingInInput(event)) return;
+    if (event.key === "Tab" && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+      const targets = [...root.querySelectorAll<HTMLElement>("input, button, summary")]
+        .filter((el) => !("disabled" in el && (el as HTMLButtonElement).disabled) && !el.closest("[hidden]"));
+      const index = targets.indexOf(shadow.activeElement as HTMLElement);
+      const next = (index + (event.shiftKey ? -1 : 1) + targets.length) % targets.length;
+      targets[next]?.focus();
+      return;
+    }
+    if (typingInInput(event)) {
+      if (event.key === "Enter") { event.preventDefault(); submitSelection(); }
+      if (event.key === "ArrowDown" && event.composedPath().includes(searchInput)) {
+        event.preventDefault();
+        folderList.querySelector<HTMLButtonElement>("button")?.focus();
+      }
+      return;
+    }
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    const control = event.composedPath().some((node) => node instanceof HTMLElement && (node.tagName === "BUTTON" || node.tagName === "SUMMARY"));
+    if (control && (event.key === "Enter" || event.key === " ")) return;
     if (event.key === "Enter") {
       event.preventDefault();
-      event.stopPropagation();
       submitSelection();
       return;
     }
-    if (event.key !== "Tab") event.preventDefault();
-    event.stopPropagation();
+    event.preventDefault();
   }
 
-  function onKeyup(event: KeyboardEvent) {
-    if (closed || typingInInput(event)) return;
-    event.stopPropagation();
+  function onModalKeyboard(event: Event) {
+    if (!host.isConnected) { close(); return; }
+    if (event.type === "keydown") onKeydown(event as KeyboardEvent);
+    else if (!closed) event.stopImmediatePropagation();
   }
 
-  // 浮层（贴着卡片按钮）只拦 Esc：其余按键照常放行给网页/扩展页，
-  // 否则会误伤页面里正在打字的搜索框等。输入框自己的按键在下面那一层就地兜住。
   function onPopoverKeydown(event: KeyboardEvent) {
     if (closed) return;
+    if (event.isComposing || event.keyCode === 229) return;
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
@@ -415,20 +543,24 @@ export function openFolderPicker(options: FolderPickerOptions): { readonly close
     }
   }
 
-  // 输入框里的正常打字：事件在输入框这一层就地拦住、不再往外传。
   const swallowTyping = (event: Event) => event.stopPropagation();
-  newInput.addEventListener("keyup", swallowTyping);
-  newInput.addEventListener("keypress", swallowTyping);
-  newInput.addEventListener("input", () => { if (!busy) applyLabel(); });
-  newInput.addEventListener("keydown", (event) => {
-    if (event.isComposing || event.keyCode === 229) { swallowTyping(event); return; }
-    if (event.key === "Enter") {
+  searchInput.addEventListener("input", () => {
+    if (busy) return;
+    const visible = visibleFolders();
+    if (visible.length && !visible.some((folder) => folder.id === selected)) selected = visible[0]!.id;
+    renderFolders();
+    if (isPopover) positionPanel();
+  });
+  searchInput.addEventListener("keyup", swallowTyping);
+  searchInput.addEventListener("keypress", swallowTyping);
+  searchInput.addEventListener("keydown", (event) => {
+    event.stopPropagation();
+    if (event.isComposing || event.keyCode === 229) return;
+    if (event.key === "Enter") { event.preventDefault(); submitSelection(); }
+    if (event.key === "ArrowDown") {
       event.preventDefault();
-      event.stopPropagation();
-      submitSelection();
-      return;
+      folderList.querySelector<HTMLButtonElement>("button")?.focus();
     }
-    swallowTyping(event);
   });
 
   confirmBtn.addEventListener("click", submitSelection);
@@ -437,19 +569,33 @@ export function openFolderPicker(options: FolderPickerOptions): { readonly close
 
   if (isPopover) {
     window.addEventListener("keydown", onPopoverKeydown, true);
-    // 滚动 / 缩放时跟着按钮重新定位，别留在原地。
     window.addEventListener("scroll", positionPanel, true);
     window.addEventListener("resize", positionPanel);
   } else {
-    window.addEventListener("keydown", onKeydown, true);
-    window.addEventListener("keyup", onKeyup, true);
+    if (window.LaterOnPickerKeyboard) {
+      releaseKeyboard = window.LaterOnPickerKeyboard.capture(onModalKeyboard, () => !closed && host.isConnected);
+    } else {
+      for (const type of ["keydown", "keypress", "keyup"]) window.addEventListener(type, onModalKeyboard, true);
+    }
   }
 
+  window.__laterOnActivePickerClose = close;
   renderFolders();
   if (isPopover) positionPanel();
-  panel.focus({ preventScroll: true });
-  // 入场动画：下一帧再加类，保证 transition 生效。
-  window.requestAnimationFrame(() => root.classList.add("is-in"));
+  searchInput.focus({ preventScroll: true });
+  window.requestAnimationFrame(() => {
+    if (closed || !host.isConnected) return;
+    root.classList.add("is-in");
+    if (!hasSavedContext || contextNew !== 0 || typeof saveContext?.sameProjectId !== "string" || selected !== saveContext.sameProjectId) return;
+    const row = folderList.querySelector('[role="radio"][aria-checked="true"]');
+    if (!row) return;
+    const box = $(".lon-folders");
+    const bounds = box.getBoundingClientRect();
+    const rowBounds = row.getBoundingClientRect();
+    const scale = box.offsetHeight > 0 && bounds.height > 0 ? bounds.height / box.offsetHeight : 1;
+    if (rowBounds.top < bounds.top) box.scrollTop += (rowBounds.top - bounds.top) / scale;
+    else if (rowBounds.bottom > bounds.bottom) box.scrollTop += (rowBounds.bottom - bounds.bottom) / scale;
+  });
 
   return { close };
 }
@@ -520,7 +666,12 @@ function buildStyle() {
       box-shadow: 0 6px 16px -6px rgba(var(--accent-rgb),.35);
     }
     .lon-title { margin: 12px 0 0; font-size: 20px; font-weight: 800; letter-spacing: -.4px; line-height: 1.3; color: var(--lon-ink); }
-    .lon-summary { margin: 7px 0 0; color: var(--lon-muted); font-size: 12.5px; line-height: 1.6; }
+    .lon-summary { margin: 7px 0 0; color: var(--lon-muted); font-size: 12.5px; line-height: 1.6; overflow-wrap: anywhere; }
+    .lon-existing { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; min-width: 0; }
+    .lon-existing[hidden], .lon-action-preview[hidden] { display: none; }
+    .lon-existing-group { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 5px; padding: 2px 6px; background: var(--lon-soft); color: var(--lon-muted); font-size: 11px; }
+    .lon-existing-more { padding: 2px 0; color: var(--lon-muted); font-size: 11px; }
+    .lon-action-preview { flex: none; margin: 0; color: var(--lon-muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 
     .lon-pages { border: 1px solid var(--lon-line); border-radius: 14px; background: var(--lon-soft); padding: 10px 13px; }
     .lon-pages[hidden] { display: none; }
@@ -532,9 +683,21 @@ function buildStyle() {
     .lon-page-list li { display: flex; align-items: baseline; gap: 8px; font-size: 12px; line-height: 1.5; }
     .lon-page-no { flex: none; min-width: 15px; color: var(--lon-subtle); font-size: 10.5px; font-weight: 700; text-align: right; }
     .lon-page-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--lon-ink); opacity: .82; }
+    .lon-page-info { flex: 1; min-width: 0; }
+    .lon-page-info .lon-page-title { display: block; }
+    .lon-page-url { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; color: var(--lon-subtle); }
+    .lon-page-status { display: block; overflow-wrap: anywhere; font-size: 11px; color: var(--lon-muted); }
 
     .lon-box { display: flex; flex-direction: column; gap: 9px; min-height: 0; }
-    .lon-box-label { margin: 0; color: var(--lon-subtle); font-size: 10.5px; font-weight: 750; letter-spacing: 1px; text-transform: uppercase; }
+    .lon-search-input, .lon-new-input {
+      flex: none; width: 100%; border: 1px solid var(--lon-line); border-radius: 10px; padding: 10px 12px;
+      background: var(--lon-field); color: var(--lon-ink); font-family: inherit; font-size: 13px; outline: none;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .lon-search-input::placeholder, .lon-new-input::placeholder { color: var(--lon-subtle); }
+    .lon-search-input:focus, .lon-new-input:focus { border-color: var(--lon-accent); box-shadow: 0 0 0 3px rgba(var(--accent-rgb),.14); }
+    .lon-empty { margin: 8px 2px 0; color: var(--lon-muted); font-size: 12px; line-height: 1.5; }
+    .lon-empty[hidden] { display: none; }
     .lon-folders { display: flex; flex-direction: column; gap: 6px; max-height: 230px; overflow: auto; padding: 2px; margin: -2px; }
     .lon-folder-list { display: flex; flex-direction: column; gap: 6px; }
     .lon-folder {
@@ -552,23 +715,16 @@ function buildStyle() {
     .lon-folder-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
     .lon-folder-ph { width: 100%; height: 100%; display: grid; place-items: center; border-radius: 9px; background: var(--accent-soft-hover); color: var(--lon-accent); font-size: 13px; font-weight: 800; }
     .lon-folder-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; font-weight: 650; }
+    .lon-folder-info { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 2px; }
+    .lon-folder-matched { font-size: 10.5px; font-weight: 500; color: var(--lon-muted); }
     .lon-folder-count { flex: none; color: var(--lon-subtle); font-size: 11.5px; font-weight: 700; }
     .lon-folder.is-selected .lon-folder-count { color: var(--lon-accent); }
     .lon-folder-tick { flex: none; width: 14px; color: var(--lon-accent); font-size: 13px; font-weight: 800; opacity: 0; transition: opacity .15s; }
     .lon-folder.is-selected .lon-folder-tick { opacity: 1; }
 
-    .lon-new-input {
-      width: 100%; border: 1px solid var(--lon-line); border-radius: 12px; padding: 11px 13px;
-      background: var(--lon-field); color: var(--lon-ink);
-      font-family: inherit; font-size: 13px; outline: none;
-      transition: border-color .15s, box-shadow .15s;
-    }
-    .lon-new-input::placeholder { color: var(--lon-subtle); }
-    .lon-new-input:focus { border-color: var(--lon-accent); box-shadow: 0 0 0 3px rgba(var(--accent-rgb),.14); }
-
-    .lon-hint { margin: 0; color: var(--lon-subtle); font-size: 11.5px; text-align: center; }
     .lon-foot { display: flex; gap: 10px; }
     .lon-foot button {
+      min-width: 0; overflow-wrap: anywhere; line-height: 1.5;
       border-radius: 14px; padding: 12px; font-family: inherit; font-size: 13.5px; cursor: pointer;
       transition: filter .15s, background .15s, transform .12s;
     }
@@ -586,7 +742,6 @@ function buildStyle() {
     .lon-folders::-webkit-scrollbar-thumb, .lon-page-list::-webkit-scrollbar-thumb { border-radius: 99px; background: var(--lon-line); }
     .lon-folders::-webkit-scrollbar-track, .lon-page-list::-webkit-scrollbar-track { background: transparent; }
 
-    /* ── 浮层（贴着卡片按钮）：没有灰色遮罩、定位在按钮旁边 ── */
     .lon-root.lon-popover {
       display: block; padding: 0; pointer-events: none;
     }
@@ -599,8 +754,6 @@ function buildStyle() {
       width: min(360px, calc(100vw - 16px));
       max-height: min(560px, calc(100vh - 16px));
     }
-    /* 浮层没有品牌标识那一行了，标题的上边距是当初用来跟它拉开距离的，一起收掉，
-       否则顶部会白留 12px。 */
     .lon-root.lon-popover .lon-title { margin-top: 0; }
 
     @media (max-width: 460px) {

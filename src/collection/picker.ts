@@ -1,3 +1,5 @@
+import { buildPickerSaveContext, type PickerSaveContext } from "./picker-save-context";
+
 // The web overlay and extension fallback page share the same project list.
 export interface PickerProject {
   readonly id: string;
@@ -8,6 +10,7 @@ export interface PickerProject {
 
 export interface PickerItem {
   readonly id: string;
+  readonly url?: string;
   readonly projectId?: string | null;
   readonly image?: string;
 }
@@ -31,6 +34,17 @@ export interface PickerFolder {
   readonly name: string;
   readonly count: number;
   readonly cover: string | null;
+  readonly matchedCount?: number;
+}
+
+export interface PickerPage {
+  readonly title: string;
+  readonly url: string;
+  readonly saved?: boolean;
+  readonly projectId?: string;
+  readonly projectName?: string;
+  readonly archived?: boolean;
+  readonly missing?: boolean;
 }
 
 export interface PickerPayload {
@@ -39,9 +53,12 @@ export interface PickerPayload {
   readonly selected: string;
   readonly batchId?: string;
   readonly savedCount: number;
+  readonly saveContext?: PickerSaveContext;
   readonly folders: readonly PickerFolder[];
-  readonly pages: readonly { readonly title: string; readonly url: string }[];
+  readonly pages: readonly PickerPage[];
 }
+
+export type { PickerSaveContext, PickerSaveGroup } from "./picker-save-context";
 
 /** Build UI data from the current collection and a fixed batch snapshot. */
 export function buildPayload(stored: PickerSnapshot, payload: PickerRequest): PickerPayload {
@@ -49,6 +66,7 @@ export function buildPayload(stored: PickerSnapshot, payload: PickerRequest): Pi
   const items = stored.laterOnItems || [];
   const settings = stored.laterOnSettings || {};
   const covers = stored.laterOnCovers || {};
+  const english = settings.language === "en";
   const counts = new Map<string, number>();
   items.forEach((item) => {
     const id = item.projectId || "";
@@ -71,17 +89,27 @@ export function buildPayload(stored: PickerSnapshot, payload: PickerRequest): Pi
   const folder = (id: string, name: string): PickerFolder => ({
     id, name, count: counts.get(id) || 0, cover: coverFor(id)
   });
+  const context = buildPickerSaveContext(payload.tabs, items, projects, english);
   const folders = [
-    folder("", settings.language === "en" ? "Inbox" : "等待整理"),
+    folder("", english ? "Inbox" : "等待整理"),
     ...projects.filter((project) => !project.archived).map((project) => folder(project.id, project.name))
-  ];
+  ].map((entry) => ({ ...entry, matchedCount: context.matchedCounts.get(entry.id) || 0 }));
+
+  let selected = folders.find((entry) => entry.id === payload.projectId)?.id || "";
+  if (context.saveContext.sameProjectId !== null &&
+    folders.some((entry) => entry.id === context.saveContext.sameProjectId)) {
+    selected = context.saveContext.sameProjectId;
+  }
+  if (selected && !folders.some((entry) => entry.id === selected)) selected = "";
+
   return {
     theme: settings.theme || "light",
-    language: settings.language === "en" ? "en" : "zh-CN",
-    selected: folders.find((entry) => entry.id === payload.projectId)?.id || "",
+    language: english ? "en" : "zh-CN",
+    selected,
     batchId: payload.batchId,
-    savedCount: payload.savedCount || 0,
+    savedCount: payload.tabs ? context.saveContext.savedCount : (payload.savedCount || 0),
+    ...(payload.tabs ? { saveContext: context.saveContext } : {}),
     folders,
-    pages: (payload.tabs || []).map((entry) => ({ title: entry.title || entry.url, url: entry.url }))
+    pages: payload.tabs ? context.pages : []
   };
 }

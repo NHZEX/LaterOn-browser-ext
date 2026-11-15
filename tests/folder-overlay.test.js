@@ -117,13 +117,13 @@ const PAGES = [
   check("并收藏到新建的项目里", sent.filter((m) => m.type === "CONFIRM_BATCH_SAVE").at(-1)?.projectId === "new-folder-1");
   await tick(300);
 
-  console.log("\n── 交互：改选项目会丢掉没提交的新名字 ──");
+  console.log("\n── 交互：筛选时改选项目仍保留搜索词 ──");
   openOverlay({ theme: "light", selected: "work", folders: FOLDERS, pages: PAGES });
   const pickShadow = shadowNow();
-  typeNew(pickShadow, "临时想法");
-  pickShadow.querySelectorAll(".lon-folder")[1].dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
-  check("点了项目就清空输入框", pickShadow.querySelector(".lon-new-input").value === "");
-  check("按钮回到「添加到「工作」」", pickShadow.querySelector(".lon-primary").textContent === "添加到「工作」", pickShadow.querySelector(".lon-primary").textContent);
+  typeNew(pickShadow, "工");
+  pickShadow.querySelectorAll(".lon-folder")[0].dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  check("点了项目后搜索词仍保留", pickShadow.querySelector(".lon-new-input").value === "工");
+  check("有匹配时主按钮为添加到所选项目", pickShadow.querySelector(".lon-primary").textContent === "添加到「工作」", pickShadow.querySelector(".lon-primary").textContent);
   document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
   await tick(300);
 
@@ -214,6 +214,31 @@ const PAGES = [
 
   const sumPlain = openLayer({});
   check("没有已添加的页面时，用普通说法", /选好项目后就会开始逐个添加/.test(sumPlain), sumPlain);
+  document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+  await tick(300);
+
+  console.log("\n── 已有归属预览（saveContext）──");
+  openOverlay({
+    theme: "light", selected: "work", folders: [
+      { id: "", name: "等待整理", count: 0, matchedCount: 0 },
+      { id: "work", name: "工作", count: 3, matchedCount: 1 },
+      { id: "design", name: "设计灵感", count: 5, matchedCount: 0 }
+    ],
+    pages: [
+      { title: "文章一", url: "https://a.com/1", saved: true, projectId: "work", projectName: "工作" },
+      { title: "文章二", url: "https://a.com/2", saved: false }
+    ],
+    savedCount: 1,
+    saveContext: {
+      total: 2, savedCount: 1, newCount: 1, sameProjectId: null,
+      groups: [{ projectId: "work", projectName: "工作", count: 1 }]
+    }
+  });
+  const ctxShadow = document.querySelector("#lateron-folder-picker").shadowRoot;
+  check("混合批次摘要显示待添加与已存", /1篇待添加/.test(ctxShadow.querySelector(".lon-summary").textContent) && /1篇已存/.test(ctxShadow.querySelector(".lon-summary").textContent), ctxShadow.querySelector(".lon-summary").textContent);
+  check("展示原归属 chip", /「工作」/.test(ctxShadow.querySelector(".lon-existing").textContent), ctxShadow.querySelector(".lon-existing").textContent);
+  check("确认预览含新增保留移入", /新增1/.test(ctxShadow.querySelector(".lon-action-preview").textContent) && /保留1/.test(ctxShadow.querySelector(".lon-action-preview").textContent), ctxShadow.querySelector(".lon-action-preview").textContent);
+  check("项目行标注已在这里", /已在这里/.test(ctxShadow.querySelector(".lon-folder.is-selected").textContent), ctxShadow.querySelector(".lon-folder.is-selected").textContent);
   document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
   await tick(300);
 

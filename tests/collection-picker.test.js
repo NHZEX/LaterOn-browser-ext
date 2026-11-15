@@ -1,10 +1,10 @@
 const assert = require("node:assert/strict");
-const { buildPayload } = require("../src/collection/picker.ts");
+const { buildPayload } = require("./helpers/load-module.cjs")("src/collection/picker.ts");
 
 assert.equal(globalThis.LaterOnPicker, undefined, "Importing the pure module does not install a global");
 assert.deepEqual(buildPayload({}, {}), {
   theme: "light", language: "zh-CN", selected: "", batchId: undefined, savedCount: 0,
-  folders: [{ id: "", name: "等待整理", count: 0, cover: null }], pages: []
+  folders: [{ id: "", name: "等待整理", count: 0, cover: null, matchedCount: 0 }], pages: []
 });
 
 const stored = {
@@ -42,16 +42,20 @@ const request = {
 };
 const before = structuredClone({ stored, request });
 const expected = {
-  theme: "dark", language: "en", selected: "linked", batchId: "batch-fixed", savedCount: 4,
+  theme: "dark", language: "en", selected: "linked", batchId: "batch-fixed", savedCount: 0,
+  saveContext: { total: 2, savedCount: 0, newCount: 2, groups: [], sameProjectId: null },
   folders: [
-    { id: "", name: "Inbox", count: 2, cover: "https://example.com/inbox.png" },
-    { id: "custom", name: "Custom", count: 1, cover: "https://example.com/custom.png" },
-    { id: "stored", name: "Stored", count: 1, cover: "data:image/png;base64,AQ==" },
-    { id: "linked", name: "Linked", count: 1, cover: "data:image/png;base64,Ag==" },
-    { id: "fallback", name: "Fallback", count: 2, cover: "https://example.com/fallback.png" },
-    { id: "empty", name: "Empty", count: 1, cover: null }
+    { id: "", name: "Inbox", count: 2, cover: "https://example.com/inbox.png", matchedCount: 0 },
+    { id: "custom", name: "Custom", count: 1, cover: "https://example.com/custom.png", matchedCount: 0 },
+    { id: "stored", name: "Stored", count: 1, cover: "data:image/png;base64,AQ==", matchedCount: 0 },
+    { id: "linked", name: "Linked", count: 1, cover: "data:image/png;base64,Ag==", matchedCount: 0 },
+    { id: "fallback", name: "Fallback", count: 2, cover: "https://example.com/fallback.png", matchedCount: 0 },
+    { id: "empty", name: "Empty", count: 1, cover: null, matchedCount: 0 }
   ],
-  pages: [{ title: "Original title", url }, { title: "https://example.com/untitled", url: "https://example.com/untitled" }]
+  pages: [
+    { title: "Original title", url, saved: false },
+    { title: "https://example.com/untitled", url: "https://example.com/untitled", saved: false }
+  ]
 };
 assert.deepEqual(buildPayload(stored, request), expected, "Project order, counts, cover priorities and batch metadata stay intact");
 assert.deepEqual({ stored, request }, before, "The snapshot and batch request are not mutated");

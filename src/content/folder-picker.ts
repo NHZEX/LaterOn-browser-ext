@@ -22,6 +22,7 @@ export function showFolderPickerOverlay(payload: FolderPickerOptions & { readonl
   const pages = Array.isArray(data.pages) ? data.pages : [];
   const savedCount = Number(data.savedCount) || 0;
   const selected = typeof data.selected === "string" ? data.selected : "";
+  const saveContext = data.saveContext;
 
   openFolderPicker({
     theme,
@@ -30,6 +31,7 @@ export function showFolderPickerOverlay(payload: FolderPickerOptions & { readonl
     selected,
     pages,
     savedCount,
+    saveContext,
     // 新建项目 / 确认收藏 / 取消收藏：都走后台那一套，行为和以前完全一致。
     // onCreateProject 按约定返回「项目对象 {id,name}」（不是后台那层 {ok,project} 包装），
     // 所以这里把响应拆开再交出去。
