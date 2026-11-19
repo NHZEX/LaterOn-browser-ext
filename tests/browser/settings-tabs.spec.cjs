@@ -146,7 +146,7 @@ for (const action of ["BACKUP_EXPORT", "BACKUP_APPLY"]) {
       await expect.poll(() => page.evaluate(() => typeof window.backupGate.release)).toBe("function");
       const webdavEndpoint = page.getByPlaceholder("https://…");
       if (action === "BACKUP_EXPORT") {
-        await page.getByText("WebDAV backups", { exact: true }).click();
+        await page.getByText("Configure WebDAV", { exact: true }).click();
         await expect(webdavEndpoint).toBeVisible();
         await expect(webdavEndpoint).toBeDisabled();
       }

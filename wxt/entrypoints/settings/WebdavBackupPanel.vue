@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, shallowRef } from "vue";
+import { computed, onMounted, reactive, ref, shallowRef } from "vue";
 import { recoveryBackup, recoveryStatus } from "../../../src/backup/client";
 import * as remote from "../../../src/backup/webdav-client";
 import { DEFAULT_BACKUP_OPTIONS, MIB } from "../../../src/backup/webdav-shared";
@@ -14,7 +14,6 @@ import type { SettingsDialog } from "./useDialog";
 const props = defineProps<{ dialog: SettingsDialog }>();
 const busy = defineModel<boolean>("busy", { default: false });
 const status = shallowRef<BackupStatus | null>(null);
-let loadingStatus = false;
 const form = reactive({ ...DEFAULT_BACKUP_OPTIONS });
 const password = ref("");
 const entries = shallowRef<readonly RemoteBackup[]>([]);
@@ -76,22 +75,6 @@ async function perform(action: () => Promise<void>): Promise<void> {
   try { await action(); }
   catch (problem) { error.value = errorText(problem instanceof Error ? problem.message : "WEBDAV_FAILED"); }
   finally { busy.value = false; }
-}
-async function openPanel(event: Event): Promise<void> {
-  if (!((event.currentTarget as HTMLDetailsElement).open) || status.value || loadingStatus) return;
-  loadingStatus = true;
-  error.value = "";
-  try {
-    const saved = await remote.webdavStatus();
-    status.value = saved.status;
-    Object.assign(form, saved.status.options);
-    manualImages.value = form.includeImages;
-    hasRecovery.value = (await recoveryStatus()).available;
-  } catch (problem) {
-    error.value = errorText(problem instanceof Error ? problem.message : "WEBDAV_FAILED");
-  } finally {
-    loadingStatus = false;
-  }
 }
 async function save(): Promise<void> {
   await perform(async () => {
@@ -171,41 +154,69 @@ async function downloadRecovery(): Promise<void> {
     saveBackupFile(payload, `stayside-recovery-${payload.exportedAt.replaceAll(":", "-")}.json`, true);
   });
 }
+
+async function loadStatus(): Promise<void> {
+  error.value = "";
+  try {
+    const { status: saved } = await remote.webdavStatus();
+    Object.assign(form, saved.options);
+    manualImages.value = saved.options.includeImages;
+    status.value = saved;
+    hasRecovery.value = (await recoveryStatus()).available;
+  } catch (problem) {
+    error.value = errorText(problem instanceof Error ? problem.message : "WEBDAV_FAILED");
+  }
+}
+
+onMounted(loadStatus);
 </script>
 
 <template>
-  <details class="webdav-backup" @toggle="openPanel">
-    <summary>{{ t('webdavTitle') }}</summary>
-    <form v-if="status" class="webdav-form" @submit.prevent="save">
-      <label><span>{{ t('webdavEndpoint') }}</span><input v-model="form.endpoint" type="url" required placeholder="https://…" :disabled="busy" /></label>
-      <label><span>{{ t('webdavDirectory') }}</span><input v-model="form.directory" type="text" required :disabled="busy" /></label>
-      <label><span>{{ t('webdavUsername') }}</span><input v-model="form.username" type="text" required autocomplete="username" :disabled="busy" /></label>
-      <label><span>{{ t('webdavPassword') }}</span><input v-model="password" type="password" autocomplete="off" :required="!status.configured" :placeholder="status.configured ? t('webdavPasswordSaved') : ''" :disabled="busy" /></label>
-      <label><span>{{ t('webdavHours') }}</span><input v-model.number="form.intervalHours" type="number" min="1" max="720" step="1" required :disabled="busy" /></label>
-      <label><span>{{ t('webdavBudget') }}</span><input v-model.number="form.budgetMiB" type="number" min="1" max="100000" step="1" required :disabled="busy" /></label>
-      <div class="export-actions webdav-wide">
-        <label class="export-images"><input v-model="form.automatic" type="checkbox" :disabled="busy" /><span>{{ t('webdavEnableAuto') }}</span></label>
-        <label class="export-images"><input v-model="form.includeImages" type="checkbox" :disabled="busy" /><span>{{ t('webdavAutoImages') }}</span></label>
+  <section class="webdav-backup" aria-labelledby="webdav-backup-title">
+    <div class="webdav-overview">
+      <div class="webdav-status">
+        <h3 id="webdav-backup-title" class="backup-subsection-title">{{ t('webdavTitle') }}</h3>
+        <template v-if="status?.configured">
+          <p class="setting-note">{{ status.lastBackup === null ? t('webdavNeverBackedUp') : t('webdavLastBackup', { time: displayTime(status.lastBackup) }) }}</p>
+          <p class="setting-note">{{ t('webdavUsage', { used, total: status.options.budgetMiB, requests: status.usage.requests }) }}</p>
+          <p v-if="status.lastError" class="webdav-error" role="status">{{ errorText(status.lastError) }}</p>
+          <p v-if="status.cleanupPending" class="setting-note" role="status">{{ t('webdavCleanupPending') }}</p>
+        </template>
       </div>
-      <div class="import-actions webdav-wide">
-        <button class="setting-action" type="submit" :disabled="busy || !dirty">{{ t('webdavSave') }}</button>
-        <button class="setting-action" type="button" :disabled="!onlineActions" @click="testConnection">{{ t('webdavTest') }}</button>
-      </div>
-    </form>
-    <p v-if="error" class="webdav-error" role="alert">{{ error }}</p>
-    <p v-if="note" class="setting-note" role="status">{{ note }}</p>
-    <div v-if="status?.configured" class="webdav-operations">
-      <p class="setting-note">{{ t('webdavUsage', { used, total: status.options.budgetMiB, requests: status.usage.requests }) }}</p>
-      <p v-if="status.lastBackup" class="setting-note">{{ t('webdavLastBackup', { time: displayTime(status.lastBackup) }) }}</p>
-      <p v-if="status.lastError" class="webdav-error" role="status">{{ errorText(status.lastError) }}</p>
-      <p v-if="status.cleanupPending" class="setting-note" role="status">{{ t('webdavCleanupPending') }}</p>
-      <div class="export-actions">
-        <button class="setting-action" type="button" :disabled="!onlineActions" @click="upload">{{ t('webdavBackupNow') }}</button>
+      <div v-if="status?.configured" class="data-actions">
+        <div class="export-actions">
+          <button class="setting-action" type="button" :disabled="!onlineActions" @click="upload">{{ t('webdavBackupNow') }}</button>
+          <button class="setting-action" type="button" :disabled="!onlineActions" @click="refresh">{{ t(loadedList ? 'webdavRefreshList' : 'webdavList') }}</button>
+        </div>
         <label class="export-images"><input v-model="manualImages" type="checkbox" :disabled="busy" /><span>{{ t('backupIncludeImages') }}</span></label>
-        <button class="setting-action" type="button" :disabled="!onlineActions" @click="refresh">{{ t('webdavList') }}</button>
       </div>
-      <p v-if="loadedList && !entries.length" class="setting-note">{{ t('webdavNoBackups') }}</p>
-      <template v-if="entries.length">
+    </div>
+    <details v-if="status" class="webdav-config">
+      <summary>{{ t(status.configured ? 'webdavConnectionSettings' : 'webdavConfigure') }}</summary>
+      <form class="webdav-form" @submit.prevent="save">
+        <label><span>{{ t('webdavEndpoint') }}</span><input v-model="form.endpoint" type="url" required placeholder="https://…" :disabled="busy" /></label>
+        <label><span>{{ t('webdavDirectory') }}</span><input v-model="form.directory" type="text" required :disabled="busy" /></label>
+        <label><span>{{ t('webdavUsername') }}</span><input v-model="form.username" type="text" required autocomplete="username" :disabled="busy" /></label>
+        <label><span>{{ t('webdavPassword') }}</span><input v-model="password" type="password" autocomplete="off" :required="!status.configured" :placeholder="status.configured ? t('webdavPasswordSaved') : ''" :disabled="busy" /></label>
+        <label><span>{{ t('webdavHours') }}</span><input v-model.number="form.intervalHours" type="number" min="1" max="720" step="1" required :disabled="busy" /></label>
+        <label><span>{{ t('webdavBudget') }}</span><input v-model.number="form.budgetMiB" type="number" min="1" max="100000" step="1" required :disabled="busy" /></label>
+        <div class="export-actions webdav-wide">
+          <label class="export-images"><input v-model="form.automatic" type="checkbox" :disabled="busy" /><span>{{ t('webdavEnableAuto') }}</span></label>
+          <label class="export-images"><input v-model="form.includeImages" type="checkbox" :disabled="busy" /><span>{{ t('webdavAutoImages') }}</span></label>
+        </div>
+        <div class="import-actions webdav-wide">
+          <button class="setting-action" type="submit" :disabled="busy || !dirty">{{ t('webdavSave') }}</button>
+          <button class="setting-action" type="button" :disabled="!onlineActions" @click="testConnection">{{ t('webdavTest') }}</button>
+        </div>
+      </form>
+    </details>
+    <p v-if="status?.configured && dirty" class="setting-note">{{ t('webdavUnsaved') }}</p>
+    <p v-if="error" class="webdav-error" role="alert">{{ error }}</p>
+    <button v-if="error && !status" class="setting-action webdav-local-action" type="button" @click="loadStatus">{{ t('retry') }}</button>
+    <p v-if="note" class="setting-note" role="status">{{ note }}</p>
+    <div v-if="loadedList" class="webdav-operations">
+      <p v-if="!entries.length" class="setting-note" role="status">{{ t('webdavNoBackups') }}</p>
+      <template v-else>
         <select v-model="selectedKey" class="setting-select webdav-files" :aria-label="t('webdavSelect')" :disabled="busy">
           <option v-for="entry in entries" :key="entryKey(entry)" :value="entryKey(entry)">{{ entryLabel(entry) }}</option>
         </select>
@@ -220,13 +231,17 @@ async function downloadRecovery(): Promise<void> {
         </div>
       </template>
     </div>
-    <button v-if="hasRecovery" class="setting-action" type="button" :disabled="busy" @click="downloadRecovery">{{ t('webdavRecovery') }}</button>
-  </details>
+    <button v-if="hasRecovery" class="setting-action webdav-local-action" type="button" :disabled="busy" @click="downloadRecovery">{{ t('webdavRecovery') }}</button>
+  </section>
 </template>
 
 <style scoped>
-.webdav-backup { border-top: 1px solid var(--hairline); padding: 12px 0 4px; }
-.webdav-backup summary { width: fit-content; padding: 6px 0; cursor: pointer; font-size: 13px; font-weight: 650; }
+.webdav-backup { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; border-top: 1px solid var(--hairline); padding: 14px 0 4px; }
+.webdav-overview { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 24px; }
+.webdav-status { min-width: 0; }
+.webdav-status > h3 { margin-bottom: 4px; }
+.webdav-backup :is(.setting-note, .webdav-error) { margin: 0; }
+.webdav-config > summary { width: fit-content; padding: 6px 0; cursor: pointer; font-size: 13px; font-weight: 650; }
 .webdav-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; padding: 10px 0; }
 .webdav-form > label { display: grid; gap: 5px; color: var(--muted); font-size: 13px; }
 .webdav-form > label > input {
@@ -236,8 +251,8 @@ async function downloadRecovery(): Promise<void> {
 .webdav-form > label > input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .webdav-wide { grid-column: 1 / -1; }
 .webdav-error { color: var(--danger); font-size: 13px; }
-.webdav-operations { display: grid; gap: 8px; padding: 8px 0; }
-.webdav-operations .setting-note { margin: 0; }
-.webdav-files { max-width: 100%; }
+.webdav-operations { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; border-top: 1px solid var(--hairline); padding-top: 12px; }
+.webdav-files { min-width: 0; max-width: 100%; }
+.webdav-local-action { justify-self: start; }
 @media (max-width: 550px) { .webdav-form { grid-template-columns: minmax(0, 1fr); } }
 </style>

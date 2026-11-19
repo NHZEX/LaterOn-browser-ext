@@ -54,10 +54,13 @@ async function readBackupFile(file: File): Promise<unknown> {
 </script>
 
 <template>
-  <section class="settings-group" :aria-busy="busy">
-    <h2>{{ t('backupRestore') }}</h2>
-    <div class="setting-row">
-      <div class="setting-label"><strong>{{ t('backupRestore') }}</strong><span>{{ t('backupHint') }}</span></div>
+  <section class="settings-group" aria-labelledby="backup-restore-title" :aria-busy="busy">
+    <h2 id="backup-restore-title">{{ t('backupRestore') }}</h2>
+    <section class="setting-row" aria-labelledby="local-backup-title">
+      <div class="setting-label">
+        <h3 id="local-backup-title" class="backup-subsection-title">{{ t('backupLocalFiles') }}</h3>
+        <span>{{ t('backupHint') }}</span>
+      </div>
       <div class="data-actions">
         <div class="export-actions">
           <button id="exportBtn" class="setting-action" type="button" :disabled="busy" @click="download">{{ t('export') }}</button>
@@ -72,7 +75,7 @@ async function readBackupFile(file: File): Promise<unknown> {
         </div>
         <input id="importFile" ref="fileInput" type="file" accept="application/json,application/zip,.json,.zip" hidden @change="importFile" />
       </div>
-    </div>
+    </section>
     <WebdavBackupPanel v-model:busy="busy" :dialog="dialog" />
   </section>
 </template>
