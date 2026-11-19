@@ -3,6 +3,7 @@ const sourcePath = require("./helpers/source-path.cjs");
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
+const { createWorkerContext } = require("./helpers/worker-context.cjs");
 
 const ROOT = path.join(__dirname, "..");
 const code = require("./helpers/read-runtime.cjs")("background.js");
@@ -94,7 +95,7 @@ const sandbox = {
   importScripts() {}, URL, console, Date, Promise, JSON, Set, Map, RegExp, Object, Array, Math,
   String, Number, Boolean, Error, setTimeout, clearTimeout
 };
-vm.createContext(sandbox);
+createWorkerContext(sandbox);
 vm.runInContext(code, sandbox, { filename: "background.js" });
 
 const tick = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms));

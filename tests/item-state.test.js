@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const vm = require("node:vm");
+const { createWorkerContext } = require("./helpers/worker-context.cjs");
 const { webcrypto } = require("node:crypto");
 const rules = require("../src/collection/item-state.ts");
 const read = require("./helpers/read-runtime.cjs");
@@ -65,7 +66,7 @@ const chrome = {
   tabs: { onUpdated: event(), onRemoved: event(), onCreated: event(), onActivated: event() },
   action: {}, sidePanel: { setPanelBehavior() {} }
 };
-const worker = vm.createContext({ chrome, Date: FixtureDate, console, URL, crypto: webcrypto, setTimeout, clearTimeout, setInterval, clearInterval });
+const worker = createWorkerContext({ chrome, Date: FixtureDate, console, URL, crypto: webcrypto, setTimeout, clearTimeout, setInterval, clearInterval });
 worker.importScripts = (...names) => names.forEach(name => vm.runInContext(read(name), worker, { filename: name }));
 vm.runInContext(read("background-test-api.js"), worker);
 const execute = fields => worker.backgroundTest.execute(fields);

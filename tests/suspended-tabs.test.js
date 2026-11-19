@@ -2,6 +2,7 @@ const sourcePath = require("./helpers/source-path.cjs");
 // Actual URL helpers + worker with isolated storage; never touches user tabs or data.
 const assert = require("node:assert/strict");
 const vm = require("node:vm");
+const { createWorkerContext } = require("./helpers/worker-context.cjs");
 const { webcrypto } = require("node:crypto");
 const { readFileSync } = require("node:fs");
 const path = require("node:path");
@@ -119,7 +120,7 @@ function worker() {
       async executeScript(options) { injections.push(options); return [{ result: null }]; }
     }
   };
-  const ctx = vm.createContext({
+  const ctx = createWorkerContext({
     chrome, URL, URLSearchParams, crypto: webcrypto, TextEncoder, console,
     setTimeout(...args) { const timer = setTimeout(...args); timer.unref(); return timer; }, clearTimeout, setInterval, clearInterval,
     async fetch(url, options) {

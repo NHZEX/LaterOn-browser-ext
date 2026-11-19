@@ -7,14 +7,23 @@ interface BackupRequest {
   readonly mode?: unknown;
   readonly token?: Partial<ImportToken>;
   readonly includeImages?: unknown;
+  readonly keepRecovery?: unknown;
 }
 
 import * as core from "./core";
 import * as store from "../storage/coordinator";
 import { normalize } from "../shared/url-utils";
 
+const RECOVERY_KEY = "laterOnPreRestoreBackup";
+const RECOVERY_AT = "laterOnPreRestoreBackupAt";
+const snapshot = () => chrome.storage.local.get<BackgroundSnapshot>([...store.KEYS]);
+
+export async function createLocalBackup(includeImages: boolean): Promise<core.BackupDocument> {
+  return store.enqueue(async () => core.create(await snapshot(), chrome.runtime.getManifest().version,
+    new Date().toISOString(), { includeImages }));
+}
+
 export function registerBackup() {
-  const snapshot = () => chrome.storage.local.get<BackgroundSnapshot>([...store.KEYS]);
   const fingerprint = async (value: unknown) => {
     const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)));
     return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -29,8 +38,7 @@ export function registerBackup() {
     : core.merge(current, incoming, normalize, () => crypto.randomUUID());
 
   async function exportBackup({ includeImages }: BackupRequest) {
-    return store.enqueue(async () => ({ ok: true, payload: core.create(await snapshot(), chrome.runtime.getManifest().version,
-      new Date().toISOString(), { includeImages: includeImages === true }) }));
+    return { ok: true, payload: await createLocalBackup(includeImages === true) };
   }
 
   async function preview({ payload, mode }: BackupRequest) {
@@ -47,7 +55,7 @@ export function registerBackup() {
     });
   }
 
-  async function apply({ token, payload, mode }: BackupRequest) {
+  async function apply({ token, payload, mode, keepRecovery }: BackupRequest) {
     if (!token || typeof token.revision !== "string" || token.createdAt === undefined || !/^[a-f0-9]{64}$/.test(token.revision) || !Number.isFinite(token.createdAt)
       || token.createdAt > Date.now() || token.createdAt < Date.now() - 10 * 60 * 1000) throw new Error("IMPORT_PREVIEW_EXPIRED");
     const incoming = validate({ payload, mode });
@@ -57,6 +65,11 @@ export function registerBackup() {
       const current = core.fromStorage(latest, { resolveIcons: mode !== "replace" });
       const result = plan(current, incoming, mode);
       const epoch = crypto.randomUUID();
+      if (mode === "replace" && keepRecovery === true) {
+        const recovery = core.create(latest, chrome.runtime.getManifest().version, new Date().toISOString(), { includeImages: true });
+        if (new TextEncoder().encode(JSON.stringify(recovery)).byteLength > core.MAX_BYTES) throw new Error("BACKUP_TOO_LARGE");
+        await chrome.storage.local.set({ [RECOVERY_KEY]: recovery, [RECOVERY_AT]: recovery.exportedAt });
+      }
       // A single storage write commits all references and invalidates old pages.
       await store.commit(latest, { ...core.toStorage(result.data), [store.EPOCH]: epoch,
         laterOnCurrentItem: null, laterOnActiveProject: "all" });
@@ -75,7 +88,9 @@ export function registerBackup() {
   }
 
   const handlers = new Map<string, (request: BackupRequest) => Promise<object>>([
-    ["BACKUP_EXPORT", exportBackup], ["BACKUP_PREVIEW", preview], ["BACKUP_APPLY", apply], ["COLLECTION_WIPE", wipe]
+    ["BACKUP_EXPORT", exportBackup], ["BACKUP_PREVIEW", preview], ["BACKUP_APPLY", apply], ["COLLECTION_WIPE", wipe],
+    ["BACKUP_RECOVERY", async () => ({ ok: true, payload: (await chrome.storage.local.get(RECOVERY_KEY))[RECOVERY_KEY] ?? null })],
+    ["BACKUP_RECOVERY_STATUS", async () => ({ ok: true, available: !!(await chrome.storage.local.get(RECOVERY_AT))[RECOVERY_AT] })]
   ]);
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
     const handler = handlers.get(message?.type);

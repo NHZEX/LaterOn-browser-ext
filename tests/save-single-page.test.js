@@ -11,6 +11,7 @@ const sourcePath = require("./helpers/source-path.cjs");
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
+const { createWorkerContext } = require("./helpers/worker-context.cjs");
 const { webcrypto } = require("crypto");
 const { URL } = require("url");
 
@@ -162,7 +163,7 @@ const sandbox = {
   importScripts() {},
 };
 sandbox.globalThis = sandbox;
-vm.createContext(sandbox);
+createWorkerContext(sandbox);
 
 vm.runInContext(src, sandbox, { filename: "background.js" });
 

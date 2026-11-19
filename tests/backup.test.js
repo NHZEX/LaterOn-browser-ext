@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { createWorkerContext } = require("./helpers/worker-context.cjs");
 const { webcrypto } = require('node:crypto');
 const root = path.resolve(__dirname, '..');
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -23,7 +24,7 @@ const chrome = {
   tabs: { onUpdated: event(), onRemoved: event(), onCreated: event(), onActivated: event() }, action: {}, sidePanel: { setPanelBehavior() {} }
 };
 chrome.scripting = { async insertCSS() {}, async executeScript() { return []; } };
-const ctx = vm.createContext({ chrome, URL, TextEncoder, crypto: webcrypto, console, setTimeout, clearTimeout, setInterval, clearInterval });
+const ctx = createWorkerContext({ chrome, URL, TextEncoder, crypto: webcrypto, console, setTimeout, clearTimeout, setInterval, clearInterval });
 ctx.importScripts = (...names) => names.forEach(name => vm.runInContext(require("./helpers/read-runtime.cjs")(name), ctx, { filename: name }));
 ctx.importScripts('background-test-api.js');
 const core = require("./helpers/load-module.cjs")("src/backup/core.ts");

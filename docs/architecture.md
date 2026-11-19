@@ -15,7 +15,7 @@
 | 独立项目选择页 | [页面入口](../wxt/entrypoints/save-project-picker/main.ts) → [选择器](../src/picker/main.ts)，使用共享 DOM UI；归属快照见 [picker-save-context](../src/collection/picker-save-context.ts)，由 [buildPayload](../src/collection/picker.ts) 写入选项目弹窗 |
 | 页面数据命令与共享队列 | [客户端](../src/storage/client.ts)、[协调器](../src/storage/coordinator.ts)、[契约](../src/storage/contracts.ts) |
 | 内嵌网站图标共享与回收 | [图标规则](../src/storage/icons.ts)；收藏写入统一经过协调器的 `commit` |
-| 备份导出、预览、恢复与清空 | [后台协议](../src/backup/background.ts)、[纯数据核心](../src/backup/core.ts)；语义见 [备份说明](backup-format.md) |
+| 备份导出、预览、恢复与清空 | [后台协议](../src/backup/background.ts)、[纯数据核心](../src/backup/core.ts)。[WebDAV 后台](../src/backup/webdav-background.ts) 复用收藏快照并独立协调网络传输，语义见 [备份说明](backup-format.md) |
 | URL 身份、标签复用与共享规则 | [URL](../src/shared/url-utils.ts)、[标签导航](../src/tabs/navigation.ts)、[筛选](../src/collection/filter.ts)、[排序](../src/shared/collection-sort.ts)、[编辑](../src/collection/item-edit.ts)、[阅读状态](../src/collection/item-state.ts) |
 | 公共界面 | [国际化](../src/shared/i18n.ts)、[弹窗加载](../src/ui/load-dialog.ts)、[弹窗](../src/ui/dialog.ts)、[引导](../src/ui/onboarding.ts) |
 | 共享配色 | 页面入口共同加载 [强调色与状态色](../src/styles/accent-vars.css) 和 [主题表面](../src/styles/theme-vars.css)，侧栏将两者显式列为异步样式，避免原样发布的 CSS 依赖未打包的导入；[项目选择器](../src/picker/ui.ts) 和 [页内结果提示](../src/content/page-notice.ts) 将同一份强调色 CSS 内嵌到 Shadow DOM，浮层根节点独立定义变量，隔离宿主网页样式 |

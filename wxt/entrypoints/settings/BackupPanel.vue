@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { ref, shallowRef } from "vue";
-import { applyBackup, clearPanelCache, exportBackup, previewBackup } from "../../../src/backup/client";
+import { exportBackup } from "../../../src/backup/client";
 import { MAX_BYTES } from "../../../src/backup/core";
+import { MAX_ARCHIVE_BYTES, readBackupArchive } from "../../../src/backup/webdav-archive";
 import { t } from "../../../src/shared/i18n";
 import { backupErrorKey } from "./shared";
+import { restoreBackup, saveBackupFile } from "./backup-actions";
+import WebdavBackupPanel from "./WebdavBackupPanel.vue";
 import type { ImportMode } from "../../../src/backup/client";
 import type { SettingsDialog } from "./useDialog";
 
@@ -23,15 +26,7 @@ async function download(): Promise<void> {
   busy.value = true;
   try {
     const { payload } = await exportBackup(includeImages.value);
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    if (blob.size > MAX_BYTES) throw new Error("BACKUP_TOO_LARGE");
-    const url = URL.createObjectURL(blob);
-    try {
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `stayside-backup-${payload.exportedAt.replace(/[:.]/g, "-")}.json`;
-      link.click();
-    } finally { window.setTimeout(() => URL.revokeObjectURL(url), 1000); }
+    saveBackupFile(payload, `stayside-backup-${payload.exportedAt.replace(/[:.]/g, "-")}.json`);
   } catch (error) { await failure(error, "backupExportFail"); }
   finally { busy.value = false; }
 }
@@ -42,27 +37,19 @@ async function importFile(): Promise<void> {
   const importMode = mode.value;
   busy.value = true;
   try {
-    if (file.size > MAX_BYTES) throw new Error("BACKUP_TOO_LARGE");
-    let payload: unknown;
-    try { payload = JSON.parse((await file.text()).replace(/^\uFEFF/, "")); }
-    catch { throw new Error("INVALID_BACKUP:json"); }
-    const preview = await previewBackup(payload, importMode);
-    const counts = t("backupCounts", { ...preview.incoming });
-    const details = importMode === "replace"
-      ? t("backupReplacePreview", { items: preview.current.items, projects: preview.current.projects })
-      : t("backupMergePreview", { added: preview.added, projects: preview.addedProjects, duplicates: preview.duplicates });
-    const confirmed = await props.dialog.confirm({
-      tone: importMode === "replace" ? "danger" : "question",
-      title: t(importMode === "replace" ? "backupReplaceTitle" : "backupMergeTitle"),
-      message: `${counts}\n${details}\n${t("backupPreferencesKept")}`,
-      confirmText: t(importMode === "replace" ? "backupReplaceConfirm" : "backupMergeConfirm")
-    });
-    if (!confirmed) return;
-    const result = await applyBackup(payload, importMode, preview.token);
-    clearPanelCache();
-    await props.dialog.alert({ tone: "success", title: t("importDoneTitle"), message: t(importMode === "replace" ? "backupReplaceDone" : "backupMergeDone", { ...result }) });
+    await restoreBackup(await readBackupFile(file), importMode, props.dialog);
   } catch (error) { await failure(error, "importFailTitle"); }
   finally { input.value = ""; busy.value = false; }
+}
+
+async function readBackupFile(file: File): Promise<unknown> {
+  if (/\.zip$/i.test(file.name)) {
+    if (file.size > MAX_ARCHIVE_BYTES) throw new Error("BACKUP_TOO_LARGE");
+    return readBackupArchive(new Uint8Array(await file.arrayBuffer()));
+  }
+  if (file.size > MAX_BYTES) throw new Error("BACKUP_TOO_LARGE");
+  try { return JSON.parse((await file.text()).replace(/^\uFEFF/, "")); }
+  catch { throw new Error("INVALID_BACKUP:json"); }
 }
 </script>
 
@@ -83,8 +70,9 @@ async function importFile(): Promise<void> {
           </select>
           <button id="importBtn" class="setting-action" type="button" :disabled="busy" @click="chooseFile">{{ t('import') }}</button>
         </div>
-        <input id="importFile" ref="fileInput" type="file" accept="application/json,.json" hidden @change="importFile" />
+        <input id="importFile" ref="fileInput" type="file" accept="application/json,application/zip,.json,.zip" hidden @change="importFile" />
       </div>
     </div>
+    <WebdavBackupPanel v-model:busy="busy" :dialog="dialog" />
   </section>
 </template>

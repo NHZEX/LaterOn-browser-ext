@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const vm = require("node:vm");
+const { createWorkerContext } = require("./helpers/worker-context.cjs");
 const { webcrypto } = require("node:crypto");
 const FakeTimers = require("@sinonjs/fake-timers");
 const read = require("./helpers/read-runtime.cjs");
@@ -51,7 +52,7 @@ async function worker(t, { picker = false, frozen = false, language = "zh-CN" } 
       return [{ result: controls.pickerAvailable }];
     } }
   };
-  const context = vm.createContext({ chrome, URL, URLSearchParams, Date, Promise, console, crypto: webcrypto, TextEncoder, setTimeout, clearTimeout, setInterval, clearInterval,
+  const context = createWorkerContext({ chrome, URL, URLSearchParams, Date, Promise, console, crypto: webcrypto, TextEncoder, setTimeout, clearTimeout, setInterval, clearInterval,
     async fetch() { throw Error("OFFLINE"); } });
   const clock = FakeTimers.withGlobal(context).install({ now: Date.now(), toFake: ["Date", "setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
   t.after(() => clock.uninstall());

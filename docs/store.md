@@ -34,7 +34,7 @@ StaySide 是一款为项目研究而生的网页管理工具，把散乱的网�
 - 本地备份：导出 JSON 备份，导入前预览并选择合并或覆盖恢复；可选择包含上传封面等图片数据。
 - 中英文界面：在设置中切换中文和 English。
 
-StaySide 不要求注册账号。收藏、项目、阅读位置和设置保存在浏览器本地，不上传到 StaySide 服务器。获取网页元数据和展示远程封面、网站图标时，仍可能访问对应网站或图片服务；本地存储不代表完全离线。
+StaySide 不要求注册账号。收藏、项目、阅读位置和设置保存在浏览器本地。开启 WebDAV 备份或手动执行备份时，收藏库快照会传输到你配置的 HTTPS 服务。获取网页元数据和展示远程封面、网站图标时，可能访问对应网站或图片服务。
 
 StaySide 基于开源项目 LaterOn 独立重构维护，使用独立名称和图标。
 
@@ -71,11 +71,11 @@ StaySide is independently maintained as a fork of the open-source LaterOn projec
 | `scripting` | Inject packaged scripts for page metadata extraction, the project picker, saved-page scroll restoration, and user-triggered translation. |
 | `storage` | Store collections, projects, settings, reading positions, local diagnostics, and temporary collection batches in the browser. |
 | `unlimitedStorage` | Keep growing local collections, uploaded covers, site icons, and imported backups without the standard extension storage quota. |
-| `alarms` | Periodically remove read pages that have passed the user's configured retention period, when automatic cleanup is enabled. |
+| `alarms` | Schedule automatic cleanup and user-enabled WebDAV backups. |
 | `sidePanel` | Display the collection alongside the current web page so users can organize and revisit project resources while browsing. |
 | `contextMenus` | Provide commands to save the current page or the current window's tabs from the browser context menu. |
 | `notifications`（可选） | Show save results for suspended pages when the user enables suspended-page notifications. Request permission from settings and revoke it when the user turns the option off. |
-| `http://*/*`、`https://*/*` | Support pages from user-selected websites: extract metadata, fetch the saved URL when metadata needs a fallback, and restore scroll positions on saved pages. Sites are chosen by the user rather than restricted to a fixed list. |
+| `http://*/*`、`https://*/*` | Fetch metadata for saved pages, restore saved scroll positions, and connect to the HTTPS WebDAV service configured by the user for backups and restores. |
 
 实现依据：[收藏流程](../src/background/save-workflow.ts)、[元数据回退](../src/background/metadata.ts)、[阅读位置](../src/background/reading-position.ts)、[标签复用](../src/tabs/navigation.ts)、[定时清理](../src/background/maintenance.ts)、[浏览器入口](../src/background/browser-setup.ts)、[通知设置](../wxt/entrypoints/settings/NotificationSetting.vue)。
 
@@ -92,6 +92,7 @@ StaySide is independently maintained as a fork of the open-source LaterOn projec
 | 翻译 | 用户触发后调用浏览器内置的 `Translator` / `LanguageDetector` API；浏览器可能需要下载模型。当前实现没有调用 StaySide 自建翻译服务。见 [翻译实现](../src/content/translation.ts)。 |
 | 诊断 | 在本地记录快捷键、执行结果和错误等运行信息，供设置页排查。见 [诊断实现](../src/background/diagnostics.ts)。 |
 | 备份与删除 | 由用户导出本地 JSON、预览导入或清空收藏；“清空”保留项目结构与设置，不等于清除所有扩展存储。已读清理受用户设置控制。见 [备份语义](backup-format.md) 和 [备份后台](../src/backup/background.ts)。 |
+| WebDAV 备份 | 用户选择服务并发起手动备份或开启自动备份后，通过 HTTPS 传输收藏、项目、顺序、阅读位置及所选图片数据。凭据保存在设备上并用于服务认证，备份文件只包含收藏数据。见 [WebDAV 备份](backup-format.md#webdav-备份与恢复)。 |
 
 远程网页 HTML 和图片的获取，应与远程代码执行区分。当前脚本由 WXT 构建，提交时仍须核对最终 ZIP 的脚本来源及依赖，再填写远程代码声明；不能仅凭“需要联网”作答。
 

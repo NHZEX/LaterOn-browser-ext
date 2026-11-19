@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const vm = require("node:vm");
+const { createWorkerContext } = require("./helpers/worker-context.cjs");
 const { webcrypto } = require("node:crypto");
 const { unzipSync, zipSync, Zip, ZipDeflate } = require("fflate");
 const { JSDOM } = require("jsdom");
@@ -143,7 +144,7 @@ async function verifyBuiltWorker(directory = builtDirectory) {
     tabs: { onUpdated: event(), onRemoved: event(), onCreated: event(), onActivated: event() },
     action: {}, sidePanel: { setPanelBehavior() {} }
   };
-  const context = vm.createContext({ chrome, URL, TextEncoder, crypto: webcrypto, console, setTimeout, clearTimeout, setInterval, clearInterval });
+  const context = createWorkerContext({ chrome, URL, TextEncoder, crypto: webcrypto, console, setTimeout, clearTimeout, setInterval, clearInterval });
   for (const name of ["background-runtime.js", "reading-position-background.js", "modules/backup/background.js",
     "storage-coordinator.js", "backup-core.js", "collection-picker.js",
     "picker-ui.js", "save-project-picker.js", "save-project-picker.css",

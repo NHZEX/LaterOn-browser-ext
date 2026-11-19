@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { createWorkerContext, nativeStreams } = require("./worker-context.cjs");
 const { webcrypto } = require("node:crypto");
 const { buildSync } = require("esbuild");
 const { JSDOM, VirtualConsole } = require("jsdom");
@@ -34,6 +35,7 @@ module.exports = async function verifySettingsPage(directory) {
     const dom = new JSDOM(html, { runScripts: "outside-only", pretendToBeVisual: true,
       url: "chrome-extension://fixture/settings.html", virtualConsole });
     const { window } = dom;
+    Object.assign(window, nativeStreams);
     window.fetch = async () => ({});
     const document = window.document;
     try {
@@ -112,7 +114,7 @@ module.exports = async function verifySettingsPage(directory) {
         contextMenus: { removeAll(done) { done(); }, create() {}, onClicked: event() },
         action: {}
       };
-      const backend = vm.createContext({ chrome: workerChrome, URL, TextEncoder, crypto: webcrypto, setTimeout, clearTimeout });
+      const backend = createWorkerContext({ chrome: workerChrome, URL, TextEncoder, crypto: webcrypto, setTimeout, clearTimeout });
       vm.runInContext(fs.readFileSync(path.join(directory, "background.js"), "utf8"), backend, { filename: "background.js" });
       window.Blob = Blob;
       window.URL.createObjectURL = blob => { downloads.push(blob); return "blob:fixture"; };

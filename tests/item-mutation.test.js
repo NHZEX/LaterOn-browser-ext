@@ -4,6 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { createWorkerContext } = require("./helpers/worker-context.cjs");
 const { webcrypto } = require('crypto');
 const root = path.resolve(__dirname, '..');
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -29,7 +30,7 @@ const chrome = {
   tabs: { onActivated: event(), onUpdated: event(), onRemoved: event(), onCreated: event() },
   action: {}, sidePanel: { setPanelBehavior() {} }
 };
-const ctx = vm.createContext({ chrome, console, URL, crypto: webcrypto, setTimeout, clearTimeout, setInterval, clearInterval, importScripts() {} });
+const ctx = createWorkerContext({ chrome, console, URL, crypto: webcrypto, setTimeout, clearTimeout, setInterval, clearInterval, importScripts() {} });
 vm.runInContext(require("./helpers/read-runtime.cjs")("url-utils.js"), ctx);
 vm.runInContext(require("./helpers/read-runtime.cjs")("background-test-api.js"), ctx);
 const mutateItems = fields => ctx.backgroundTest.execute({ ...fields, action: 'mutateItems', epoch: store.laterOnCollectionEpoch || '' });

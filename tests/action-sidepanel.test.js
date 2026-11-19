@@ -3,6 +3,7 @@ const { test } = require("node:test");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { createWorkerContext } = require("./helpers/worker-context.cjs");
 const { webcrypto } = require("node:crypto");
 const read = require("./helpers/read-runtime.cjs");
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "../manifest.json"), "utf8"));
@@ -22,7 +23,7 @@ function background(sidePanel) {
     contextMenus: { removeAll(callback) { callback?.(); }, create() {}, onClicked: event("menus") },
     commands: { onCommand: event("commands") }, alarms: { create() {}, onAlarm: event("alarms") }
   };
-  const context = vm.createContext({ chrome, URL, console, TextEncoder, crypto: webcrypto, setTimeout, clearTimeout, setInterval, clearInterval });
+  const context = createWorkerContext({ chrome, URL, console, TextEncoder, crypto: webcrypto, setTimeout, clearTimeout, setInterval, clearInterval });
   context.importScripts = (...files) => files.forEach(file => vm.runInContext(read(file), context, { filename: file }));
   context.importScripts("background.js");
   return { events, created };

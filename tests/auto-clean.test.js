@@ -4,6 +4,7 @@ const sourcePath = require("./helpers/source-path.cjs");
 // 测的就是上线那份代码本身。
 const fs = require("fs");
 const vm = require("vm");
+const { createWorkerContext } = require("./helpers/worker-context.cjs");
 const path = require("path");
 
 const ROOT = path.join(__dirname, "..");
@@ -66,7 +67,7 @@ const sandbox = {
   Promise, URL, Set, Map, RegExp, JSON, Object, Array, Math, Date,
   parseInt, parseFloat, isNaN, String, Number, Boolean, Symbol, Error
 };
-vm.createContext(sandbox);
+createWorkerContext(sandbox);
 vm.runInContext(code, sandbox, { filename: "background.js" });
 
 // 触发一次清除：模拟「设置变了」→ 后台立刻按新设置扫一遍。
@@ -194,7 +195,7 @@ async function run() {
     check("关闭时设置变更和定时触发均不修改收藏及关联数据", JSON.stringify(store) === before);
 
     // 新 worker 的启动清理也必须遵守持久化的关闭设置。
-    const restarted = vm.createContext({ ...sandbox });
+    const restarted = createWorkerContext({ ...sandbox });
     vm.runInContext(code, restarted, { filename: "background.js" });
     await restarted.backgroundTest.purgeExpiredItems();
     check("worker 重启后仍保留所有已读网页", JSON.stringify(store) === before);

@@ -12,6 +12,7 @@ import { extractTabMetadataById } from "./metadata";
 import { recordDiag } from "./diagnostics";
 import { registerMessages } from "../storage/coordinator";
 import { registerBackup } from "../backup/background";
+import { registerWebdavBackup } from "../backup/webdav-background";
 import { registerReadingPosition } from "./reading-position";
 import { registerOmnibox } from "./omnibox";
 import { registerBrowserSetup } from "./browser-setup";
@@ -59,6 +60,7 @@ export function registerBackground() {
   // MV3 listeners must be registered synchronously on every worker start.
   registerMessages();
   registerBackup();
+  registerWebdavBackup();
   registerReadingPosition();
   registerFeedback();
   registerOmnibox();

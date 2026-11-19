@@ -12,6 +12,7 @@ const sourcePath = require("./helpers/source-path.cjs");
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
+const { createWorkerContext } = require("./helpers/worker-context.cjs");
 const { webcrypto } = require("crypto");
 const { URL } = require("url");
 const FakeTimers = require("@sinonjs/fake-timers");
@@ -213,7 +214,7 @@ const sandbox = {
   importScripts() {},
 };
 sandbox.globalThis = sandbox;
-vm.createContext(sandbox);
+createWorkerContext(sandbox);
 
 
 const start = Date.now();

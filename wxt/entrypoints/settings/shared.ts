@@ -123,7 +123,8 @@ export function backupErrorKey(error: unknown): string {
   if (code.startsWith("INVALID_BACKUP:")) return "backupInvalid";
   const keys: Readonly<Record<string, string>> = {
     UNSUPPORTED_BACKUP: "backupUnsupported", BACKUP_TOO_LARGE: "backupTooLarge",
-    IMPORT_PREVIEW_EXPIRED: "backupPreviewExpired", IMPORT_DATA_CHANGED: "backupDataChanged", MISSING_LOCAL_ICON: "backupMissingIcon"
+    IMPORT_PREVIEW_EXPIRED: "backupPreviewExpired", IMPORT_DATA_CHANGED: "backupDataChanged", MISSING_LOCAL_ICON: "backupMissingIcon",
+    WEBDAV_INVALID_BACKUP: "webdavInvalidArchive"
   };
   return keys[code] ?? "backupOperationFailed";
 }

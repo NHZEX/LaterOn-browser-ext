@@ -144,6 +144,12 @@ for (const action of ["BACKUP_EXPORT", "BACKUP_APPLY"]) {
       }
       await begin();
       await expect.poll(() => page.evaluate(() => typeof window.backupGate.release)).toBe("function");
+      const webdavEndpoint = page.getByPlaceholder("https://…");
+      if (action === "BACKUP_EXPORT") {
+        await page.getByText("WebDAV backups", { exact: true }).click();
+        await expect(webdavEndpoint).toBeVisible();
+        await expect(webdavEndpoint).toBeDisabled();
+      }
       await general(page).click();
       await expect(page.locator("#exportBtn")).toBeDisabled();
       await expect(page.locator("#wipeBtn")).toBeDisabled();
@@ -157,6 +163,7 @@ for (const action of ["BACKUP_EXPORT", "BACKUP_APPLY"]) {
       }
       await data(page).click();
       await expect(page.locator("#exportBtn")).toBeEnabled();
+      if (action === "BACKUP_EXPORT") await expect(webdavEndpoint).toBeEnabled();
       await expect(page.locator("#wipeBtn")).toBeEnabled();
       await expect(page.locator("#exportImages")).toBeChecked();
       await expect(page.locator("#importMode")).toHaveValue("replace");

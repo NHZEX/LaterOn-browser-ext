@@ -10,6 +10,7 @@
 | 迭代状态、搁置项和待验收范围 | [roadmap](roadmap.md) |
 | 工单格式与票据状态 | 按 [议题跟踪约定](agents/issue-tracker.md) 维护对应的 `.scratch/` 工单 |
 | 工程技能读取领域术语和决策的规则 | [领域文档约定](agents/domain.md) |
+| 领域术语与架构决策 | [术语表](../GLOSSARY.md) 和 [ADR](adr/) |
 | 备份格式与导入语义 | [本地备份与导入](backup-format.md) |
 | 商店上架文案、权限用途、隐私披露依据与提交步骤 | [商店上架资料](store.md) |
 | 测试分层、执行方式和验证限制 | [测试说明](../tests/browser/README.md) |

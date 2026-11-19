@@ -33,8 +33,10 @@ export const exportBackup = (includeImages: boolean): Promise<{ readonly payload
   request({ type: "BACKUP_EXPORT", includeImages });
 export const previewBackup = (payload: unknown, mode: ImportMode): Promise<ImportPreview> =>
   request({ type: "BACKUP_PREVIEW", payload, mode });
-export const applyBackup = (payload: unknown, mode: ImportMode, token: ImportToken): Promise<ImportResult> =>
-  request({ type: "BACKUP_APPLY", payload, mode, token });
+export const applyBackup = (payload: unknown, mode: ImportMode, token: ImportToken, keepRecovery = false): Promise<ImportResult> =>
+  request({ type: "BACKUP_APPLY", payload, mode, token, keepRecovery });
+export const recoveryBackup = (): Promise<{ readonly payload: BackupDocument | null }> => request({ type: "BACKUP_RECOVERY" });
+export const recoveryStatus = (): Promise<{ readonly available: boolean }> => request({ type: "BACKUP_RECOVERY_STATUS" });
 export const wipeCollection = (): Promise<object> => request({ type: "COLLECTION_WIPE" });
 
 export function clearPanelCache(): void {
