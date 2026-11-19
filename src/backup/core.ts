@@ -98,7 +98,9 @@ const isHttpUrl = (value: unknown): value is string => {
   try { return isString(value) && ["http:", "https:"].includes(new URL(value).protocol); }
   catch { return false; }
 };
-const isImageSource = (value: unknown): value is string => isString(value) && (!value || isHttpUrl(value) || /^data:image\/(png|jpeg|webp|gif);base64,[a-z0-9+/=\r\n]+$/i.test(value));
+const isInlineImage = (value: unknown): value is string => isString(value) && /^data:image\/(png|jpeg|webp|gif);base64,[a-z0-9+/=\r\n]+$/i.test(value);
+const isImageSource = (value: unknown, isEmbeddedImage = isInlineImage): value is string =>
+  isString(value) && (!value || isHttpUrl(value) || isEmbeddedImage(value));
 
 // The schema validates each present field before narrowing the selected copy.
 // Missing fields remain absent; unknown fields never enter the normalized data.
@@ -131,12 +133,13 @@ function uniqueRecords<T extends { readonly id: string }>(entries: unknown, path
   return result;
 }
 
-function normalizeItem(entry: unknown, path: string): BackupItem {
+function normalizeItem(entry: unknown, path: string, isEmbeddedImage = isInlineImage): BackupItem {
   if (!isRecord(entry) || !isValidId(entry.id) || !isHttpUrl(entry.url) || !isTimestamp(entry.savedAt)) fail(path);
   const item = fields<BackupItem>(entry, {
     id: isValidId, url: isHttpUrl, title: isString, description: isString,
-    image: (value): value is string => isImageSource(value) || (isString(value) && value.startsWith("local://") && isValidId(value.slice(8))),
-    favicon: isImageSource, source: isString, projectId: (value): value is string | null => value === null || isValidId(value), savedAt: isTimestamp,
+    image: (value): value is string => isImageSource(value, isEmbeddedImage) || (isString(value) && value.startsWith("local://") && isValidId(value.slice(8))),
+    favicon: (value): value is string => isImageSource(value, isEmbeddedImage), source: isString,
+    projectId: (value): value is string | null => value === null || isValidId(value), savedAt: isTimestamp,
     status: (value): value is BackupItem["status"] => value === "unread" || value === "reading" || value === "done", read: isBoolean,
     doneAt: (value): value is number | null => value === null || isTimestamp(value),
     titleEdited: isBoolean, descriptionEdited: isBoolean, imageEdited: isBoolean
@@ -146,23 +149,24 @@ function normalizeItem(entry: unknown, path: string): BackupItem {
     status, read: status === "done", doneAt: status === "done" ? item.doneAt ?? null : null };
 }
 
-function normalizeProject(entry: unknown, path: string): BackupProject {
+function normalizeProject(entry: unknown, path: string, isEmbeddedImage = isInlineImage): BackupProject {
   if (!isRecord(entry) || !isValidId(entry.id) || !isString(entry.name) || !entry.name.trim() || !isTimestamp(entry.createdAt)) fail(path);
   const project = fields<BackupProject>(entry, {
-    id: isValidId, name: isString, createdAt: isTimestamp, note: isString, cover: isImageSource,
+    id: isValidId, name: isString, createdAt: isTimestamp, note: isString, cover: (value): value is string => isImageSource(value, isEmbeddedImage),
     coverPick: (value): value is readonly string[] => isArray(value) && value.length <= 3 && value.every(isValidId) && new Set(value).size === value.length,
     archived: isBoolean, pinned: isBoolean, pinFrom: isNonNegativeInteger
   }, path);
   return { ...project, id: entry.id, name: entry.name, createdAt: entry.createdAt };
 }
 
-function validateData(value: unknown): BackupData {
+function validateData(value: unknown, isAttachment?: Guard<string>): BackupData {
   if (!isRecord(value)) fail("data");
-  const items = uniqueRecords(value.items, "items", normalizeItem);
-  const projects = uniqueRecords(value.projects, "projects", normalizeProject);
+  const items = uniqueRecords(value.items, "items", (entry, path) => normalizeItem(entry, path, isAttachment));
+  const projects = uniqueRecords(value.projects, "projects", (entry, path) => normalizeProject(entry, path, isAttachment));
   const itemById = new Map(items.map((item) => [item.id, item]));
   const projectIds = new Set(projects.map((project) => project.id));
-  const covers = dictionary(value.covers, "covers", (entry, key): entry is string => itemById.has(key) && isImageSource(entry) && entry.startsWith("data:"));
+  const isCover = isAttachment ?? ((entry: unknown): entry is string => isInlineImage(entry) && entry.startsWith("data:"));
+  const covers = dictionary(value.covers, "covers", (entry, key): entry is string => itemById.has(key) && isCover(entry));
   const readingPositions = dictionary(value.readingPositions, "readingPositions", (entry, key): entry is number => itemById.has(key) && isNonNegativeInteger(entry));
   const order = dictionary(value.order, "order", (entries, scope): entries is readonly string[] => {
     if (!["all", "unfiled"].includes(scope) && !projectIds.has(scope)) return false;
@@ -232,6 +236,10 @@ export function parse(payload: unknown): BackupData {
   if (!isRecord(payload) || payload.format !== FORMAT || payload.version !== VERSION) throw new Error("UNSUPPORTED_BACKUP");
   if (!isString(payload.exportedAt) || !Number.isFinite(Date.parse(payload.exportedAt))) fail("exportedAt");
   return validateData(payload.data);
+}
+
+export function parseArchiveData(data: unknown, isAttachment: Guard<string>): BackupData {
+  return validateData(data, isAttachment);
 }
 
 const withoutImageData = (data: BackupData): BackupData => ({

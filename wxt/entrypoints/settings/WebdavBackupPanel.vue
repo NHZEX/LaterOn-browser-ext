@@ -13,6 +13,7 @@ import type { SettingsDialog } from "./useDialog";
 
 const props = defineProps<{ dialog: SettingsDialog }>();
 const busy = defineModel<boolean>("busy", { default: false });
+const hasRecovery = defineModel<boolean>("hasRecovery", { required: true });
 const status = shallowRef<BackupStatus | null>(null);
 const form = reactive({ ...DEFAULT_BACKUP_OPTIONS });
 const password = ref("");
@@ -21,7 +22,6 @@ const loadedList = ref(false);
 const selectedKey = ref("");
 const restoreMode = ref<ImportMode>("merge");
 const manualImages = ref(false);
-const hasRecovery = ref(false);
 const note = ref("");
 const error = ref("");
 const activeSettings = computed(() => status.value?.options);
@@ -122,6 +122,7 @@ async function download(): Promise<void> {
     if (!result) return;
     status.value = result.status;
     saveDownload(result.archive, entry.name);
+    if (result.imageDamage) note.value = t("backupImageDamage", { ...result.imageDamage });
   });
 }
 async function restore(): Promise<void> {
@@ -132,7 +133,8 @@ async function restore(): Promise<void> {
     const result = await withBudget(override => remote.loadWebdavRestore(entry, override));
     if (!result) return;
     status.value = result.status;
-    if (await restoreBackup(result.payload, mode, props.dialog, true) && mode === "replace") hasRecovery.value = true;
+    const options = { keepRecovery: true, imageDamage: result.imageDamage };
+    if (await restoreBackup(result.payload, mode, props.dialog, options) && mode === "replace") hasRecovery.value = true;
   });
 }
 async function remove(): Promise<void> {
@@ -162,7 +164,7 @@ async function loadStatus(): Promise<void> {
     Object.assign(form, saved.options);
     manualImages.value = saved.options.includeImages;
     status.value = saved;
-    hasRecovery.value = (await recoveryStatus()).available;
+    if ((await recoveryStatus()).available) hasRecovery.value = true;
   } catch (problem) {
     error.value = errorText(problem instanceof Error ? problem.message : "WEBDAV_FAILED");
   }

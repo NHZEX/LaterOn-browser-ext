@@ -8,6 +8,7 @@ import { backupErrorKey } from "./shared";
 import { restoreBackup, saveBackupFile } from "./backup-actions";
 import WebdavBackupPanel from "./WebdavBackupPanel.vue";
 import type { ImportMode } from "../../../src/backup/client";
+import type { RestoreOptions } from "./backup-actions";
 import type { SettingsDialog } from "./useDialog";
 
 const props = defineProps<{ dialog: SettingsDialog }>();
@@ -16,6 +17,7 @@ const busy = defineModel<boolean>("busy", { default: false });
 const includeImages = ref(false);
 const mode = ref<ImportMode>("merge");
 const fileInput = shallowRef<HTMLInputElement | null>(null);
+const hasRecovery = ref(false);
 
 function failure(error: unknown, title: string): Promise<void> {
   return props.dialog.alert({ tone: "danger", title: t(title), message: t(backupErrorKey(error)) });
@@ -37,18 +39,21 @@ async function importFile(): Promise<void> {
   const importMode = mode.value;
   busy.value = true;
   try {
-    await restoreBackup(await readBackupFile(file), importMode, props.dialog);
+    const { payload, ...options } = await readBackupFile(file);
+    if (await restoreBackup(payload, importMode, props.dialog, options) && options.keepRecovery && importMode === "replace") {
+      hasRecovery.value = true;
+    }
   } catch (error) { await failure(error, "importFailTitle"); }
   finally { input.value = ""; busy.value = false; }
 }
 
-async function readBackupFile(file: File): Promise<unknown> {
+async function readBackupFile(file: File): Promise<RestoreOptions & { readonly payload: unknown }> {
   if (/\.zip$/i.test(file.name)) {
     if (file.size > MAX_ARCHIVE_BYTES) throw new Error("BACKUP_TOO_LARGE");
-    return readBackupArchive(new Uint8Array(await file.arrayBuffer()));
+    return { ...await readBackupArchive(new Uint8Array(await file.arrayBuffer())), keepRecovery: true };
   }
   if (file.size > MAX_BYTES) throw new Error("BACKUP_TOO_LARGE");
-  try { return JSON.parse((await file.text()).replace(/^\uFEFF/, "")); }
+  try { return { payload: JSON.parse((await file.text()).replace(/^\uFEFF/, "")) }; }
   catch { throw new Error("INVALID_BACKUP:json"); }
 }
 </script>
@@ -76,6 +81,6 @@ async function readBackupFile(file: File): Promise<unknown> {
         <input id="importFile" ref="fileInput" type="file" accept="application/json,application/zip,.json,.zip" hidden @change="importFile" />
       </div>
     </section>
-    <WebdavBackupPanel v-model:busy="busy" :dialog="dialog" />
+    <WebdavBackupPanel v-model:busy="busy" v-model:has-recovery="hasRecovery" :dialog="dialog" />
   </section>
 </template>

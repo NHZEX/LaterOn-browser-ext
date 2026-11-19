@@ -1,8 +1,8 @@
 const assert = require("node:assert/strict");
 const vm = require("node:vm");
 const { createWorkerContext } = require("./helpers/worker-context.cjs");
-const { randomBytes, webcrypto } = require("node:crypto");
-const { zipSync } = require("fflate");
+const { createHash, randomBytes, webcrypto } = require("node:crypto");
+const { unzipSync, zipSync } = require("fflate");
 const readRuntime = require("./helpers/read-runtime.cjs");
 const { BACKUP_ALARM, BACKUP_STATE, backupFileName } = require("./helpers/load-module.cjs")("src/backup/webdav-shared.ts");
 const legacyPending = "laterOnWebdavBackupPending";
@@ -126,7 +126,7 @@ const settings = { endpoint: "https://dav.example.test/dav/", directory: "Fixtur
 const save = (browser, options = settings) => browser.request("save", { options, password: "fixture" });
 
 (async () => {
-  const { TextWriter, Uint8ArrayReader, ZipReader } = await import("@zip.js/zip.js/lib/zip-core-custom.js");
+  const { TextWriter, Uint8ArrayReader, Uint8ArrayWriter, ZipReader } = await import("@zip.js/zip.js/lib/zip-core-custom.js");
   const first = profile(item("first"));
   const second = profile(item("second"));
   const source = await save(first, { ...settings, automatic: false });
@@ -167,6 +167,13 @@ const save = (browser, options = settings) => browser.request("save", { options,
   assert.equal(published(firstPath).length, 2);
 
   first.step(1);
+  const imageBytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1ioAAAAASUVORK5CYII=", "base64");
+  const inline = `data:image/png;base64,${imageBytes.toString("base64")}`;
+  const projectInline = inline.replace("image/png", "image/jpeg");
+  first.storage.laterOnItems[0].image = "local://first";
+  first.storage.laterOnItems[0].favicon = inline;
+  first.storage.laterOnCovers = { first: inline };
+  first.storage.laterOnProjects = [{ id: "project", name: "Cover project", createdAt: 1, cover: projectInline }];
   const beforeManual = methods.length;
   assert((await first.request("backup", { includeImages: true })).ok);
   assert.deepEqual(methods.slice(beforeManual), ["PROPFIND 0", "PUT", "MOVE"]);
@@ -179,23 +186,39 @@ const save = (browser, options = settings) => browser.request("save", { options,
   assert.equal(cloud.entries[0].bytes, originalArchive.byteLength);
   const { payload } = await second.request("restore", cloud.entries[0]);
   assert.equal(payload.data.items[0].title, "Updated without advancing the clock");
+  assert.equal(payload.data.items[0].image, "local://first");
+  assert.equal(payload.data.items[0].favicon, inline);
+  assert.equal(payload.data.covers.first, inline);
+  assert.equal(payload.data.projects[0].cover, projectInline);
+  const attachment = `images/${createHash("sha256").update(imageBytes).digest("hex")}.png`;
   const reader = new ZipReader(new Uint8ArrayReader(originalArchive), { useWebWorkers: false });
   try {
     const entries = await reader.getEntries();
-    assert.deepEqual(entries.map(entry => [entry.filename, entry.compressionMethod]), [["manifest.json", 0], ["backup.json", 8]]);
+    assert.deepEqual(entries.map(entry => [entry.filename, entry.compressionMethod]), [["manifest.json", 0], ["backup.json", 8], [attachment, 8]]);
     const manifest = JSON.parse(await entries[0].getData(new TextWriter(), { checkCrc32: true }));
     assert.deepEqual(manifest, {
-      version: 1, backup: { file: "backup.json", format: payload.format, version: payload.version }, appVersion: payload.appVersion,
-      exportedAt: payload.exportedAt, counts: { items: 1, projects: 0, covers: 0, positions: 0 }, includeImages: true
+      version: 2, backup: { file: "backup.json", format: payload.format, version: 2 }, appVersion: payload.appVersion,
+      exportedAt: payload.exportedAt, counts: { items: 1, projects: 1, covers: 1, positions: 0 }, includeImages: true
     });
+    const archived = JSON.parse(await entries[1].getData(new TextWriter(), { checkCrc32: true }));
+    assert.equal(archived.version, 2);
+    assert.equal(archived.data.covers.first, attachment);
+    assert.equal(archived.data.items[0].favicon, attachment);
+    assert.equal(archived.data.projects[0].cover, `${attachment}#jpeg`);
+    assert.deepEqual(Buffer.from(await entries[2].getData(new Uint8ArrayWriter(), { checkCrc32: true })), imageBytes);
   } finally {
     await reader.close();
   }
-  const backupOnly = zipSync({ "backup.json": Buffer.from(JSON.stringify(payload)) });
-  files.set(archivePath, zipSync({ "notes.txt": Buffer.from("Extra entry"), "backup.json": Buffer.from(JSON.stringify(payload)) }));
+  const archiveEntries = unzipSync(originalArchive);
+  const backupOnly = zipSync({ "backup.json": archiveEntries["backup.json"], "manifest.json": archiveEntries["manifest.json"],
+    [attachment]: imageBytes });
+  files.set(archivePath, zipSync({ "notes.txt": Buffer.from("Extra entry"), ...archiveEntries }));
   assert.deepEqual((await second.request("restore", cloud.entries[0])).payload, payload);
-  files.set(archivePath, backupOnly);
-  assert.deepEqual((await second.request("restore", cloud.entries[0])).payload, payload);
+  const legacyPayload = Buffer.from(JSON.stringify(payload));
+  for (const entries of [{}, { "manifest.json": Buffer.from('{"version":1}') }]) {
+    files.set(archivePath, zipSync({ "backup.json": legacyPayload, ...entries }));
+    assert.equal((await second.request("restore", cloud.entries[0])).error, "UNSUPPORTED_BACKUP");
+  }
   files.set(archivePath, zipSync({ "notes.txt": Buffer.from("Missing backup.json") }));
   assert.equal((await second.request("restore", cloud.entries[0])).error, "WEBDAV_INVALID_BACKUP");
   const corrupted = Buffer.from(backupOnly);
@@ -206,15 +229,48 @@ const save = (browser, options = settings) => browser.request("save", { options,
   files.set(archivePath, corrupted);
   assert.equal((await second.request("restore", cloud.entries[0])).error, "WEBDAV_INVALID_BACKUP");
   const oversized = Buffer.from(backupOnly);
-  oversized.writeUInt32LE(50 * 1024 * 1024 + 1, central + 24);
+  oversized.writeUInt32LE(50 * 1024 * 1024 + 256 * 1024 + 1, central + 24);
   files.set(archivePath, oversized);
   assert.equal((await second.request("restore", cloud.entries[0])).error, "BACKUP_TOO_LARGE");
+
+  const withoutAttachment = { ...archiveEntries };
+  delete withoutAttachment[attachment];
+  const damagedImage = Buffer.from(zipSync({ [attachment]: imageBytes, ...withoutAttachment }));
+  const imageCentral = damagedImage.readUInt32LE(damagedImage.length - 6);
+  const imageCrc = (damagedImage.readUInt32LE(imageCentral + 16) ^ 1) >>> 0;
+  damagedImage.writeUInt32LE(imageCrc, 14);
+  damagedImage.writeUInt32LE(imageCrc, imageCentral + 16);
+  for (const damagedArchive of [zipSync(withoutAttachment), damagedImage,
+    zipSync({ ...withoutAttachment, [attachment]: Uint8Array.of(1, 2, 3) })]) {
+    files.set(archivePath, damagedArchive);
+    const damaged = await second.request("restore", cloud.entries[0]);
+    assert(damaged.ok);
+    assert.deepEqual({ ...damaged.imageDamage }, { attachments: 1, items: 1, projects: 1 });
+    assert.deepEqual(Object.keys(damaged.payload.data.covers), []);
+    assert.equal(damaged.payload.data.items[0].image, "");
+    assert.equal(damaged.payload.data.items[0].favicon, "");
+    assert.equal(damaged.payload.data.projects[0].cover, "");
+    assert.equal(second.storage.laterOnItems[0].id, "second", "Fetching a damaged snapshot does not write to the collection");
+  }
+  const largeImage = Buffer.alloc(1024 * 1024, 1);
+  const reusedPath = `images/${createHash("sha256").update(largeImage).digest("hex")}.png`;
+  const largePayload = JSON.parse(Buffer.from(archiveEntries["backup.json"]).toString("utf8"));
+  largePayload.data.items = Array.from({ length: 40 }, (_, index) => ({ ...item(`page-${index}`), favicon: reusedPath }));
+  largePayload.data.projects = [];
+  largePayload.data.covers = {};
+  files.set(archivePath, zipSync({ "manifest.json": archiveEntries["manifest.json"],
+    "backup.json": Buffer.from(JSON.stringify(largePayload)), [reusedPath]: largeImage }));
+  assert.equal((await second.request("restore", cloud.entries[0])).error, "BACKUP_TOO_LARGE",
+    "A small ZIP with many references to one attachment cannot expand beyond the recovery limit");
   files.set(archivePath, originalArchive);
   const preview = await second.send({ type: "BACKUP_PREVIEW", payload, mode: "replace" });
   assert.equal(second.storage.laterOnItems[0].id, "second", "Preview does not write data");
   const restored = await second.send({ type: "BACKUP_APPLY", payload, mode: "replace", token: preview.token, keepRecovery: true });
   assert(restored.ok);
   assert.equal(second.storage.laterOnItems[0].id, "first");
+  assert.equal(second.storage.laterOnCovers.first, inline);
+  assert.equal(second.storage.laterOnIcons[second.storage.laterOnItems[0].favicon.slice("icon://".length)], inline);
+  assert.equal(second.storage.laterOnProjects[0].cover, projectInline);
   assert.equal((await second.send({ type: "BACKUP_RECOVERY" })).payload.data.items[0].id, "second");
   const secondFolder = root + target.status.device + "/";
   second.storage[BACKUP_STATE].after = second.now() + 30 * 60_000;
@@ -238,6 +294,21 @@ const save = (browser, options = settings) => browser.request("save", { options,
   assert.equal(published(secondFolder).length, 1);
   const autoRetried = await second.request("restore", { device: target.status.device, name: published(secondFolder)[0].slice(secondFolder.length) });
   assert.equal(autoRetried.payload.data.items[0].description, "Edited after the failed automatic backup");
+
+  const priorAutomatic = second.storage[BACKUP_STATE].automatic;
+  second.storage[BACKUP_STATE].automatic = { at: priorAutomatic.at, fingerprint: priorAutomatic.fingerprint, format: "zip" };
+  second.restart();
+  const beforeUpgrade = requests;
+  second.step(23.5);
+  await second.alarm();
+  assert.equal(requests, beforeUpgrade, "An upgrade retains the previous automatic schedule");
+  second.step(0.5);
+  await second.alarm();
+  assert.equal(published(secondFolder).length, 2, "First due backup writes the new format even when the collection is unchanged");
+  second.step(24);
+  const afterUpgrade = requests;
+  await second.alarm();
+  assert.equal(requests, afterUpgrade, "The next unchanged backup skips uploading again");
 
   assert((await save(first, { ...settings, intervalHours: 1 })).ok);
   const beforeAuto = methods.length;
@@ -280,7 +351,7 @@ const save = (browser, options = settings) => browser.request("save", { options,
   assert.equal(autoFiles().length, 7);
   assert.equal(published(firstPath).filter(name => /-manual(?:-\d+)?\.zip$/.test(name)).length, 3);
   assert.equal(files.get(legacy), "{}");
-  assert.equal(published(secondFolder).length, 1);
+  assert.equal(published(secondFolder).length, 2);
 
   denyAutoCleanup = true;
   first.step(24);

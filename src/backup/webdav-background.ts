@@ -1,8 +1,8 @@
 import { createLocalBackup } from "./background";
 import { isRecord } from "../storage/contracts";
-import { createBackupArchive, readBackupArchive } from "./webdav-archive";
+import { ARCHIVE_VERSION, createBackupArchive, readBackupArchive } from "./webdav-archive";
 import { WEBDAV_DOWNLOAD_MESSAGE } from "./webdav-download";
-import type { WebdavDownloadReply, WebdavFailure } from "./webdav-download";
+import type { WebdavDownloadSuccess, WebdavFailure } from "./webdav-download";
 import { budgetError, createWebdav } from "./webdav-transport";
 import type { DavEntry, WebdavClient } from "./webdav-transport";
 import {
@@ -16,7 +16,7 @@ interface StatusState {
   readonly settings?: BackupSettings;
   readonly usage?: BackupUsage;
   readonly lastBackup?: number;
-  readonly automatic?: { readonly at: number; readonly fingerprint: string; readonly format?: "zip" };
+  readonly automatic?: { readonly at: number; readonly fingerprint: string; readonly archiveVersion?: number };
   readonly nextAutomaticCheckAt?: number;
   readonly error?: string;
   readonly rotationCheckedAt?: number;
@@ -160,7 +160,7 @@ export function registerWebdavBackup(): void {
   };
 
   async function run(message: Readonly<Record<string, unknown>>,
-    sendDownload?: (data: Uint8Array<ArrayBuffer>, status: BackupStatus) => void): Promise<object> {
+    sendDownload?: (reply: WebdavDownloadSuccess) => void): Promise<object> {
     const stored = await chrome.storage.local.get<StoredBackupState>(BACKUP_STATE);
     const { after, ...current } = stored[BACKUP_STATE] ?? { device: crypto.randomUUID() };
     const nextAutomaticCheckAt = current.nextAutomaticCheckAt ?? after;
@@ -220,7 +220,7 @@ export function registerWebdavBackup(): void {
     async function submit(kind: BackupKind, includeImages: boolean): Promise<string | null> {
       const payload = await createLocalBackup(includeImages);
       const digest = kind === "auto" ? await fingerprint(JSON.stringify(payload.data)) : null;
-      if (state.automatic?.format === "zip" && digest === state.automatic.fingerprint) return null;
+      if (state.automatic?.archiveVersion === ARCHIVE_VERSION && digest === state.automatic.fingerprint) return null;
       const archive = await createBackupArchive(payload, includeImages);
       ensureBudget(archive.byteLength);
       const checkRotation = kind === "auto" &&
@@ -230,7 +230,7 @@ export function registerWebdavBackup(): void {
       const at = Date.now();
       await update({
         lastBackup: at, nextAutomaticCheckAt: 0, error: "",
-        ...(digest === null ? {} : { automatic: { at, fingerprint: digest, format: "zip" } }),
+        ...(digest === null ? {} : { automatic: { at, fingerprint: digest, archiveVersion: ARCHIVE_VERSION } }),
         ...(checkRotation ? { rotationCheckedAt: at, cleanupPending: true } : {})
       });
       if (checkRotation && entries) await finishRotation(entries, name, at);
@@ -270,11 +270,11 @@ export function registerWebdavBackup(): void {
     if (message.action === "download" || message.action === "restore") {
       const data = await dav.get(path);
       if (data === null) throw new Error("WEBDAV_HTTP_404");
-      const payload = await readBackupArchive(data);
+      const { payload, imageDamage } = await readBackupArchive(data);
       const status = publicState(state);
-      if (message.action === "restore") return { payload, status };
+      if (message.action === "restore") return { payload, status, imageDamage };
       if (!sendDownload) throw new Error("WEBDAV_FAILED");
-      sendDownload(data, status);
+      sendDownload({ ok: true, archive: data, status, imageDamage });
       return {};
     }
     throw new Error("WEBDAV_FAILED");
@@ -307,9 +307,8 @@ export function registerWebdavBackup(): void {
       port.close();
       return;
     }
-    const task = serialize(() => run({ ...message, action: "download" }, (archive, status) => {
-      const reply: WebdavDownloadReply = { ok: true, archive, status };
-      port.postMessage(reply, [archive.buffer]);
+    const task = serialize(() => run({ ...message, action: "download" }, reply => {
+      port.postMessage(reply, [reply.archive.buffer]);
     })).catch(error => port.postMessage(failure(error))).finally(() => port.close());
     if ("waitUntil" in event && typeof event.waitUntil === "function") event.waitUntil(task);
   });

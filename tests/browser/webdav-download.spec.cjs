@@ -1,6 +1,15 @@
 const { readFile } = require("node:fs/promises");
+const { createHash } = require("node:crypto");
 const { zipSync } = require("fflate");
 const { test, expect } = require("./extension.cjs");
+
+const missingImage = `images/${"a".repeat(64)}.png`;
+const archivedItem = { id: "archived", url: "https://example.test/archived", title: "Archived page", savedAt: 1, status: "unread" };
+const zipDocuments = data => ({
+  "manifest.json": Buffer.from(JSON.stringify({ version: 2, backup: { file: "backup.json", format: "lateron.collection", version: 2 } })),
+  "backup.json": Buffer.from(JSON.stringify({ format: "lateron.collection", version: 2, appVersion: "1.79.3", exportedAt: "2026-11-19T08:30:00Z",
+    data: { items: [], projects: [], covers: {}, order: {}, readingPositions: {}, ...data } }))
+});
 
 test("设置页可以通过 MessageChannel 保存约 49 MiB 的原始 WebDAV ZIP", async ({ page, extension }) => {
   const sourceId = "edecf258-a38c-44dc-8c56-222f615c2e3c";
@@ -8,11 +17,9 @@ test("设置页可以通过 MessageChannel 保存约 49 MiB 的原始 WebDAV ZIP
   const endpoint = "https://dav.example.test/dav/";
   const directory = "StaySide";
   const attachmentSize = 49 * 1024 * 1024;
-  const backup = { format: "lateron.collection", version: 1, appVersion: "1.79.0", exportedAt: "2026-11-19T08:30:00Z",
-    data: { items: [], projects: [], covers: {}, order: {}, readingPositions: {} } };
   const archive = Buffer.from(zipSync({
     "attachment.bin": [new Uint8Array(attachmentSize), { level: 0 }],
-    "backup.json": Buffer.from(JSON.stringify(backup))
+    ...zipDocuments({ items: [{ ...archivedItem, favicon: missingImage }] })
   }));
   // Transfer only the ZIP headers and small JSON to the worker fixture. Recreate the stored zero bytes there.
   const attachmentOffset = 30 + archive.readUInt16LE(26) + archive.readUInt16LE(28);
@@ -99,7 +106,48 @@ test("设置页可以通过 MessageChannel 保存约 49 MiB 的原始 WebDAV ZIP
   ]);
   expect(download.suggestedFilename()).toBe(filename);
   expect((await readFile(await download.path())).equals(archive)).toBe(true);
+  await expect(webdav.getByRole("status")).toContainText("Missing or damaged image attachments (1)");
   expect(await extension.worker.evaluate(() => ({ requests: globalThis.fixtureRequests, transfers: globalThis.transferredArchives })))
     .toEqual({ requests: ["PROPFIND", "PROPFIND", "GET"], transfers: [{ length: archive.length, remaining: 0 }] });
   expect(await databases()).toEqual(databasesBeforeDownload);
+});
+
+test("本地 ZIP 缺图恢复在同一预览确认，取消不写入，覆盖前保留副本", async ({ page, extension }) => {
+  await extension.worker.evaluate(() => chrome.storage.local.set({
+    laterOnCleanupV165: true, laterOnOnboardingSeen: true,
+    laterOnSettings: { language: "en", autoCleanEnabled: false },
+    laterOnItems: [{ id: "before", url: "https://example.test/before", savedAt: 1, status: "unread" }]
+  }));
+  const image = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1ioAAAAASUVORK5CYII=", "base64");
+  const favicon = `images/${createHash("sha256").update(image).digest("hex")}.png`;
+  const fixture = Buffer.from(zipSync({
+    ...zipDocuments({ items: [{ ...archivedItem, image: "local://archived", favicon, projectId: "project" }],
+      projects: [{ id: "project", name: "Project", createdAt: 1, cover: missingImage }], covers: { archived: missingImage } }),
+    [favicon]: image
+  }));
+
+  await page.goto(new URL("settings.html#backup", extension.url).href);
+  await page.getByRole("combobox", { name: "Import mode" }).selectOption("replace");
+  const dialog = page.getByRole("dialog");
+  const importFile = () => page.locator("#importFile").setInputFiles({ name: "backup.zip", mimeType: "application/zip", buffer: fixture });
+  const read = keys => extension.worker.evaluate(keys => chrome.storage.local.get(keys), keys);
+  await importFile();
+  await expect(dialog).toContainText("Missing or damaged image attachments (1). Affected pages (1) and projects (1).");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+  const canceled = await read(["laterOnItems", "laterOnPreRestoreBackup"]);
+  expect(canceled.laterOnItems[0].id).toBe("before");
+  expect(canceled.laterOnPreRestoreBackup).toBeUndefined();
+
+  await importFile();
+  await dialog.getByRole("button", { name: "Replace collection without those images" }).click();
+  await expect(dialog).toContainText("Restored 1 pages");
+  await page.keyboard.press("Escape");
+  const after = await read(["laterOnItems", "laterOnCovers", "laterOnIcons", "laterOnProjects", "laterOnPreRestoreBackup"]);
+  expect(after.laterOnItems[0]).toMatchObject({ id: "archived", image: "" });
+  expect(after.laterOnIcons[after.laterOnItems[0].favicon.slice("icon://".length)]).toBe(`data:image/png;base64,${image.toString("base64")}`);
+  expect(after.laterOnCovers).toEqual({});
+  expect(after.laterOnProjects[0].cover).toBe("");
+  expect(after.laterOnPreRestoreBackup.data.items[0].id).toBe("before");
+  await expect(page.getByRole("button", { name: "Download pre-restore local backup" })).toBeVisible();
 });
