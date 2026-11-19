@@ -11,11 +11,17 @@ async function seed(worker, language = "en") {
 const url = (extension, hash = "") => new URL(`settings.html${hash}`, extension.url).href;
 const general = page => page.getByRole("tab", { name: /^(General|常规设置)$/ });
 const data = page => page.getByRole("tab", { name: /^(Data & maintenance|数据与维护)$/ });
+const backup = page => page.getByRole("tab", { name: /^(Backup & restore|备份与恢复)$/ });
 const usage = page => page.getByRole("region", { name: /^(Storage usage|存储占用)$/ });
 async function trackReads(page) {
   await page.addInitScript(() => {
-    window.reads = { usage: 0, diagnostics: 0, fail: false, hold: false, release: null };
+    window.reads = { usage: 0, diagnostics: 0, backup: 0, fail: false, hold: false, release: null };
     const read = chrome.storage.local.get.bind(chrome.storage.local);
+    const send = chrome.runtime.sendMessage.bind(chrome.runtime);
+    chrome.runtime.sendMessage = async message => {
+      if (message.type === "WEBDAV_BACKUP" && message.action === "status") window.reads.backup += 1;
+      return send(message);
+    };
     chrome.storage.local.get = async keys => {
       if (keys === null) window.reads.usage += 1;
       if (!Array.isArray(keys) || !keys.includes("laterOnDiag")) return read(keys);
@@ -35,10 +41,11 @@ for (const language of ["zh-CN", "en"]) {
     const errors = []; page.on("pageerror", error => errors.push(error.message));
     await page.goto(url(extension));
     await expect(general(page)).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("tab")).toHaveCount(3);
     await expect(page.getByRole("tabpanel")).toHaveCount(1);
     await expect(page.locator('[data-setting="theme"]')).toBeVisible();
     await expect(page.locator('[data-setting="autoCleanEnabled"]')).toHaveCount(0);
-    expect(await page.evaluate(() => window.reads)).toMatchObject({ usage: 0, diagnostics: 0 });
+    expect(await page.evaluate(() => window.reads)).toMatchObject({ usage: 0, diagnostics: 0, backup: 0 });
     await page.screenshot({ path: test.info().outputPath(`settings-tabs-${language}-general.png`), fullPage: true });
     const before = await extension.worker.evaluate(() => chrome.storage.local.get(null));
     await general(page).focus(); await page.keyboard.press("ArrowRight");
@@ -49,16 +56,28 @@ for (const language of ["zh-CN", "en"]) {
     await expect(page.getByRole("tabpanel")).toHaveCount(1);
     await expect(page.locator('[data-setting="autoCleanEnabled"]')).toBeVisible();
     await expect(page.locator('[data-setting="theme"]')).not.toBeVisible();
-    expect(await page.evaluate(() => window.reads)).toMatchObject({ usage: 1, diagnostics: 0 });
+    expect(await page.evaluate(() => window.reads)).toMatchObject({ usage: 1, diagnostics: 0, backup: 0 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     const labels = await page.getByRole("tabpanel").locator("h2").allTextContents();
-    expect(labels).toEqual(language === "en" ? ["Backup & restore", "Storage usage", "Automatic cleanup", "Diagnostics", "Danger zone"]
-      : ["备份与恢复", "存储占用", "自动清理", "运行诊断", "危险操作"]);
+    expect(labels).toEqual(language === "en" ? ["Storage usage", "Automatic cleanup", "Diagnostics", "Danger zone"]
+      : ["存储占用", "自动清理", "运行诊断", "危险操作"]);
     await page.screenshot({ path: test.info().outputPath(`settings-tabs-${language}-data.png`), fullPage: true });
     await page.reload();
     await expect(data(page)).toHaveAttribute("aria-selected", "true");
     await expect(usage(page)).toBeVisible();
-    await data(page).focus(); await page.keyboard.press("Home");
+    await data(page).focus(); await page.keyboard.press("ArrowRight");
+    await expect(backup(page)).toBeFocused();
+    await expect(backup(page)).toHaveAttribute("aria-selected", "true");
+    await expect(page).toHaveURL(/#backup$/);
+    await expect(page.locator("#exportBtn")).toBeVisible();
+    await expect(usage(page)).toHaveCount(0);
+    await page.reload();
+    await expect(backup(page)).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("#exportBtn")).toBeVisible();
+    await expect.poll(() => page.evaluate(() => window.reads.backup)).toBe(1);
+    expect(await page.evaluate(() => window.reads)).toMatchObject({ usage: 0, diagnostics: 0 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await backup(page).focus(); await page.keyboard.press("Home");
     await expect(general(page)).toHaveAttribute("aria-selected", "true");
     await expect(general(page)).toBeFocused();
     await expect(usage(page)).toHaveCount(0);
@@ -114,7 +133,7 @@ test("运行诊断：展开才读取和轮询，折叠或离开停止，丢弃�
 
 for (const action of ["BACKUP_EXPORT", "BACKUP_APPLY"]) {
   for (const fail of [false, true]) {
-    test(`数据面板：${action} 切换期间${fail ? "失败后可重试" : "继续完成"}，保留选项与操作锁`, { tag: action === "BACKUP_APPLY" && !fail ? ["@smoke"] : [] }, async ({ page, extension }) => {
+    test(`备份面板：${action} 切换期间${fail ? "失败后可重试" : "继续完成"}，保留选项与操作锁`, { tag: action === "BACKUP_APPLY" && !fail ? ["@smoke"] : [] }, async ({ page, extension }) => {
       await seed(extension.worker);
       await page.addInitScript(action => {
         const send = chrome.runtime.sendMessage.bind(chrome.runtime);
@@ -126,8 +145,8 @@ for (const action of ["BACKUP_EXPORT", "BACKUP_APPLY"]) {
           return send(message);
         };
       }, action);
-      await page.goto(url(extension, "#data"));
-      await expect(usage(page)).toBeVisible();
+      await page.goto(url(extension, "#backup"));
+      await expect(backup(page)).toHaveAttribute("aria-selected", "true");
       await page.locator("#exportImages").check();
       await page.locator("#importMode").selectOption("replace");
       const dialog = page.getByRole("dialog");
@@ -150,8 +169,9 @@ for (const action of ["BACKUP_EXPORT", "BACKUP_APPLY"]) {
         await expect(webdavEndpoint).toBeVisible();
         await expect(webdavEndpoint).toBeDisabled();
       }
-      await general(page).click();
-      await expect(page.locator("#exportBtn")).toBeDisabled();
+      await data(page).click();
+      await expect(page.locator("#exportBtn")).toBeHidden();
+      await expect(page.locator("#wipeBtn")).toBeVisible();
       await expect(page.locator("#wipeBtn")).toBeDisabled();
       const download = action === "BACKUP_EXPORT" && !fail ? page.waitForEvent("download") : null;
       await page.evaluate(fail => { window.backupGate.fail = fail; window.backupGate.hold = false; window.backupGate.release(); }, fail);
@@ -161,10 +181,10 @@ for (const action of ["BACKUP_EXPORT", "BACKUP_APPLY"]) {
         await expect(page.locator(".lod-root")).toHaveAttribute("data-tone", fail ? "danger" : "success");
         await dialog.locator(".lod-ok").click();
       }
-      await data(page).click();
+      await expect(page.locator("#wipeBtn")).toBeEnabled();
+      await backup(page).click();
       await expect(page.locator("#exportBtn")).toBeEnabled();
       if (action === "BACKUP_EXPORT") await expect(webdavEndpoint).toBeEnabled();
-      await expect(page.locator("#wipeBtn")).toBeEnabled();
       await expect(page.locator("#exportImages")).toBeChecked();
       await expect(page.locator("#importMode")).toHaveValue("replace");
       if (fail) {

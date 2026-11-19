@@ -15,13 +15,16 @@ import WipePanel from "./WipePanel.vue";
 import SettingsDialog from "./SettingsDialog.vue";
 import type { Settings, StoredSettings } from "../../../src/settings/shared";
 
+type SettingsTab = "general" | "data" | "backup";
+
 const dialog = useDialog();
 const current = shallowRef<Settings | null>(null);
 const saving = ref(false);
 const confirmingAutoClean = ref(false);
 const loadError = ref(false);
-const activeTab = ref<"general" | "data">(window.location.hash === "#data" ? "data" : "general");
+const activeTab = ref<SettingsTab>(tabFromLocation());
 const dataVisited = ref(activeTab.value === "data");
+const backupVisited = ref(activeTab.value === "backup");
 const maintenanceBusy = ref(false);
 const libraryUrl = new URL("library.html", window.location.href).href;
 const iconUrl = "/icon128.png";
@@ -29,13 +32,21 @@ const languages = [{ value: "zh-CN", label: "chinese" }, { value: "en", label: "
 const themes = [{ value: "light", label: "light" }, { value: "dark", label: "dark" }, { value: "system", label: "system" }] as const;
 const sortOptions = [{ value: "newest", label: "sortNewest" }, { value: "oldest", label: "sortOldest" }, { value: "source", label: "sortSource" }, { value: "custom", label: "sortCustomDragged" }] as const;
 
+function isSettingsTab(value: string | number): value is SettingsTab {
+  return value === "general" || value === "data" || value === "backup";
+}
+function tabFromLocation(): SettingsTab {
+  const value = window.location.hash.slice(1);
+  return isSettingsTab(value) ? value : "general";
+}
 function selectTab(value: string | number): void {
-  if (value !== "general" && value !== "data") return;
+  if (!isSettingsTab(value)) return;
   activeTab.value = value;
   if (value === "data") dataVisited.value = true;
+  if (value === "backup") backupVisited.value = true;
   window.history.replaceState(window.history.state, "", `#${value}`);
 }
-function restoreTab(): void { selectTab(window.location.hash === "#data" ? "data" : "general"); }
+function restoreTab(): void { selectTab(tabFromLocation()); }
 
 async function save(patch: StoredSettings): Promise<void> {
   if (!current.value || saving.value) return;
@@ -128,6 +139,7 @@ onUnmounted(() => { window.removeEventListener("hashchange", restoreTab); });
           <TabsList class="settings-tabs" :aria-label="t('settings')">
             <TabsTrigger value="general">{{ t('settingsGeneral') }}</TabsTrigger>
             <TabsTrigger value="data">{{ t('settingsMaintenance') }}</TabsTrigger>
+            <TabsTrigger value="backup">{{ t('backupRestore') }}</TabsTrigger>
           </TabsList>
           <TabsContent v-show="activeTab === 'general'" value="general" force-mount class="settings-tab-panel">
             <section class="settings-group">
@@ -168,7 +180,6 @@ onUnmounted(() => { window.removeEventListener("hashchange", restoreTab); });
             </section>
           </TabsContent>
           <TabsContent v-if="dataVisited" v-show="activeTab === 'data'" value="data" force-mount class="settings-tab-panel">
-            <BackupPanel v-model:busy="maintenanceBusy" :dialog="dialog" />
             <StorageUsagePanel v-if="activeTab === 'data'" />
             <section class="settings-group">
               <h2>{{ t('cleanupSettings') }}</h2>
@@ -184,6 +195,9 @@ onUnmounted(() => { window.removeEventListener("hashchange", restoreTab); });
             </section>
             <DiagnosticsPanel v-if="activeTab === 'data'" />
             <WipePanel v-model:busy="maintenanceBusy" :dialog="dialog" />
+          </TabsContent>
+          <TabsContent v-if="backupVisited" v-show="activeTab === 'backup'" value="backup" force-mount class="settings-tab-panel">
+            <BackupPanel v-model:busy="maintenanceBusy" :dialog="dialog" />
           </TabsContent>
         </TabsRoot>
       </template>

@@ -135,6 +135,7 @@ test("图标去重：设置页区分使用量与存储份数，缺图提示后�
     const { laterOnIcons: icons } = await chrome.storage.local.get("laterOnIcons");
     delete icons[hash]; await chrome.storage.local.set({ laterOnIcons: icons });
   }, hashes[0]);
+  await page.getByRole("tab", { name: "Backup & restore" }).click();
   await page.locator("#exportImages").check();
   await page.locator("#exportBtn").click();
   await expect(page.locator(".lod-root:not([hidden])")).toContainText("An embedded site icon is missing.");

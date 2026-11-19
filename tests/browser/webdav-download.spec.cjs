@@ -69,7 +69,7 @@ test("设置页可以通过 MessageChannel 保存约 49 MiB 的原始 WebDAV ZIP
     };
   }, { sourceId, filename, endpoint, directory, compressedFixture });
 
-  await page.goto(new URL("settings.html#data", extension.url).href);
+  await page.goto(new URL("settings.html#backup", extension.url).href);
   const backupCard = page.getByRole("region", { name: "Backup & restore" });
   const webdav = backupCard.getByRole("region", { name: "WebDAV backups" });
   const viewBackups = webdav.getByRole("button", { name: "View backups" });

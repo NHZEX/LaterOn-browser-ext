@@ -135,7 +135,8 @@ module.exports = async function verifySettingsPage(directory) {
       assert.equal(document.querySelector('[data-setting="defaultSort"]').value, "custom");
       resource(document.querySelector(".settings-brand img").src);
       const click = selector => document.querySelector(selector).click();
-      const switchTab = value => [...document.querySelectorAll('[role="tab"]')].find(element => element.textContent === window.uiTest.i18n.t(value === "data" ? "settingsMaintenance" : "settingsGeneral")).dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 }));
+      const tabs = { general: "settingsGeneral", data: "settingsMaintenance", backup: "backupRestore" };
+      const switchTab = value => [...document.querySelectorAll('[role="tab"]')].find(element => element.textContent === window.uiTest.i18n.t(tabs[value])).dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 }));
       const change = (selector, value) => {
         const element = document.querySelector(selector);
         element.value = value;
@@ -154,7 +155,7 @@ module.exports = async function verifySettingsPage(directory) {
       assert.equal(document.documentElement.dataset.theme, "light");
       await tick();
       switchTab("data");
-      await until(() => document.querySelector("#exportBtn"), "Data tab mounts maintenance controls");
+      await until(() => document.querySelector("#wipeBtn"), "Data tab mounts maintenance controls");
       for (const [value, expected] of [["999", 180], ["32.6", 33], ["", 30]]) {
         const days = change('[data-setting="autoCleanDays"]', value);
         await until(() => store.laterOnSettings.autoCleanDays === expected, "Days clamp and round");
@@ -227,6 +228,8 @@ module.exports = async function verifySettingsPage(directory) {
       diagnosticDetails.dispatchEvent(new window.Event("toggle"));
       await until(() => document.querySelector("#diagShortcut")?.textContent.includes(window.uiTest.i18n.t("cmdSaveAllTabs")), "Expanded diagnostics reads the latest shortcut");
       assert.ok(document.querySelector("#diagPanelSpeed").textContent.includes(window.uiTest.i18n.t("speedOk")));
+      switchTab("backup");
+      await until(() => document.querySelector("#exportBtn"), "Backup tab mounts export and import controls");
       const input = document.querySelector("#importFile");
       const exportButton = document.querySelector("#exportBtn");
       let selectedFileValue = "";
@@ -317,6 +320,7 @@ module.exports = async function verifySettingsPage(directory) {
       assert.deepEqual(clone(store.laterOnCovers), {});
       assert.equal(store.laterOnReadingPositions.a, 123);
 
+      switchTab("data"); await tick();
       click("#wipeBtn"); await closeDialog(false); await endImport();
       assert.equal(store.laterOnItems.length, 1, "Cancelled wipe preserves data");
       click("#wipeBtn"); await until(dialog, "Wipe confirmation opens"); faults.write = true;
