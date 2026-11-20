@@ -18,6 +18,7 @@ export interface Settings {
 export type StoredSettings = Partial<Settings>;
 
 export const KEY = "laterOnSettings";
+export const SYNC_APPLIED = "laterOnSettingsSyncApplied";
 export const DEFAULTS: Settings = {
   theme: "light",
   defaultSort: "newest",

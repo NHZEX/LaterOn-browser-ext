@@ -1,5 +1,5 @@
 import { nextTick, watch } from "vue";
-import { browser } from "wxt/browser";
+import { set as setSettings } from "../settings/store";
 import { previewOffsets, type DragLayout } from "../library/shared";
 import type { SidepanelControls } from "./useSidepanelControls";
 import type { PanelCommands } from "./usePanelCommands";
@@ -87,10 +87,7 @@ export function usePanelDrag(controls: SidepanelControls, commands: PanelCommand
     try {
       const result = await commands.execute("moveItem", { id, scope, beforeId }, () => {
         list?.classList.add("no-transition"); cancel(); commands.customSort();
-      }, async () => {
-        const stored = await browser.storage.local.get<{ laterOnSettings?: Record<string, unknown> }>("laterOnSettings");
-        await browser.storage.local.set({ laterOnSettings: { ...stored.laterOnSettings, defaultSort: "custom" } });
-      });
+      }, () => setSettings({ defaultSort: "custom" }));
       if (!alive || !result) return;
       commands.notify(wasCustom ? "orderSaved" : "customSortEnabled");
       await nextTick();

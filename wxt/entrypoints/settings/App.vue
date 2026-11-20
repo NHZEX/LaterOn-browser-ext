@@ -3,7 +3,8 @@ import { onMounted, onUnmounted, ref, shallowRef } from "vue";
 import { SwitchRoot, SwitchThumb, TabsRoot, TabsList, TabsTrigger, TabsContent } from "reka-ui";
 import { browser } from "wxt/browser";
 import * as settings from "../../../src/settings/store";
-import { setLanguage, t } from "../../../src/shared/i18n";
+import { applyLanguage, t } from "../../../src/shared/i18n";
+import { resolveSettings } from "../../../src/settings/shared";
 import { clampDays } from "./shared";
 import { useDialog } from "./useDialog";
 import BackupPanel from "./BackupPanel.vue";
@@ -13,6 +14,7 @@ import NotificationSetting from "./NotificationSetting.vue";
 import DiagnosticsPanel from "./DiagnosticsPanel.vue";
 import WipePanel from "./WipePanel.vue";
 import SettingsDialog from "./SettingsDialog.vue";
+import SettingsSyncPanel from "./SettingsSyncPanel.vue";
 import type { Settings, StoredSettings } from "../../../src/settings/shared";
 
 type SettingsTab = "general" | "data" | "backup";
@@ -31,6 +33,7 @@ const iconUrl = "/icon128.png";
 const languages = [{ value: "zh-CN", label: "chinese" }, { value: "en", label: "english" }] as const;
 const themes = [{ value: "light", label: "light" }, { value: "dark", label: "dark" }, { value: "system", label: "system" }] as const;
 const sortOptions = [{ value: "newest", label: "sortNewest" }, { value: "oldest", label: "sortOldest" }, { value: "source", label: "sortSource" }, { value: "custom", label: "sortCustomDragged" }] as const;
+let stopSettings: (() => void) | undefined;
 
 function isSettingsTab(value: string | number): value is SettingsTab {
   return value === "general" || value === "data" || value === "backup";
@@ -53,8 +56,8 @@ async function save(patch: StoredSettings): Promise<void> {
   saving.value = true;
   try {
     await settings.set(patch);
-    current.value = { ...current.value, ...patch };
-    if (patch.language) await setLanguage(patch.language);
+    current.value = await settings.get();
+    if (patch.language) applyLanguage(current.value.language);
   } catch {
     await dialog.alert({ tone: "danger", title: t("operationFailed"), message: t("backupOperationFailed") });
   } finally { saving.value = false; }
@@ -113,15 +116,25 @@ async function home(event: MouseEvent): Promise<void> {
   catch { /* Navigation still works if restoring the default project fails. */ }
   await navigate(libraryUrl);
 }
+function updateTitle(): void { document.title = `StaySide · ${t("settings")}`; }
 async function init(): Promise<void> {
   loadError.value = false;
-  document.title = `StaySide · ${t("settings")}`;
+  updateTitle();
   try { current.value = await settings.get(); }
   catch { loadError.value = true; }
 }
 
-onMounted(() => { void init(); window.addEventListener("hashchange", restoreTab); });
-onUnmounted(() => { window.removeEventListener("hashchange", restoreTab); });
+onMounted(() => {
+  stopSettings = settings.watch(value => { current.value = resolveSettings(value); });
+  window.addEventListener("hashchange", restoreTab);
+  window.addEventListener("lateron-language-change", updateTitle);
+  void init();
+});
+onUnmounted(() => {
+  stopSettings?.();
+  window.removeEventListener("hashchange", restoreTab);
+  window.removeEventListener("lateron-language-change", updateTitle);
+});
 </script>
 
 <template>
@@ -173,6 +186,7 @@ onUnmounted(() => { window.removeEventListener("hashchange", restoreTab); });
               </div>
               <NotificationSetting />
             </section>
+            <SettingsSyncPanel />
             <ShortcutsPanel :dialog="dialog" />
             <section class="settings-group">
               <h2>{{ t('guideSettingsTitle') }}</h2>

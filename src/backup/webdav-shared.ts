@@ -82,22 +82,27 @@ export function monthUsage(usage: BackupUsage | undefined, now: number): BackupU
   return usage?.month === month ? usage : { month, uploaded: 0, downloaded: 0, requests: 0 };
 }
 
-export function normalizeBackupSettings(options: BackupOptions, password: string): BackupSettings {
+export function normalizeBackupEndpoint(endpoint: string): string {
   let url: URL;
-  try { url = new URL(options.endpoint.trim()); }
+  try { url = new URL(endpoint.trim()); }
   catch { throw new Error("WEBDAV_SETTINGS"); }
+  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) throw new Error("WEBDAV_SETTINGS");
+  url.pathname = url.pathname.replace(/\/+$/, "") + "/";
+  return url.href;
+}
+
+export function normalizeBackupOptions(options: BackupOptions): BackupOptions {
+  const endpoint = normalizeBackupEndpoint(options.endpoint);
   const directory = options.directory.trim();
   const username = options.username.trim();
-  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash ||
-    !directory || directory === "." || directory === ".." || /[/\\\x00-\x1f]/.test(directory) ||
-    !username || username.includes(":") || !password ||
+  if (!directory || directory === "." || directory === ".." || /[/\\\x00-\x1f]/.test(directory) ||
+    !username || username.includes(":") ||
     !Number.isInteger(options.intervalHours) || options.intervalHours < 1 || options.intervalHours > 720 ||
     !Number.isInteger(options.budgetMiB) || options.budgetMiB < 1 || options.budgetMiB > 100000) {
     throw new Error("WEBDAV_SETTINGS");
   }
-  url.pathname = url.pathname.replace(/\/+$/, "") + "/";
   return {
-    endpoint: url.href, directory, username, password,
+    endpoint, directory, username,
     automatic: options.automatic === true, includeImages: options.includeImages === true,
     intervalHours: options.intervalHours, budgetMiB: options.budgetMiB
   };

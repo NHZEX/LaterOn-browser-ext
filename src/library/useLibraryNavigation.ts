@@ -2,6 +2,7 @@ import { ref, watch } from "vue";
 import { browser } from "wxt/browser";
 import { normalizeFilter, normalizeSearch, normalizeSort } from "../collection/filter";
 import { ACTIVE } from "../storage/contracts";
+import { set as setSettings } from "../settings/store";
 import { t } from "../shared/i18n";
 import { libraryProject } from "./shared";
 import { FILTER, FILTER_CHOSEN, SETTINGS } from "./page";
@@ -62,10 +63,8 @@ export function useLibraryNavigation(view: LibraryView) {
   function clearSearch(): void { clearTimeout(searchTimer); state.search = ""; state.query = ""; }
   async function saveSort(): Promise<void> {
     try {
-      const stored = await browser.storage.local.get<LibrarySnapshot>(SETTINGS);
       if (!alive) return;
-      const settings = stored[SETTINGS] ?? {};
-      if (settings.defaultSort !== state.sort) await browser.storage.local.set({ [SETTINGS]: { ...settings, defaultSort: state.sort } });
+      await setSettings({ defaultSort: state.sort });
     } catch { /* 本次会话的排序照常可用。 */ }
   }
   function setSort(value: string): void { if (alive) { state.sort = normalizeSort(value); void saveSort(); } }

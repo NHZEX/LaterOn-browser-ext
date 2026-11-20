@@ -1,5 +1,6 @@
 import { browser } from "wxt/browser";
-import { DEFAULTS, KEY, resolveSettings } from "./shared";
+import type { Browser } from "wxt/browser";
+import { DEFAULTS, KEY, SYNC_APPLIED, resolveSettings } from "./shared";
 import type { Settings, StoredSettings } from "./shared";
 
 export { DEFAULTS, KEY };
@@ -12,21 +13,30 @@ export async function get(): Promise<Settings> {
   return resolveSettings(stored[KEY] || {});
 }
 
-export async function set(patch: StoredSettings): Promise<void> {
-  const current = await get();
-  await browser.storage.local.set({
-    [KEY]: {
+export async function set(patch: StoredSettings, source?: "sync"): Promise<void> {
+  const write = async () => {
+    const current = await get();
+    const updated: Settings = {
       ...current,
       ...patch,
       ...(Object.prototype.hasOwnProperty.call(patch, "askFolderOnSingle") ? { askFolderOnSingleOptIn: true } : {})
-    }
-  });
+    };
+    if (Object.keys(patch).every(key => Object.is(updated[key], current[key])) &&
+      updated.askFolderOnSingleOptIn === current.askFolderOnSingleOptIn) return;
+    await browser.storage.local.set({ [KEY]: updated, ...(source === "sync" ? { [SYNC_APPLIED]: crypto.randomUUID() } : {}) });
+  };
+  // Pages and the worker both merge into the same local settings record.
+  const locks = globalThis.navigator?.locks;
+  if (locks) await locks.request(KEY, write);
+  else await write();
 }
 
-export function watch(callback: SettingsListener): void {
-  browser.storage.onChanged.addListener((changes, area) => {
+export function watch(callback: SettingsListener): () => void {
+  const changed = (changes: Record<string, Browser.storage.StorageChange>, area: string) => {
     if (area !== "local" || !changes[KEY]) return;
     // Preserve the existing notification payload: defaults plus the raw changed value.
     callback({ ...DEFAULTS, ...(changes[KEY].newValue || {}) }, changes[KEY].oldValue);
-  });
+  };
+  browser.storage.onChanged.addListener(changed);
+  return () => browser.storage.onChanged.removeListener?.(changed);
 }

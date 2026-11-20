@@ -3,6 +3,7 @@ import { WEBDAV_DOWNLOAD_MESSAGE } from "./webdav-download";
 import type { BackupImageDamage } from "./archive-images";
 import type { WebdavDownloadReply, WebdavFailure } from "./webdav-download";
 import type { BackupOptions, BackupStatus, RemoteBackup } from "./webdav-shared";
+import type { WebdavPreset } from "../settings/sync-shared";
 
 type ResponseDetails = { readonly status: BackupStatus };
 
@@ -23,6 +24,10 @@ async function request<T extends ResponseDetails>(action: string, fields: Readon
 export const webdavStatus = (): Promise<ResponseDetails> => request("status");
 export const saveWebdav = (options: BackupOptions, password: string): Promise<ResponseDetails> => request("save", { options, password });
 export const testWebdav = (allowOverBudget: boolean): Promise<ResponseDetails> => request("test", { allowOverBudget });
+export const testWebdavPreset = (preset: WebdavPreset, password: string, allowOverBudget: boolean):
+  Promise<ResponseDetails & { readonly token: string }> => request("testPreset", { preset, password, allowOverBudget });
+export const applyWebdavPreset = (preset: WebdavPreset, password: string, token: string): Promise<ResponseDetails> =>
+  request("applyPreset", { preset, password, token });
 export const listWebdav = (allowOverBudget: boolean): Promise<ResponseDetails & { readonly entries: readonly RemoteBackup[] }> =>
   request("list", { allowOverBudget });
 export const uploadWebdav = (includeImages: boolean, allowOverBudget: boolean): Promise<ResponseDetails> =>

@@ -1,6 +1,7 @@
 import type { Browser } from "wxt/browser";
 import type { TranslationValues } from "./i18n";
 import type { StoredSettings } from "../settings/shared";
+import { set as setSettings } from "../settings/store";
 type Language = "zh-CN" | "en";
 type Preferences = { readonly laterOnSettings?: StoredSettings };
 
@@ -79,6 +80,16 @@ export const dictionaries: Readonly<Record<Language, Readonly<Record<string, str
     lastCoverSource: "最近一次抓取来源", panelSpeedLabel: "侧栏打开耗时", panelLocateLabel: "侧栏「滚到正在读」",
     lastErrorLabel: "最近一次错误",
     diagHint: "自检方法：保持诊断信息展开，切到任意网页按下快捷键，「最近一次快捷键触发」会在两秒内更新。如果仍显示「还没触发过」，按键可能被系统或其他软件拦截，可到「常规设置 → 快捷键」更换组合键。右键菜单中的「添加本窗口所有标签页」不受快捷键影响。",
+    settingsSync: "同步设置", settingsSyncEnable: "使用浏览器同步偏好", settingsSyncHint: "在启用此设置的浏览器配置间共享主题、语言和默认排序。",
+    settingsSyncCompare: "本机与浏览器同步区的设置不同。请选择整组使用哪一边。", settingsSyncLocal: "本机", settingsSyncBrowser: "浏览器同步区",
+    settingsSyncUseBrowser: "使用同步区设置", settingsSyncUploadLocal: "上传本机设置",
+    settingsSyncWebdav: "共享 WebDAV 预设", settingsSyncWebdavHint: "共享地址、目录、账号、备份间隔和是否含图。应用密码留在本机。",
+    settingsSyncReviewPreset: "前往备份与恢复查看预设",
+    settingsSyncUnavailable: "无法读取或更新浏览器同步设置。请稍后重试，本机设置仍可保存。",
+    settingsSyncFailed: "本机已保存。写入浏览器同步区失败：{fields}。",
+    webdavPresetReceived: "浏览器同步区有 WebDAV 连接预设。", webdavPresetUpdated: "有新的 WebDAV 连接预设。当前草稿已保留。",
+    webdavPresetOpen: "载入预设草稿", webdavPresetOpenNew: "切换到新草稿", webdavPresetDraft: "测试连接成功后可应用草稿。应用前，备份仍使用已保存的连接。更换目标会暂停自动备份。",
+    webdavPresetTested: "草稿连接测试已通过，可以应用预设。", webdavPresetApply: "应用预设", webdavPresetRetest: "请重新测试此草稿后再应用。",
     backupRestore: "备份与恢复", backupLocalFiles: "本地文件", backupHint: "默认不包含图片数据，远程图片保留链接；导入后缺图使用默认占位图。", backupIncludeImages: "包含图片数据（文件较大）", wipeHint: "删除全部网页数据，且无法撤销", wipeAction: "清空",
     backupImportMode: "导入方式", backupMergeMode: "合并收藏", backupReplaceMode: "覆盖恢复收藏",
     backupCounts: "备份包含 {items} 篇网页、{projects} 个项目、{covers} 张上传封面、{positions} 条阅读位置。",
@@ -281,6 +292,16 @@ export const dictionaries: Readonly<Record<Language, Readonly<Record<string, str
     lastCoverSource: "Last fetch source", panelSpeedLabel: "Side panel open time", panelLocateLabel: "Side panel “scroll to current”",
     lastErrorLabel: "Last error",
     diagHint: "Keep diagnostics expanded, switch to any web page and press the shortcut. “Last shortcut triggered” updates within two seconds. If it still says “Never triggered”, the system or another app may have intercepted the keys. Change the combination under General → Shortcuts. The context menu’s “Add all tabs in this window” works independently of shortcuts.",
+    settingsSync: "Settings sync", settingsSyncEnable: "Sync preferences with the browser", settingsSyncHint: "Share the theme, language, and default sort order across browser profiles that enable this setting.",
+    settingsSyncCompare: "The local and browser sync settings differ. Choose which group to use.", settingsSyncLocal: "This profile", settingsSyncBrowser: "Browser sync",
+    settingsSyncUseBrowser: "Use browser sync settings", settingsSyncUploadLocal: "Upload local settings",
+    settingsSyncWebdav: "Share WebDAV preset", settingsSyncWebdavHint: "Share the address, folder, username, backup interval, and image option. The app password stays on this device.",
+    settingsSyncReviewPreset: "View preset in Backup & restore",
+    settingsSyncUnavailable: "Couldn’t read or update browser sync settings. Try again later. You can still save settings locally.",
+    settingsSyncFailed: "Saved locally. Couldn’t write to browser sync: {fields}.",
+    webdavPresetReceived: "A WebDAV connection preset is available from browser sync.", webdavPresetUpdated: "A newer WebDAV preset is available. Your current draft is unchanged.",
+    webdavPresetOpen: "Load preset draft", webdavPresetOpenNew: "Switch to new draft", webdavPresetDraft: "Test this draft before applying it. Backups use the saved connection until you apply the draft. Changing the destination pauses automatic backups.",
+    webdavPresetTested: "Connection test passed. You can apply the preset.", webdavPresetApply: "Apply preset", webdavPresetRetest: "Test this draft again before applying it.",
     backupRestore: "Backup & restore", backupLocalFiles: "Local files", backupHint: "Image data is excluded by default; remote image links are kept. Missing images use placeholders after import.", backupIncludeImages: "Include image data (larger file)", wipeHint: "Delete all pages. This cannot be undone", wipeAction: "Clear",
     backupImportMode: "Import mode", backupMergeMode: "Merge collection", backupReplaceMode: "Replace collection",
     backupCounts: "This backup contains {items} pages, {projects} projects, {covers} uploaded covers and {positions} reading positions.",
@@ -421,9 +442,11 @@ let language: Language = "zh-CN";
 let revision = 0;
 function format(value: string, vars?: TranslationValues): string { return String(value).replace(/\{(\w+)\}/g, (_, k: string) => String(vars?.[k] ?? `{${k}}`)); }
 export function t(key: string, vars?: TranslationValues): string { return format((dictionaries[language] || dictionaries["zh-CN"])[key] || dictionaries["zh-CN"][key] || key, vars); }
-function updateLanguage(next: unknown): void {
-  language = next === "en" ? "en" : "zh-CN";
+export function applyLanguage(next: unknown): void {
+  const selected = next === "en" ? "en" : "zh-CN";
   revision++;
+  if (selected === language) return;
+  language = selected;
   applyStatic();
   window.dispatchEvent(new CustomEvent("lateron-language-change", { detail: language }));
 }
@@ -436,13 +459,10 @@ export async function getLanguage(): Promise<Language> {
   return language;
 }
 export async function setLanguage(next: Language): Promise<Language> {
-  updateLanguage(next);
-  const selected = language;
-  try {
-    const result = await chrome.storage.local.get<Preferences>(KEY);
-    await chrome.storage.local.set({ [KEY]: { ...(result[KEY] || {}), language: selected } });
-  } catch { /* The current page can still use the selected language. */ }
-  return selected;
+  applyLanguage(next);
+  try { await setSettings({ language: next }); }
+  catch { /* The current page can still use the selected language. */ }
+  return next;
 }
 export function applyStatic(): void {
   document.documentElement.lang = language;
@@ -457,7 +477,7 @@ export const ready = getLanguage().then(applyStatic);
 const languageChanged = (changes: Readonly<Record<string, Browser.storage.StorageChange>>, area: string) => {
   if (area !== "local" || !changes[KEY]) return;
   const value: unknown = changes[KEY].newValue;
-  updateLanguage(value && typeof value === "object" && "language" in value ? value.language : undefined);
+  applyLanguage(value && typeof value === "object" && "language" in value ? value.language : undefined);
 };
 globalThis.chrome?.storage?.onChanged?.addListener(languageChanged);
 window.addEventListener("pagehide", () => globalThis.chrome?.storage?.onChanged?.removeListener?.(languageChanged), { once: true });

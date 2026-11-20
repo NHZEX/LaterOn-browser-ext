@@ -1,5 +1,8 @@
 import { createLocalBackup } from "./background";
 import { isRecord } from "../storage/contracts";
+import { sharesWebdavPreset } from "../settings/sync-background";
+import { selectPreset } from "../settings/sync-shared";
+import type { WebdavPreset } from "../settings/sync-shared";
 import { ARCHIVE_VERSION, createBackupArchive, readBackupArchive } from "./webdav-archive";
 import { WEBDAV_DOWNLOAD_MESSAGE } from "./webdav-download";
 import type { WebdavDownloadSuccess, WebdavFailure } from "./webdav-download";
@@ -7,7 +10,7 @@ import { budgetError, createWebdav } from "./webdav-transport";
 import type { DavEntry, WebdavClient } from "./webdav-transport";
 import {
   AUTO_BACKUP_LIMIT, BACKUP_ALARM, BACKUP_STATE, DEFAULT_BACKUP_OPTIONS, MIB,
-  backupFileName, isBackupDevice, monthUsage, newestFirst, normalizeBackupSettings, parseBackupName
+  backupFileName, isBackupDevice, monthUsage, newestFirst, normalizeBackupOptions, parseBackupName
 } from "./webdav-shared";
 import type { BackupKind, BackupSettings, BackupStatus, BackupUsage, RemoteBackup } from "./webdav-shared";
 
@@ -32,6 +35,7 @@ const ROTATION_INTERVAL = 24 * HOUR;
 const STAGING_RETENTION = 48 * HOUR;
 const STAGING_SUFFIX = ".upload";
 const CHECK_MINUTES = 30;
+const TESTED_PRESET = "laterOnTestedWebdavPreset";
 const encode = (value: string) => new TextEncoder().encode(value);
 
 function errorCode(error: unknown): string {
@@ -49,6 +53,10 @@ async function fingerprint(value: string): Promise<string> {
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
+function presetProof(token: string, settings: BackupSettings): Promise<string> {
+  return fingerprint(JSON.stringify([token, selectPreset(settings), settings.password]));
+}
+
 function publicState(state: StatusState): BackupStatus {
   const options = state.settings ? (({ password: _password, ...rest }) => rest)(state.settings) : DEFAULT_BACKUP_OPTIONS;
   return {
@@ -62,25 +70,35 @@ function requestSettings(raw: unknown, password: unknown, previous?: BackupSetti
     typeof raw.username !== "string" || typeof raw.intervalHours !== "number" || typeof raw.budgetMiB !== "number") {
     throw new Error("WEBDAV_SETTINGS");
   }
-  const options = {
-    endpoint: raw.endpoint.trim(), directory: raw.directory.trim(), username: raw.username.trim(),
+  const options = normalizeBackupOptions({
+    endpoint: raw.endpoint, directory: raw.directory, username: raw.username,
     automatic: raw.automatic === true, includeImages: raw.includeImages === true,
     intervalHours: raw.intervalHours, budgetMiB: raw.budgetMiB
-  };
+  });
   const retained = previous?.endpoint === options.endpoint && previous.username === options.username
     ? previous.password : "";
-  return normalizeBackupSettings(options, typeof password === "string" && password ? password : retained);
+  const effectivePassword = typeof password === "string" && password ? password : retained;
+  if (!effectivePassword) throw new Error("WEBDAV_SETTINGS");
+  return { ...options, password: effectivePassword };
 }
 
 function createBackupAlarm(): Promise<void> | undefined {
   return chrome.alarms?.create?.(BACKUP_ALARM, { delayInMinutes: 1, periodInMinutes: CHECK_MINUTES });
 }
 
-async function saveBackupSettings(state: StatusState, options: unknown, password: unknown): Promise<StatusState> {
-  const settings = requestSettings(options, password, state.settings);
-  const sameTarget = state.settings?.endpoint === settings.endpoint && state.settings?.directory === settings.directory &&
-    state.settings?.username === settings.username;
-  const updated = sameTarget ? { ...state, settings, nextAutomaticCheckAt: 0, error: "" }
+function sameBackupTarget(previous: BackupSettings | undefined, next: BackupSettings): boolean {
+  return previous?.endpoint === next.endpoint && previous.directory === next.directory && previous.username === next.username;
+}
+
+function requestPreset(raw: unknown, password: unknown, previous?: BackupSettings): BackupSettings {
+  if (!isRecord(raw)) throw new Error("WEBDAV_SETTINGS");
+  const options = requestSettings({ ...raw, automatic: previous?.automatic ?? false,
+    budgetMiB: previous?.budgetMiB ?? DEFAULT_BACKUP_OPTIONS.budgetMiB }, password, previous);
+  return sameBackupTarget(previous, options) ? options : { ...options, automatic: false };
+}
+
+async function saveBackupSettings(state: StatusState, settings: BackupSettings): Promise<StatusState> {
+  const updated = sameBackupTarget(state.settings, settings) ? { ...state, settings, nextAutomaticCheckAt: 0, error: "" }
     : { device: state.device, usage: state.usage, settings };
   await chrome.storage.local.set({ [BACKUP_STATE]: updated });
   if (settings.automatic) await createBackupAlarm();
@@ -151,7 +169,7 @@ async function publish(
   throw new Error("WEBDAV_NAME");
 }
 
-export function registerWebdavBackup(): void {
+export function registerWebdavBackup(sharePreset: (preset: WebdavPreset) => Promise<void>): void {
   let queue: Promise<unknown> = Promise.resolve();
   const serialize = (task: () => Promise<unknown>) => {
     const next = queue.then(task);
@@ -172,14 +190,27 @@ export function registerWebdavBackup(): void {
 
     if (message.action === "status") return { status: publicState(state) };
     if (message.action === "save") {
-      const saved = await saveBackupSettings(state, message.options, message.password);
+      const next = requestSettings(message.options, message.password, state.settings);
+      const saved = await saveBackupSettings(state, next);
+      await sharePreset(next).catch(() => {});
       return { status: publicState(saved) };
     }
 
-    const settings = state.settings;
+    const draft = message.action === "testPreset" || message.action === "applyPreset";
+    if (draft && !await sharesWebdavPreset()) throw new Error("WEBDAV_PRESET_TEST");
+    const settings = draft ? requestPreset(message.preset, message.password, state.settings) : state.settings;
     const automatic = message.action === "automatic";
     if (automatic && (!settings?.automatic || (state.nextAutomaticCheckAt ?? 0) > Date.now())) return {};
     if (!settings) throw new Error("WEBDAV_SETTINGS");
+    if (message.action === "applyPreset") {
+      const token = message.token;
+      if (typeof token !== "string" || !token) throw new Error("WEBDAV_PRESET_TEST");
+      const stored = await chrome.storage.session.get<{ [TESTED_PRESET]?: string }>(TESTED_PRESET);
+      if (stored[TESTED_PRESET] !== await presetProof(token, settings)) throw new Error("WEBDAV_PRESET_TEST");
+      const saved = await saveBackupSettings(state, settings);
+      await chrome.storage.session.remove(TESTED_PRESET);
+      return { status: publicState(saved) };
+    }
     const limit = settings.budgetMiB * MIB;
     const usage = () => monthUsage(state.usage, Date.now());
     const remaining = () => message.allowOverBudget === true && !automatic ? Infinity :
@@ -251,6 +282,13 @@ export function registerWebdavBackup(): void {
     if (message.action === "test") {
       await dav.test();
       return { status: publicState(state) };
+    }
+    if (message.action === "testPreset") {
+      await dav.test();
+      const token = crypto.randomUUID();
+      // Session storage keeps the test valid across service-worker restarts.
+      await chrome.storage.session.set({ [TESTED_PRESET]: await presetProof(token, settings) });
+      return { token, status: publicState(state) };
     }
     if (message.action === "list") {
       const entries = await listBackups(dav, root);

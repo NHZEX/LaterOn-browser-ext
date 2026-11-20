@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, shallowRef } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from "vue";
 import { recoveryBackup, recoveryStatus } from "../../../src/backup/client";
 import * as remote from "../../../src/backup/webdav-client";
-import { DEFAULT_BACKUP_OPTIONS, MIB } from "../../../src/backup/webdav-shared";
+import { DEFAULT_BACKUP_OPTIONS, MIB, normalizeBackupEndpoint } from "../../../src/backup/webdav-shared";
+import { configureSync, watchSync } from "../../../src/settings/sync-client";
+import { selectPreset } from "../../../src/settings/sync-shared";
 import { isRecord } from "../../../src/storage/contracts";
 import { t } from "../../../src/shared/i18n";
 import { restoreBackup, saveBackupFile, saveDownload } from "./backup-actions";
 import { backupErrorKey } from "./shared";
 import type { ImportMode } from "../../../src/backup/client";
 import type { BackupOptions, BackupStatus, RemoteBackup } from "../../../src/backup/webdav-shared";
+import type { SyncStatus, WebdavPreset } from "../../../src/settings/sync-shared";
 import type { SettingsDialog } from "./useDialog";
 
 const props = defineProps<{ dialog: SettingsDialog }>();
@@ -24,17 +27,35 @@ const restoreMode = ref<ImportMode>("merge");
 const manualImages = ref(false);
 const note = ref("");
 const error = ref("");
+const configDetails = shallowRef<HTMLDetailsElement>();
+const configForm = shallowRef<HTMLFormElement>();
+const sync = shallowRef<SyncStatus>();
+const draftOrigin = shallowRef<WebdavPreset>();
+const testToken = ref("");
+let stopSync: (() => void) | undefined;
 const activeSettings = computed(() => status.value?.options);
 const dirty = computed(() => !!password.value || (Object.keys(form) as (keyof BackupOptions)[])
   .some(key => form[key] !== activeSettings.value?.[key]));
-const onlineActions = computed(() => status.value?.configured === true && !dirty.value && !busy.value);
+const onlineActions = computed(() => status.value?.configured === true && (!!draftOrigin.value || !dirty.value) && !busy.value);
+const needsPassword = computed(() => {
+  if (!status.value?.configured) return true;
+  if (!draftOrigin.value) return false;
+  try { return activeSettings.value?.endpoint !== normalizeBackupEndpoint(form.endpoint) ||
+    activeSettings.value?.username !== form.username.trim(); }
+  catch { return true; }
+});
+const draftAvailable = computed(() => {
+  if (!sync.value?.preset) return false;
+  const current = draftOrigin.value ?? (activeSettings.value && selectPreset(activeSettings.value));
+  return JSON.stringify(sync.value.preset) !== JSON.stringify(current);
+});
 const selected = computed(() => entries.value.find(entry => entryKey(entry) === selectedKey.value));
 const used = computed(() => status.value ? sizeLabel(status.value.usage.uploaded + status.value.usage.downloaded) : "0");
 const errors: Readonly<Record<string, string>> = {
   WEBDAV_SETTINGS: "webdavInvalidSettings", WEBDAV_NETWORK: "webdavNetwork",
   WEBDAV_HTTP_401: "webdavUnauthorized", WEBDAV_HTTP_403: "webdavForbidden", WEBDAV_HTTP_404: "webdavMissing",
   WEBDAV_DIRECTORY: "webdavDirectoryError", WEBDAV_BUDGET: "webdavBudgetReached", WEBDAV_LIST_LIMIT: "webdavListTooLong",
-  WEBDAV_INVALID_BACKUP: "webdavInvalidArchive"
+  WEBDAV_INVALID_BACKUP: "webdavInvalidArchive", WEBDAV_PRESET_TEST: "webdavPresetRetest"
 };
 
 function sizeLabel(bytes: number): string {
@@ -78,15 +99,41 @@ async function perform(action: () => Promise<void>): Promise<void> {
 }
 async function save(): Promise<void> {
   await perform(async () => {
-    const { status: saved } = await remote.saveWebdav({ ...form }, password.value);
+    const { status: saved } = draftOrigin.value
+      ? await remote.applyWebdavPreset(selectPreset(form), password.value, testToken.value)
+      : await remote.saveWebdav({ ...form }, password.value);
     status.value = saved;
     Object.assign(form, saved.options);
     password.value = "";
+    draftOrigin.value = undefined;
     entries.value = [];
     loadedList.value = false;
     selectedKey.value = "";
     note.value = t("webdavSaved");
   });
+}
+async function refreshPreset(): Promise<void> {
+  try { sync.value = (await configureSync({ action: "status" })).status; }
+  catch { /* The local connection remains usable if sync is unavailable. */ }
+}
+function openDraft(): void {
+  const preset = sync.value?.preset;
+  if (!preset || !status.value) return;
+  draftOrigin.value = preset;
+  Object.assign(form, status.value.options, preset);
+  password.value = "";
+  testToken.value = "";
+  note.value = "";
+  error.value = "";
+  if (configDetails.value) configDetails.value.open = true;
+}
+function cancelDraft(): void {
+  Object.assign(form, activeSettings.value ?? DEFAULT_BACKUP_OPTIONS);
+  password.value = "";
+  draftOrigin.value = undefined;
+  testToken.value = "";
+  note.value = "";
+  error.value = "";
 }
 async function testConnection(): Promise<void> {
   await perform(async () => {
@@ -94,6 +141,17 @@ async function testConnection(): Promise<void> {
     if (!result) return;
     status.value = result.status;
     note.value = t("webdavConnected");
+  });
+}
+async function testDraft(): Promise<void> {
+  if (!configForm.value?.reportValidity()) return;
+  await perform(async () => {
+    testToken.value = "";
+    const result = await withBudget(override => remote.testWebdavPreset(selectPreset(form), password.value, override));
+    if (!result) return;
+    status.value = result.status;
+    testToken.value = result.token;
+    note.value = t("webdavPresetTested");
   });
 }
 async function refresh(): Promise<void> {
@@ -170,7 +228,11 @@ async function loadStatus(): Promise<void> {
   }
 }
 
-onMounted(loadStatus);
+watch(() => [form.endpoint, form.directory, form.username, form.intervalHours, form.includeImages, password.value], () => {
+  if (testToken.value) { testToken.value = ""; note.value = ""; }
+});
+onMounted(() => { stopSync = watchSync(refreshPreset); void refreshPreset(); void loadStatus(); });
+onUnmounted(() => stopSync?.());
 </script>
 
 <template>
@@ -193,26 +255,38 @@ onMounted(loadStatus);
         <label class="export-images"><input v-model="manualImages" type="checkbox" :disabled="busy" /><span>{{ t('backupIncludeImages') }}</span></label>
       </div>
     </div>
-    <details v-if="status" class="webdav-config">
+    <div v-if="status && draftAvailable" class="import-actions">
+      <p class="setting-note" role="status">{{ t(draftOrigin ? 'webdavPresetUpdated' : 'webdavPresetReceived') }}</p>
+      <button class="setting-action" type="button" :disabled="busy" @click="openDraft">{{ t(draftOrigin ? 'webdavPresetOpenNew' : 'webdavPresetOpen') }}</button>
+    </div>
+    <details v-if="status" ref="configDetails" class="webdav-config">
       <summary>{{ t(status.configured ? 'webdavConnectionSettings' : 'webdavConfigure') }}</summary>
-      <form class="webdav-form" @submit.prevent="save">
+      <p v-if="draftOrigin" class="setting-note" role="status">{{ t('webdavPresetDraft') }}</p>
+      <form ref="configForm" class="webdav-form" @submit.prevent="save">
         <label><span>{{ t('webdavEndpoint') }}</span><input v-model="form.endpoint" type="url" required placeholder="https://…" :disabled="busy" /></label>
         <label><span>{{ t('webdavDirectory') }}</span><input v-model="form.directory" type="text" required :disabled="busy" /></label>
         <label><span>{{ t('webdavUsername') }}</span><input v-model="form.username" type="text" required autocomplete="username" :disabled="busy" /></label>
-        <label><span>{{ t('webdavPassword') }}</span><input v-model="password" type="password" autocomplete="off" :required="!status.configured" :placeholder="status.configured ? t('webdavPasswordSaved') : ''" :disabled="busy" /></label>
+        <label><span>{{ t('webdavPassword') }}</span><input v-model="password" type="password" autocomplete="off" :required="needsPassword" :placeholder="needsPassword ? '' : t('webdavPasswordSaved')" :disabled="busy" /></label>
         <label><span>{{ t('webdavHours') }}</span><input v-model.number="form.intervalHours" type="number" min="1" max="720" step="1" required :disabled="busy" /></label>
-        <label><span>{{ t('webdavBudget') }}</span><input v-model.number="form.budgetMiB" type="number" min="1" max="100000" step="1" required :disabled="busy" /></label>
+        <label v-if="!draftOrigin"><span>{{ t('webdavBudget') }}</span><input v-model.number="form.budgetMiB" type="number" min="1" max="100000" step="1" required :disabled="busy" /></label>
         <div class="export-actions webdav-wide">
-          <label class="export-images"><input v-model="form.automatic" type="checkbox" :disabled="busy" /><span>{{ t('webdavEnableAuto') }}</span></label>
+          <label v-if="!draftOrigin" class="export-images"><input v-model="form.automatic" type="checkbox" :disabled="busy" /><span>{{ t('webdavEnableAuto') }}</span></label>
           <label class="export-images"><input v-model="form.includeImages" type="checkbox" :disabled="busy" /><span>{{ t('webdavAutoImages') }}</span></label>
         </div>
         <div class="import-actions webdav-wide">
-          <button class="setting-action" type="submit" :disabled="busy || !dirty">{{ t('webdavSave') }}</button>
-          <button class="setting-action" type="button" :disabled="!onlineActions" @click="testConnection">{{ t('webdavTest') }}</button>
+          <template v-if="draftOrigin">
+            <button class="setting-action" type="button" :disabled="busy || !sync?.sharePreset" @click="testDraft">{{ t('webdavTest') }}</button>
+            <button class="setting-action" type="submit" :disabled="busy || !testToken || !sync?.sharePreset">{{ t('webdavPresetApply') }}</button>
+            <button class="setting-action" type="button" :disabled="busy" @click="cancelDraft">{{ t('cancel') }}</button>
+          </template>
+          <template v-else>
+            <button class="setting-action" type="submit" :disabled="busy || !dirty">{{ t('webdavSave') }}</button>
+            <button class="setting-action" type="button" :disabled="!onlineActions" @click="testConnection">{{ t('webdavTest') }}</button>
+          </template>
         </div>
       </form>
     </details>
-    <p v-if="status?.configured && dirty" class="setting-note">{{ t('webdavUnsaved') }}</p>
+    <p v-if="status?.configured && dirty && !draftOrigin" class="setting-note">{{ t('webdavUnsaved') }}</p>
     <p v-if="error" class="webdav-error" role="alert">{{ error }}</p>
     <button v-if="error && !status" class="setting-action webdav-local-action" type="button" @click="loadStatus">{{ t('retry') }}</button>
     <p v-if="note" class="setting-note" role="status">{{ note }}</p>

@@ -34,7 +34,7 @@ StaySide 是一款为项目研究而生的网页管理工具，把散乱的网�
 - 本地备份：导出 JSON 备份，导入前预览并选择合并或覆盖恢复；可选择包含上传封面等图片数据。
 - 中英文界面：在设置中切换中文和 English。
 
-StaySide 不要求注册账号。收藏、项目、阅读位置和设置保存在浏览器本地。开启 WebDAV 备份或手动执行备份时，收藏库快照会传输到你配置的 HTTPS 服务。获取网页元数据和展示远程封面、网站图标时，可能访问对应网站或图片服务。
+StaySide 不要求注册账号。收藏、项目、阅读位置和设置保存在浏览器本地。开启设置同步后，主题、语言和默认排序经浏览器账号同步。还可单独共享 WebDAV 连接预设，应用密码留在本机。开启 WebDAV 备份或手动执行备份时，收藏库快照会传输到你配置的 HTTPS 服务。获取网页元数据和展示远程封面、网站图标时，可能访问对应网站或图片服务。
 
 StaySide 基于开源项目 LaterOn 独立重构维护，使用独立名称和图标。
 
@@ -52,7 +52,7 @@ Whether you are researching a topic, planning a project, or learning a skill, ke
 - Back up locally: export a JSON backup and preview imports before merging or replacing collection data. Optionally include uploaded covers and other image data.
 - Use Chinese or English: switch the interface language in settings.
 
-No account is required. Collections, projects, reading positions, and settings are stored locally in your browser and are not uploaded to a StaySide server. Fetching page metadata and displaying remote covers or site icons may still contact the relevant websites or image services; local storage does not mean fully offline operation.
+No StaySide account is required. Collections, projects, reading positions, and settings are stored locally in your browser. If enabled, the theme, language, and default sort order sync through your browser account. You can also share a WebDAV connection preset while keeping the app password on this device. WebDAV backups send snapshots to the HTTPS service you configure. Fetching page metadata and displaying remote covers or site icons may contact the relevant websites or image services.
 
 StaySide is independently maintained as a fork of the open-source LaterOn project, with its own name and icon.
 
@@ -69,7 +69,7 @@ StaySide is independently maintained as a fork of the open-source LaterOn projec
 | `activeTab` | Access the page the user invokes StaySide on, so the extension can collect its metadata and display the project picker or save feedback. |
 | `tabs` | Read tab URLs and titles to collect the current window's tabs, identify already-open saved pages, and keep the side panel aligned with the active page. |
 | `scripting` | Inject packaged scripts for page metadata extraction, the project picker, saved-page scroll restoration, and user-triggered translation. |
-| `storage` | Store collections, projects, settings, reading positions, local diagnostics, and temporary collection batches in the browser. |
+| `storage` | Store collections, projects, settings, reading positions, local diagnostics, and temporary collection batches in the browser. Sync selected settings through the browser when the user enables it. |
 | `unlimitedStorage` | Keep growing local collections, uploaded covers, site icons, and imported backups without the standard extension storage quota. |
 | `alarms` | Schedule automatic cleanup and user-enabled WebDAV backups. |
 | `sidePanel` | Display the collection alongside the current web page so users can organize and revisit project resources while browsing. |
@@ -93,6 +93,7 @@ StaySide is independently maintained as a fork of the open-source LaterOn projec
 | 诊断 | 在本地记录快捷键、执行结果和错误等运行信息，供设置页排查。见 [诊断实现](../src/background/diagnostics.ts)。 |
 | 备份与删除 | 由用户导出本地 JSON、预览导入或清空收藏；“清空”保留项目结构与设置，不等于清除所有扩展存储。已读清理受用户设置控制。见 [备份语义](backup-format.md) 和 [备份后台](../src/backup/background.ts)。 |
 | WebDAV 备份 | 用户选择服务并发起手动备份或开启自动备份后，通过 HTTPS 传输收藏、项目、顺序、阅读位置及所选图片数据。凭据保存在设备上并用于服务认证，备份文件只包含收藏数据。见 [WebDAV 备份](backup-format.md#webdav-备份与恢复)。 |
+| 浏览器配置同步 | 用户主动开启后，通过浏览器同步区共享主题、语言和默认排序。WebDAV 预设需单独允许，共享地址、目录、账号、备份间隔和自动备份图片选项。应用密码、预算与用量留在本机。见 [同步行为](architecture.md#浏览器配置同步)。 |
 
 远程网页 HTML 和图片的获取，应与远程代码执行区分。当前脚本由 WXT 构建，提交时仍须核对最终 ZIP 的脚本来源及依赖，再填写远程代码声明；不能仅凭“需要联网”作答。
 
