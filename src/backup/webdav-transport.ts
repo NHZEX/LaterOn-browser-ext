@@ -1,6 +1,8 @@
 import { DOMParser, onWarningStopParsing } from "@xmldom/xmldom";
 import type { Element } from "@xmldom/xmldom";
 import { MAX_ARCHIVE_BYTES } from "./webdav-archive";
+import { budgetError } from "./webdav-meter";
+import type { TransferMeter } from "./webdav-meter";
 import { MIB } from "./webdav-shared";
 import type { BackupSettings } from "./webdav-shared";
 
@@ -12,18 +14,8 @@ export interface DavEntry {
   readonly bytes: number | null;
 }
 
-export interface TransferMeter {
-  start(uploaded: number): Promise<void>;
-  downloaded(bytes: number): Promise<void>;
-  remaining(): number;
-}
-
 const DAV_NAMESPACE = "DAV:";
 const properties = '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/><d:getcontentlength/></d:prop></d:propfind>';
-
-export function budgetError(bytes: number): Error & { readonly bytes: number } {
-  return Object.assign(new Error("WEBDAV_BUDGET"), { bytes });
-}
 
 function davChildren(element: Element, localName: string): readonly Element[] {
   return Array.from(element.children).filter(child => child.namespaceURI === DAV_NAMESPACE && child.localName === localName);
@@ -100,7 +92,7 @@ export interface WebdavClient {
   hasDirectory(path: Path): Promise<boolean>;
   directory(path: Path): Promise<void>;
   get(path: Path): Promise<Uint8Array<ArrayBuffer> | null>;
-  put(path: Path, body: Uint8Array<ArrayBuffer>): Promise<void>;
+  put(path: Path, body: Uint8Array<ArrayBuffer>, contentType: string): Promise<void>;
   move(from: Path, to: Path): Promise<"moved" | "occupied" | "missing">;
   remove(path: Path): Promise<void>;
 }
@@ -110,8 +102,8 @@ export function createWebdav(settings: BackupSettings, meter: TransferMeter, fet
   const authorization = "Basic " + btoa(Array.from(credentials, byte => String.fromCharCode(byte)).join(""));
   const href = (path: Path, collection = false) => settings.endpoint + path.map(encodeURIComponent).join("/") + (path.length && collection ? "/" : "");
 
-  async function request(method: string, url: string, headers: HeadersInit = {}, body?: BodyInit, size = 0): Promise<Response> {
-    await meter.start(size);
+  async function request(method: string, url: string, headers: HeadersInit = {}, body?: BodyInit, size = 0, uploadSuccess: readonly number[] = []): Promise<Response> {
+    const confirmUpload = await meter.start(size);
     let response: Response;
     try {
       response = await fetcher(url, {
@@ -119,6 +111,7 @@ export function createWebdav(settings: BackupSettings, meter: TransferMeter, fet
         redirect: "error", cache: "no-store", credentials: "omit", signal: AbortSignal.timeout(25_000)
       });
     } catch { throw new Error("WEBDAV_NETWORK"); }
+    if (uploadSuccess.includes(response.status)) await confirmUpload?.();
     return response;
   }
 
@@ -130,7 +123,7 @@ export function createWebdav(settings: BackupSettings, meter: TransferMeter, fet
 
   async function propfind(path: Path, depth: "0" | "1"): Promise<readonly DavEntry[] | null> {
     const url = href(path, true);
-    const response = await request("PROPFIND", url, { Depth: depth, "Content-Type": "application/xml; charset=utf-8" }, properties, properties.length);
+    const response = await request("PROPFIND", url, { Depth: depth, "Content-Type": "application/xml; charset=utf-8" }, properties, properties.length, [207]);
     if (response.status !== 207) {
       await disposition(response, [404]);
       return null;
@@ -164,8 +157,9 @@ export function createWebdav(settings: BackupSettings, meter: TransferMeter, fet
       await disposition(response, [404]);
       return null;
     },
-    async put(path, body) {
-      await disposition(await request("PUT", href(path), { "Content-Type": "application/zip" }, body, body.byteLength), [200, 201, 204]);
+    async put(path, body, contentType) {
+      const accepted = [200, 201, 204];
+      await disposition(await request("PUT", href(path), { "Content-Type": contentType }, body, body.byteLength, accepted), accepted);
     },
     async move(from, to) {
       const response = await request("MOVE", href(from), { Destination: href(to), Overwrite: "F" });

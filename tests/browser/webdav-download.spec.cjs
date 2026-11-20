@@ -11,7 +11,7 @@ const zipDocuments = data => ({
     data: { items: [], projects: [], covers: {}, order: {}, readingPositions: {}, ...data } }))
 });
 
-test("设置页可以通过 MessageChannel 保存约 49 MiB 的原始 WebDAV ZIP", async ({ page, extension }) => {
+test("设置页保存原始 WebDAV ZIP，并将上传超时与重试成功分开显示", async ({ page, extension }) => {
   const sourceId = "edecf258-a38c-44dc-8c56-222f615c2e3c";
   const filename = "2026-11-19T08-30-00.000Z-manual.zip";
   const endpoint = "https://dav.example.test/dav/";
@@ -48,6 +48,7 @@ test("设置页可以通过 MessageChannel 保存约 49 MiB 的原始 WebDAV ZIP
       ? "<d:resourcetype><d:collection/></d:resourcetype>" : `<d:getcontentlength>${size}</d:getcontentlength>`
     }</d:prop></d:propstat></d:response>`;
     globalThis.fixtureRequests = [];
+    globalThis.fixtureUploadTypes = [];
     globalThis.transferredArchives = [];
     const postMessage = MessagePort.prototype.postMessage;
     MessagePort.prototype.postMessage = function (reply, transfer) {
@@ -72,6 +73,12 @@ test("设置页可以通过 MessageChannel 保存约 49 MiB 的原始 WebDAV ZIP
       if (options.method === "GET" && url.pathname === folder + filename) {
         return new Response(bytes, { headers: { "Content-Length": String(bytes.length) } });
       }
+      if (options.method === "PUT") {
+        globalThis.fixtureUploadTypes.push(new Headers(options.headers).get("content-type"));
+        if (globalThis.fixtureUploadTypes.length === 1) throw new DOMException("Fixture timed out", "TimeoutError");
+        return new Response(null, { status: 201 });
+      }
+      if (options.method === "MOVE") return new Response(null, { status: 201 });
       throw new Error("Unexpected fixture request");
     };
   }, { sourceId, filename, endpoint, directory, compressedFixture });
@@ -110,6 +117,17 @@ test("设置页可以通过 MessageChannel 保存约 49 MiB 的原始 WebDAV ZIP
   expect(await extension.worker.evaluate(() => ({ requests: globalThis.fixtureRequests, transfers: globalThis.transferredArchives })))
     .toEqual({ requests: ["PROPFIND", "PROPFIND", "GET"], transfers: [{ length: archive.length, remaining: 0 }] });
   expect(await databases()).toEqual(databasesBeforeDownload);
+
+  const backup = webdav.getByRole("button", { name: "Back up now" });
+  const uncertain = webdav.getByText("Unconfirmed uploads: up to 0.01 MiB", { exact: false });
+  await expect(uncertain).toHaveCount(0);
+  await backup.click();
+  await expect(webdav.getByText(/Unable to reach WebDAV/)).toBeVisible();
+  await expect(uncertain).toBeVisible();
+  await backup.click();
+  await expect(webdav.getByText("WebDAV backup uploaded.")).toBeVisible();
+  await expect(uncertain).toBeVisible();
+  expect(await extension.worker.evaluate(() => globalThis.fixtureUploadTypes)).toEqual(["application/zip", "application/zip"]);
 });
 
 test("本地 ZIP 缺图恢复在同一预览确认，取消不写入，覆盖前保留副本", async ({ page, extension }) => {

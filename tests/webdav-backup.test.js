@@ -14,8 +14,10 @@ let lostPublishResponse = false;
 let interruptBeforePublish = false;
 let denyAutoCleanup = false;
 let propfindXml = null;
+let putFailure = null;
 let requests = 0;
 const methods = [];
+const transfers = [];
 function davResponse(path) {
   return `<d:response><d:href>${path}</d:href><d:propstat><d:prop><d:resourcetype>${folders.has(path) ? "<d:collection/>" : ""}</d:resourcetype><d:getcontentlength>${Buffer.byteLength(files.get(path) ?? "")}</d:getcontentlength></d:prop></d:propstat></d:response>`;
 }
@@ -24,6 +26,7 @@ async function fetchFixture(url, request) {
   methods.push(request.method === "PROPFIND" ? `PROPFIND ${request.headers.Depth}` : request.method);
   assert.equal(new URL(url).origin, "https://dav.example.test");
   const path = new URL(url).pathname;
+  transfers.push({ path, bytes: request.body === undefined ? 0 : Buffer.byteLength(request.body) });
   assert.equal(request.headers.Authorization, "Basic " + btoa("fixture:fixture"));
   if (request.method === "MKCOL") {
     if (folders.has(path)) return new Response(null, { status: 405 });
@@ -44,7 +47,11 @@ async function fetchFixture(url, request) {
   if (request.method === "GET") return files.has(path) ? new Response(files.get(path)) : new Response(null, { status: 404 });
   if (request.method === "PUT") {
     assert.equal(request.headers["Content-Type"], "application/zip");
+    const failure = putFailure;
+    putFailure = null;
+    if (failure === "rejected") return new Response(null, { status: 403 });
     files.set(path, Buffer.from(request.body));
+    if (failure === "timeout") throw new DOMException("fixture upload response timed out after storing the ZIP", "TimeoutError");
     return new Response(null, { status: 201 });
   }
   if (request.method === "MOVE") {
@@ -395,5 +402,52 @@ const save = (browser, options = settings) => browser.request("save", { options,
   assert(override.ok);
   assert(override.status.usage.uploaded - beforeOverride.uploaded > 1_000_000);
   assert(override.status.usage.downloaded - beforeOverride.downloaded < 5_000);
+
+  const metered = profile(item("metered"));
+  assert((await save(metered, { ...settings, automatic: false, budgetMiB: 1 })).ok);
+  assert((await metered.request("backup")).ok);
+  const beforeRejection = (await metered.request("status")).status.usage;
+  const rejectStart = requests;
+  putFailure = "rejected";
+  assert.equal((await metered.request("backup")).error, "WEBDAV_HTTP_403");
+  assert.deepEqual(methods.slice(rejectStart), ["PROPFIND 0", "PUT"]);
+  const [rejectedProbe, rejectedZip] = transfers.slice(rejectStart);
+  assert(!files.has(rejectedZip.path));
+  const afterRejection = (await metered.request("status")).status.usage;
+  assert.equal(afterRejection.uploaded - beforeRejection.uploaded, rejectedProbe.bytes);
+  assert.equal(afterRejection.uncertainUploaded - beforeRejection.uncertainUploaded, rejectedZip.bytes);
+  assert.equal(afterRejection.requests - beforeRejection.requests, 2);
+
+  const timeoutStart = requests;
+  putFailure = "timeout";
+  assert.equal((await metered.request("backup")).error, "WEBDAV_NETWORK");
+  assert.deepEqual(methods.slice(timeoutStart), ["PROPFIND 0", "PUT"]);
+  const [timeoutProbe, timeoutZip] = transfers.slice(timeoutStart);
+  assert.equal(files.get(timeoutZip.path).byteLength, timeoutZip.bytes);
+  const afterTimeout = (await metered.request("status")).status.usage;
+  assert.equal(afterTimeout.uploaded - afterRejection.uploaded, timeoutProbe.bytes);
+  assert.equal(afterTimeout.uncertainUploaded - afterRejection.uncertainUploaded, timeoutZip.bytes);
+  assert.equal(afterTimeout.requests - afterRejection.requests, 2);
+  metered.restart();
+  assert.deepEqual({ ...(await metered.request("status")).status.usage }, { ...afterTimeout });
+
+  const retryStart = requests;
+  const confirmedRetry = await metered.request("backup");
+  assert(confirmedRetry.ok);
+  assert.deepEqual(methods.slice(retryStart), ["PROPFIND 0", "PUT", "MOVE", "MOVE"]);
+  const [retryProbe, retryZip] = transfers.slice(retryStart);
+  assert.equal(confirmedRetry.status.usage.uploaded - afterTimeout.uploaded, retryProbe.bytes + retryZip.bytes);
+  assert.equal(confirmedRetry.status.usage.uncertainUploaded, afterTimeout.uncertainUploaded);
+  assert.equal(confirmedRetry.status.usage.requests - afterTimeout.requests, 4);
+
+  const meteredState = metered.storage[BACKUP_STATE];
+  meteredState.usage = { month: afterTimeout.month, uploaded: 1024 * 1024, downloaded: 0, requests: 9 };
+  const legacyUsage = (await metered.request("status")).status.usage;
+  assert.deepEqual({ ...legacyUsage }, { month: afterTimeout.month, uploaded: 0, uncertainUploaded: 1024 * 1024, downloaded: 0, requests: 9 });
+  const beforeBlocked = requests;
+  assert.equal((await metered.request("backup")).error, "WEBDAV_BUDGET");
+  assert.equal(requests, beforeBlocked, "Uncertain uploads still reserve budget");
+  metered.step(24 * 32);
+  assert.equal((await metered.request("status")).status.usage.uncertainUploaded, 0);
   console.log("PASS WebDAV: upload, retries, collision handling, budget, rotation, and restore across profiles");
 })().catch(error => { console.error(error); process.exitCode = 1; });

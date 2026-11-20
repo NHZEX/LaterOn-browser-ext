@@ -51,6 +51,10 @@ const draftAvailable = computed(() => {
 });
 const selected = computed(() => entries.value.find(entry => entryKey(entry) === selectedKey.value));
 const used = computed(() => status.value ? sizeLabel(status.value.usage.uploaded + status.value.usage.downloaded) : "0");
+const uncertainUpload = computed(() => {
+  const bytes = status.value?.usage.uncertainUploaded ?? 0;
+  return bytes ? (Math.ceil(bytes * 100 / MIB) / 100).toFixed(2) : "";
+});
 const errors: Readonly<Record<string, string>> = {
   WEBDAV_SETTINGS: "webdavInvalidSettings", WEBDAV_NETWORK: "webdavNetwork",
   WEBDAV_HTTP_401: "webdavUnauthorized", WEBDAV_HTTP_403: "webdavForbidden", WEBDAV_HTTP_404: "webdavMissing",
@@ -77,10 +81,15 @@ function errorText(code: string): string {
   if (code.startsWith("WEBDAV_HTTP_")) return t("webdavHttpError", { code: code.slice("WEBDAV_HTTP_".length) });
   return t(code.startsWith("WEBDAV_") ? "webdavFailed" : backupErrorKey(new Error(code)));
 }
+async function refreshUsage(): Promise<void> {
+  const result = await remote.webdavStatus().catch(() => null);
+  if (result) status.value = result.status;
+}
 async function withBudget<T>(request: (override: boolean) => Promise<T>): Promise<T | null> {
   try { return await request(false); }
   catch (problem) {
     if (!(problem instanceof Error) || problem.message !== "WEBDAV_BUDGET") throw problem;
+    await refreshUsage();
     const bytes = isRecord(problem) && typeof problem.bytes === "number" ? problem.bytes : 0;
     const confirmed = await props.dialog.confirm({
       title: t("webdavBudgetReached"), message: t(bytes ? "webdavBudgetConfirmEstimate" : "webdavBudgetConfirm", { size: sizeLabel(bytes) })
@@ -94,7 +103,10 @@ async function perform(action: () => Promise<void>): Promise<void> {
   error.value = "";
   note.value = "";
   try { await action(); }
-  catch (problem) { error.value = errorText(problem instanceof Error ? problem.message : "WEBDAV_FAILED"); }
+  catch (problem) {
+    error.value = errorText(problem instanceof Error ? problem.message : "WEBDAV_FAILED");
+    await refreshUsage();
+  }
   finally { busy.value = false; }
 }
 async function save(): Promise<void> {
@@ -243,6 +255,7 @@ onUnmounted(() => stopSync?.());
         <template v-if="status?.configured">
           <p class="setting-note">{{ status.lastBackup === null ? t('webdavNeverBackedUp') : t('webdavLastBackup', { time: displayTime(status.lastBackup) }) }}</p>
           <p class="setting-note">{{ t('webdavUsage', { used, total: status.options.budgetMiB, requests: status.usage.requests }) }}</p>
+          <p v-if="uncertainUpload" class="setting-note">{{ t('webdavUnconfirmedUploads', { size: uncertainUpload }) }}</p>
           <p v-if="status.lastError" class="webdav-error" role="status">{{ errorText(status.lastError) }}</p>
           <p v-if="status.cleanupPending" class="setting-note" role="status">{{ t('webdavCleanupPending') }}</p>
         </template>

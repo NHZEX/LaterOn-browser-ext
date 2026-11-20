@@ -36,9 +36,12 @@ export interface RemoteBackup {
 export interface BackupUsage {
   readonly month: string;
   readonly uploaded: number;
+  readonly uncertainUploaded: number;
   readonly downloaded: number;
   readonly requests: number;
 }
+
+export type StoredBackupUsage = Omit<BackupUsage, "uncertainUploaded"> & { readonly uncertainUploaded?: number };
 
 export interface BackupStatus {
   readonly options: BackupOptions;
@@ -77,9 +80,11 @@ export function newestFirst(left: RemoteBackup, right: RemoteBackup): number {
   return right.createdAt - left.createdAt || right.sequence - left.sequence;
 }
 
-export function monthUsage(usage: BackupUsage | undefined, now: number): BackupUsage {
+export function monthUsage(usage: StoredBackupUsage | undefined, now: number): BackupUsage {
   const month = new Date(now).toISOString().slice(0, 7);
-  return usage?.month === month ? usage : { month, uploaded: 0, downloaded: 0, requests: 0 };
+  if (usage?.month !== month) return { month, uploaded: 0, uncertainUploaded: 0, downloaded: 0, requests: 0 };
+  if (usage.uncertainUploaded === undefined) return { ...usage, uploaded: 0, uncertainUploaded: usage.uploaded };
+  return { ...usage, uncertainUploaded: usage.uncertainUploaded };
 }
 
 export function normalizeBackupEndpoint(endpoint: string): string {

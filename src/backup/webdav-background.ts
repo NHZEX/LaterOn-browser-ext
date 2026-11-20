@@ -6,18 +6,19 @@ import type { WebdavPreset } from "../settings/sync-shared";
 import { ARCHIVE_VERSION, createBackupArchive, readBackupArchive } from "./webdav-archive";
 import { WEBDAV_DOWNLOAD_MESSAGE } from "./webdav-download";
 import type { WebdavDownloadSuccess, WebdavFailure } from "./webdav-download";
-import { budgetError, createWebdav } from "./webdav-transport";
+import { budgetError, createWebdavMeter } from "./webdav-meter";
+import { createWebdav } from "./webdav-transport";
 import type { DavEntry, WebdavClient } from "./webdav-transport";
 import {
   AUTO_BACKUP_LIMIT, BACKUP_ALARM, BACKUP_STATE, DEFAULT_BACKUP_OPTIONS, MIB,
   backupFileName, isBackupDevice, monthUsage, newestFirst, normalizeBackupOptions, parseBackupName
 } from "./webdav-shared";
-import type { BackupKind, BackupSettings, BackupStatus, BackupUsage, RemoteBackup } from "./webdav-shared";
+import type { BackupKind, BackupSettings, BackupStatus, RemoteBackup, StoredBackupUsage } from "./webdav-shared";
 
 interface StatusState {
   readonly device: string;
   readonly settings?: BackupSettings;
-  readonly usage?: BackupUsage;
+  readonly usage?: StoredBackupUsage;
   readonly lastBackup?: number;
   readonly automatic?: { readonly at: number; readonly fingerprint: string; readonly archiveVersion?: number };
   readonly nextAutomaticCheckAt?: number;
@@ -159,7 +160,7 @@ async function publish(
   dav: WebdavClient, folder: readonly string[], kind: BackupKind, createdAt: number, archive: Uint8Array<ArrayBuffer>
 ): Promise<string> {
   const staging = [...folder, `.${backupFileName(createdAt, kind, 1)}${STAGING_SUFFIX}`];
-  await dav.put(staging, archive);
+  await dav.put(staging, archive, "application/zip");
   for (let sequence = 1; sequence <= 32; sequence += 1) {
     const name = backupFileName(createdAt, kind, sequence);
     const result = await dav.move(staging, [...folder, name]);
@@ -211,27 +212,13 @@ export function registerWebdavBackup(sharePreset: (preset: WebdavPreset) => Prom
       await chrome.storage.session.remove(TESTED_PRESET);
       return { status: publicState(saved) };
     }
-    const limit = settings.budgetMiB * MIB;
-    const usage = () => monthUsage(state.usage, Date.now());
-    const remaining = () => message.allowOverBudget === true && !automatic ? Infinity :
-      Math.max(0, limit - usage().uploaded - usage().downloaded);
+    const limit = message.allowOverBudget === true && !automatic ? Infinity : settings.budgetMiB * MIB;
+    const meter = createWebdavMeter(limit, () => state.usage, usage => update({ usage }));
     const ensureBudget = (bytes: number) => {
-      if (remaining() === 0 || bytes > remaining()) throw budgetError(bytes);
+      const remaining = meter.remaining();
+      if (remaining === 0 || bytes > remaining) throw budgetError(bytes);
     };
-    const dav = createWebdav(settings, {
-      remaining,
-      async start(uploaded) {
-        if (uploaded > remaining()) throw budgetError(uploaded);
-        const last = usage();
-        await update({ usage: { ...last, requests: last.requests + 1, uploaded: last.uploaded + uploaded } });
-      },
-      async downloaded(bytes) {
-        if (bytes) {
-          const last = usage();
-          await update({ usage: { ...last, downloaded: last.downloaded + bytes } });
-        }
-      }
-    });
+    const dav = createWebdav(settings, meter);
     const root = [settings.directory, "backups"];
     const folder = [...root, state.device];
 
