@@ -1,5 +1,43 @@
 const { test, expect } = require("./extension.cjs");
 
+test("可同步项的小云朵常显，随偏好同步开关变色", async ({ page, extension }) => {
+  await extension.worker.evaluate(() => chrome.storage.local.set({
+    laterOnCleanupV165: true, laterOnSettings: { language: "en", autoCleanEnabled: false }
+  }));
+  await page.goto(new URL("settings.html", extension.url).href);
+  const syncSwitch = page.getByRole("switch", { name: "Sync preferences with the browser" });
+  const preferenceIcons = ["Language", "Theme", "Default sort"].map(label =>
+    page.getByText(label, { exact: true }).locator("svg")
+  );
+  const [languageIcon] = preferenceIcons;
+  await expect(syncSwitch).toHaveAttribute("aria-checked", "false");
+  const mutedColor = await languageIcon.evaluate(icon => getComputedStyle(icon).color);
+  for (const icon of preferenceIcons) {
+    await expect(icon).toBeVisible();
+    await expect(icon).toHaveCSS("color", mutedColor);
+  }
+
+  await syncSwitch.click();
+  await expect(syncSwitch).toHaveAttribute("aria-checked", "true");
+  await expect(languageIcon).not.toHaveCSS("color", mutedColor);
+  const highlightedColor = await languageIcon.evaluate(icon => getComputedStyle(icon).color);
+  for (const icon of preferenceIcons) await expect(icon).toHaveCSS("color", highlightedColor);
+  for (const label of ["Choose a project before adding the current page", "Share WebDAV preset"]) {
+    const settingLabel = page.getByText(label, { exact: true });
+    await expect(settingLabel).toBeVisible();
+    await expect(settingLabel.locator("svg")).toBeHidden();
+  }
+
+  await page.reload();
+  for (const icon of preferenceIcons) await expect(icon).toHaveCSS("color", highlightedColor);
+  await syncSwitch.click();
+  await expect(syncSwitch).toHaveAttribute("aria-checked", "false");
+  for (const icon of preferenceIcons) {
+    await expect(icon).toBeVisible();
+    await expect(icon).toHaveCSS("color", mutedColor);
+  }
+});
+
 test("浏览器同步只应用已选择的偏好，WebDAV 新预设保留正在编辑和已测试的草稿", async ({ page, extension }) => {
   const presetKey = "stayside.webdav-preset";
   const initial = { endpoint: "https://old.example.test/dav/", directory: "StaySide", username: "fixture",
@@ -17,9 +55,12 @@ test("浏览器同步只应用已选择的偏好，WebDAV 新预设保留正在�
   await page.goto(new URL("settings.html", extension.url).href);
   const syncSwitch = page.getByRole("switch", { name: "Sync preferences with the browser" });
   const presetSwitch = page.getByRole("switch", { name: "Share WebDAV preset" });
+  const themeIcon = page.locator("#themeLabel svg");
   await expect(syncSwitch).toHaveAttribute("aria-checked", "false");
+  const mutedColor = await themeIcon.evaluate(icon => getComputedStyle(icon).color);
   await syncSwitch.click();
   await expect(page.getByRole("row", { name: "Theme Light Dark" })).toBeVisible();
+  await expect(themeIcon).toHaveCSS("color", mutedColor);
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   await page.getByRole("button", { name: "Use browser sync settings" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");

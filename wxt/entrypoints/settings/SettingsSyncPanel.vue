@@ -5,7 +5,7 @@ import { configureSync, watchSync } from "../../../src/settings/sync-client";
 import { t } from "../../../src/shared/i18n";
 import type { Preferences, PreferencePreview, SyncField, SyncStatus } from "../../../src/settings/sync-shared";
 
-const status = shallowRef<SyncStatus | null>(null);
+const status = defineModel<SyncStatus | null>("status", { required: true });
 const preview = shallowRef<PreferencePreview>();
 const busy = ref(false);
 const error = ref(false);

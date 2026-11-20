@@ -71,6 +71,8 @@ body {
 .setting-label .notification-test-error { color: var(--danger); }
 .setting-label strong { display: block; font-size: 14px; font-weight: 650; }
 .setting-label span { display: block; margin-top: 4px; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+.settings-sync-icon { width: 14px; height: 14px; margin-inline-start: 5px; vertical-align: middle; color: var(--muted); }
+.preference-sync-enabled .settings-sync-icon { color: var(--accent); }
 .backup-subsection-title { margin: 0; font-size: 14px; font-weight: 650; }
 .setting-note { margin: 0 0 6px; color: var(--muted); font-size: 12.5px; line-height: 1.7; }
 /* 窄窗口：标签和控制件上下排列，避免挤成两竖条看不清。 */

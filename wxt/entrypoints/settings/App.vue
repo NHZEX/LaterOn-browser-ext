@@ -15,12 +15,15 @@ import DiagnosticsPanel from "./DiagnosticsPanel.vue";
 import WipePanel from "./WipePanel.vue";
 import SettingsDialog from "./SettingsDialog.vue";
 import SettingsSyncPanel from "./SettingsSyncPanel.vue";
+import SyncScopeIcon from "./SyncScopeIcon.vue";
 import type { Settings, StoredSettings } from "../../../src/settings/shared";
+import type { SyncStatus } from "../../../src/settings/sync-shared";
 
 type SettingsTab = "general" | "data" | "backup";
 
 const dialog = useDialog();
 const current = shallowRef<Settings | null>(null);
+const syncStatus = shallowRef<SyncStatus | null>(null);
 const saving = ref(false);
 const confirmingAutoClean = ref(false);
 const loadError = ref(false);
@@ -151,20 +154,20 @@ onUnmounted(() => {
         <TabsRoot :model-value="activeTab" @update:model-value="selectTab">
           <TabsList class="settings-tabs" :aria-label="t('settings')">
             <TabsTrigger value="general">{{ t('settingsGeneral') }}</TabsTrigger>
-            <TabsTrigger value="data">{{ t('settingsMaintenance') }}</TabsTrigger>
             <TabsTrigger value="backup">{{ t('backupRestore') }}</TabsTrigger>
+            <TabsTrigger value="data">{{ t('settingsMaintenance') }}</TabsTrigger>
           </TabsList>
-          <TabsContent v-show="activeTab === 'general'" value="general" force-mount class="settings-tab-panel">
+          <TabsContent v-show="activeTab === 'general'" value="general" force-mount class="settings-tab-panel" :class="{ 'preference-sync-enabled': syncStatus?.enabled }">
             <section class="settings-group">
               <h2>{{ t('appearance') }}</h2>
               <div class="setting-row">
-                <div class="setting-label"><strong id="languageLabel">{{ t('language') }}</strong><span>{{ t('languageHint') }}</span></div>
+                <div class="setting-label"><strong id="languageLabel">{{ t('language') }}<SyncScopeIcon /></strong><span>{{ t('languageHint') }}</span></div>
                 <div class="segmented" data-setting="language" role="group" aria-labelledby="languageLabel">
                   <button v-for="language in languages" :key="language.value" type="button" :data-value="language.value" :class="{ active: current.language === language.value }" :aria-pressed="current.language === language.value" :disabled="saving" @click="save({ language: language.value })">{{ t(language.label) }}</button>
                 </div>
               </div>
               <div class="setting-row">
-                <div class="setting-label"><strong id="themeLabel">{{ t('theme') }}</strong><span>{{ t('themeHint') }}</span></div>
+                <div class="setting-label"><strong id="themeLabel">{{ t('theme') }}<SyncScopeIcon /></strong><span>{{ t('themeHint') }}</span></div>
                 <div class="segmented" data-setting="theme" role="group" aria-labelledby="themeLabel">
                   <button v-for="theme in themes" :key="theme.value" type="button" :data-value="theme.value" :class="{ active: current.theme === theme.value }" :aria-pressed="current.theme === theme.value" :disabled="saving" @click="save({ theme: theme.value })">{{ t(theme.label) }}</button>
                 </div>
@@ -173,7 +176,7 @@ onUnmounted(() => {
             <section class="settings-group">
               <h2>{{ t('collection') }}</h2>
               <div class="setting-row">
-                <div class="setting-label"><strong id="sortLabel">{{ t('defaultSort') }}</strong><span>{{ t('defaultSortHint') }}</span></div>
+                <div class="setting-label"><strong id="sortLabel">{{ t('defaultSort') }}<SyncScopeIcon /></strong><span>{{ t('defaultSortHint') }}</span></div>
                 <select class="setting-select" data-setting="defaultSort" aria-labelledby="sortLabel" :value="current.defaultSort" :disabled="saving" @change="changeSort"><option v-for="option in sortOptions" :key="option.value" :value="option.value">{{ t(option.label) }}</option></select>
               </div>
               <div class="setting-row">
@@ -186,12 +189,15 @@ onUnmounted(() => {
               </div>
               <NotificationSetting />
             </section>
-            <SettingsSyncPanel />
+            <SettingsSyncPanel v-model:status="syncStatus" />
             <ShortcutsPanel :dialog="dialog" />
             <section class="settings-group">
               <h2>{{ t('guideSettingsTitle') }}</h2>
               <div class="setting-row"><div class="setting-label"><strong>{{ t('guideReplayTitle') }}</strong><span>{{ t('guideReplayHint') }}</span></div><button id="replayOnboarding" class="setting-action" type="button" @click="replayOnboarding">{{ t('guideReplayButton') }}</button></div>
             </section>
+          </TabsContent>
+          <TabsContent v-if="backupVisited" v-show="activeTab === 'backup'" value="backup" force-mount class="settings-tab-panel">
+            <BackupPanel v-model:busy="maintenanceBusy" :dialog="dialog" />
           </TabsContent>
           <TabsContent v-if="dataVisited" v-show="activeTab === 'data'" value="data" force-mount class="settings-tab-panel">
             <StorageUsagePanel v-if="activeTab === 'data'" />
@@ -209,9 +215,6 @@ onUnmounted(() => {
             </section>
             <DiagnosticsPanel v-if="activeTab === 'data'" />
             <WipePanel v-model:busy="maintenanceBusy" :dialog="dialog" />
-          </TabsContent>
-          <TabsContent v-if="backupVisited" v-show="activeTab === 'backup'" value="backup" force-mount class="settings-tab-panel">
-            <BackupPanel v-model:busy="maintenanceBusy" :dialog="dialog" />
           </TabsContent>
         </TabsRoot>
       </template>
