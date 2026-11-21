@@ -5,6 +5,8 @@ import type { Translate } from "../../../src/shared/i18n";
 import type { PanelActions } from "../../../src/sidepanel/usePanelActions";
 import { usePanelBatches } from "../../../src/sidepanel/usePanelBatches";
 import { usePanelReading } from "../../../src/sidepanel/usePanelReading";
+import { groupCover } from "../../../src/sync/projection";
+import type { StoredItem } from "../../../src/storage/contracts";
 import PanelCard from "./PanelCard.vue";
 
 const props = defineProps<{ controls: SidepanelControls; actions: PanelActions; translate: Translate }>();
@@ -13,6 +15,7 @@ const emptyIcon = "/icon128.png";
 const reading = usePanelReading(props.controls, () => batches.complete.value);
 const batches = usePanelBatches(() => props.controls.visible.value, () => reading.pending.value);
 function committed(): void { props.controls.didPaint(); reading.committed(); }
+function cover(item: StoredItem): string { return groupCover(item, props.controls.covers.value, props.controls.collection.value.groups).source; }
 onMounted(committed);
 onUpdated(committed);
 </script>
@@ -27,7 +30,7 @@ onUpdated(committed);
   <Teleport to="#panelItems">
     <section id="items" class="items" aria-live="polite" @dragover="actions.drag.over" @drop="actions.drag.drop" @dragend="actions.drag.cancel">
     <template v-if="controls.ready.value">
-      <PanelCard v-for="item in batches.rendered.value" :key="item.id" :item="item" :covers="controls.covers.value"
+      <PanelCard v-for="item in batches.rendered.value" :key="item.id" :item="item" :cover="cover(item)"
         :icons="controls.collection.value.icons"
         :current="item.id === controls.currentId.value" :actions="actions" :translate="translate" />
     </template>

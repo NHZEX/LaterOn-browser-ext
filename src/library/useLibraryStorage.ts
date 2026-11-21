@@ -6,14 +6,18 @@ import { FILTER, FILTER_CHOSEN, SETTINGS, SIDEBAR_WIDTH } from "./page";
 import type { LibrarySnapshot } from "./page";
 import { pinnedProjects } from "./shared";
 import type { LibraryView } from "./useLibraryView";
+import { SYNC_META } from "../sync/acceptance";
+import { groupMembers, syncViewBound } from "../sync/projection";
 
 export function useLibraryStorage(view: LibraryView, applyScope: (snapshot: LibrarySnapshot, initial: boolean) => void, failed: () => void) {
   let alive = true, mounted = false, ready = false;
   let pending: LibrarySnapshot = {};
   function apply(snapshot: LibrarySnapshot, initial = false): void {
     const previous = view.collection.value;
-    if (ITEMS in snapshot || PROJECTS in snapshot || COVERS in snapshot || ICONS in snapshot) view.collection.value = {
-      items: ITEMS in snapshot ? normalizeItems(snapshot[ITEMS]) : previous.items,
+    const items = ITEMS in snapshot ? normalizeItems(snapshot[ITEMS]) : previous.items;
+    const grouped = SYNC_META in snapshot ? syncViewBound(snapshot) : previous.groups !== undefined;
+    if (ITEMS in snapshot || PROJECTS in snapshot || COVERS in snapshot || ICONS in snapshot || SYNC_META in snapshot) view.collection.value = {
+      items, groups: grouped ? (items === previous.items ? previous.groups ?? groupMembers(items) : groupMembers(items)) : undefined,
       projects: PROJECTS in snapshot ? pinnedProjects(snapshot[PROJECTS] ?? []) : previous.projects,
       // 用户上传封面体积大，独立于收藏列表存储，避免每次列表写入都搬运图片。
       covers: COVERS in snapshot ? snapshot[COVERS] ?? {} : previous.covers,
@@ -36,7 +40,7 @@ export function useLibraryStorage(view: LibraryView, applyScope: (snapshot: Libr
     mounted = true;
     browser.storage.onChanged.addListener(changed);
     try {
-      const snapshot = await browser.storage.local.get<LibrarySnapshot>([ITEMS, PROJECTS, COVERS, ICONS, ORDER, CURRENT, ACTIVE, EPOCH, SETTINGS, FILTER, FILTER_CHOSEN, SIDEBAR_WIDTH]);
+      const snapshot = await browser.storage.local.get<LibrarySnapshot>([ITEMS, PROJECTS, COVERS, ICONS, ORDER, CURRENT, ACTIVE, EPOCH, SETTINGS, FILTER, FILTER_CHOSEN, SIDEBAR_WIDTH, SYNC_META]);
       if (!alive) return;
       globalThis.LaterOnStorage.initialize(snapshot);
       // 一次性把列表中的 base64 封面迁到独立键，并由共享队列补齐旧阅读状态。

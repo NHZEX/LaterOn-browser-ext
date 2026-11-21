@@ -2,6 +2,9 @@ import type { Browser } from "wxt/browser";
 import type { BackgroundSnapshot } from "./shared";
 import { normalize as normalizeUrl } from "../shared/url-utils";
 import { enqueue } from "../storage/coordinator";
+import { SYNC_META } from "../sync/acceptance";
+import { groupMembers, hasSyncBinding, syncViewBound } from "../sync/projection";
+import type { SyncViewSnapshot } from "../sync/projection";
 
 // 已收藏网页的“上次滚动位置”：只保存 scrollY，不记录百分比、时间或阅读统计。
 // 后台负责同步注册监听；网页端脚本只在已收藏页面上按需注入。
@@ -16,8 +19,11 @@ export function registerReadingPosition() {
     try {
       const tab = suppliedTab?.id === tabId ? suppliedTab : await chrome.tabs.get(tabId);
       if (!tab?.id || !isWebUrl(tab.url)) return false;
-      const stored = await chrome.storage.local.get<BackgroundSnapshot>([ITEMS_KEY, POSITIONS_KEY, SETTINGS_KEY]);
-      const item = (stored[ITEMS_KEY] || []).find((entry) => normalizeUrl(entry.url) === normalizeUrl(tab.url ?? ""));
+      const stored = await chrome.storage.local.get<BackgroundSnapshot & SyncViewSnapshot>([ITEMS_KEY, POSITIONS_KEY, SETTINGS_KEY, SYNC_META]);
+      const items = stored[ITEMS_KEY] || [];
+      const match = items.find(entry => normalizeUrl(entry.url) === normalizeUrl(tab.url ?? ""));
+      const members = match && syncViewBound(stored) ? groupMembers(items).get(match.id) : undefined;
+      const item = members?.find(member => stored[POSITIONS_KEY]?.[member.id] !== undefined) ?? members?.[0] ?? match;
       if (!item) {
         await chrome.tabs.sendMessage(tab.id, { type: "LATERON_READING_POSITION_INIT", itemId: null }).catch(() => {});
         return false;
@@ -81,7 +87,10 @@ export function registerReadingPosition() {
       cleanOrphanedPositions().catch(() => {});
       setupActiveTab().catch(() => {});
     }
-    if (changes[SETTINGS_KEY]) setupActiveTab().catch(() => {});
+    if (changes[SETTINGS_KEY] || (changes[SYNC_META] && !changes[ITEMS_KEY]
+      && hasSyncBinding(changes[SYNC_META]?.newValue) !== hasSyncBinding(changes[SYNC_META]?.oldValue))) {
+      setupActiveTab().catch(() => {});
+    }
   });
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {

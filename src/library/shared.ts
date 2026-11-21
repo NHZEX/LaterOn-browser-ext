@@ -2,12 +2,15 @@ import { matchesReadFilter, matchesSearch } from "../collection/filter";
 import type { ReadFilter, SortMode } from "../collection/filter";
 import { resolveImage } from "../collection/item-edit";
 import { sortCollectionItems } from "../shared/collection-sort";
+import { projectCards, projectOrder } from "../sync/projection";
+import type { MemberGroups } from "../sync/projection";
 import type { ProjectChanges, StoredItem, StoredProject } from "../storage/contracts";
 import type { Translate } from "../shared/i18n";
 import type { PromptOptions, PromptValues } from "./useLibraryCommands";
 
 export interface LibraryCollection {
   readonly items: readonly StoredItem[];
+  readonly groups?: MemberGroups;
   readonly projects: readonly StoredProject[];
   readonly covers: Readonly<Record<string, string>>;
   readonly icons: Readonly<Record<string, string>>;
@@ -41,13 +44,15 @@ export function collectionCards(collection: LibraryCollection, scope: CardScope,
 } {
   const archived = new Set(collection.projects.filter(project => project.archived).map(project => project.id));
   // 搜索跨项目，阅读筛选仍生效；归档视图只搜归档，普通范围仍排除其它归档项目。
-  const scoped = collection.items.filter(item => {
+  const scopedMembers = collection.items.filter(item => {
     if (scope.activeProject === "archive") return archived.has(item.projectId ?? "");
     if (archived.has(item.projectId ?? "") && scope.activeProject !== item.projectId) return false;
     return !!scope.query || scope.activeProject === "all"
       || (scope.activeProject === "unfiled" ? !item.projectId : item.projectId === scope.activeProject);
   });
-  const visible = sortCollectionItems(scoped.filter(item => matchesReadFilter(item, scope.filter) && matchesSearch(item, scope.query)), scope.sort, orders[scope.activeProject]);
+  const scoped = projectCards(scopedMembers, collection.groups);
+  const filtered = scopedMembers.filter(item => matchesReadFilter(item, scope.filter) && matchesSearch(item, scope.query));
+  const visible = sortCollectionItems(projectCards(filtered, collection.groups), scope.sort, projectOrder(orders[scope.activeProject], collection.groups));
   return { scoped, visible };
 }
 

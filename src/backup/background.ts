@@ -13,6 +13,8 @@ interface BackupRequest {
 import * as core from "./core";
 import * as store from "../storage/coordinator";
 import { normalize } from "../shared/url-utils";
+import { SYNC_ACCEPTANCE_BUILD } from "../sync/acceptance";
+import { detachSyncPatch } from "../sync/binding";
 
 const RECOVERY_KEY = "laterOnPreRestoreBackup";
 const RECOVERY_AT = "laterOnPreRestoreBackupAt";
@@ -21,6 +23,12 @@ const snapshot = () => chrome.storage.local.get<BackgroundSnapshot>([...store.KE
 export async function createLocalBackup(includeImages: boolean): Promise<core.BackupDocument> {
   return store.enqueue(async () => core.create(await snapshot(), chrome.runtime.getManifest().version,
     new Date().toISOString(), { includeImages }));
+}
+
+export async function saveLocalRecovery(latest: core.CollectionSnapshot): Promise<void> {
+  const recovery = core.create(latest, chrome.runtime.getManifest().version, new Date().toISOString(), { includeImages: true });
+  if (new TextEncoder().encode(JSON.stringify(recovery)).byteLength > core.MAX_BYTES) throw new Error("BACKUP_TOO_LARGE");
+  await chrome.storage.local.set({ [RECOVERY_KEY]: recovery, [RECOVERY_AT]: recovery.exportedAt });
 }
 
 export function registerBackup() {
@@ -65,13 +73,10 @@ export function registerBackup() {
       const current = core.fromStorage(latest, { resolveIcons: mode !== "replace" });
       const result = plan(current, incoming, mode);
       const epoch = crypto.randomUUID();
-      if (mode === "replace" && keepRecovery === true) {
-        const recovery = core.create(latest, chrome.runtime.getManifest().version, new Date().toISOString(), { includeImages: true });
-        if (new TextEncoder().encode(JSON.stringify(recovery)).byteLength > core.MAX_BYTES) throw new Error("BACKUP_TOO_LARGE");
-        await chrome.storage.local.set({ [RECOVERY_KEY]: recovery, [RECOVERY_AT]: recovery.exportedAt });
-      }
+      if (mode === "replace" && keepRecovery === true) await saveLocalRecovery(latest);
+      const detached = SYNC_ACCEPTANCE_BUILD && mode === "replace" ? await detachSyncPatch() : {};
       // A single storage write commits all references and invalidates old pages.
-      await store.commit(latest, { ...core.toStorage(result.data), [store.EPOCH]: epoch,
+      await store.commit(latest, { ...core.toStorage(result.data), ...detached, [store.EPOCH]: epoch,
         laterOnCurrentItem: null, laterOnActiveProject: "all" });
       return { ok: true, added: result.added, duplicates: result.duplicates, addedProjects: result.addedProjects, total: result.data.items.length };
     });
@@ -81,7 +86,8 @@ export function registerBackup() {
     return store.enqueue(async () => {
       const stored = await snapshot();
       const projects = (stored.laterOnProjects || []).map(({ coverPick, ...project }) => project);
-      await store.commit(stored, { laterOnItems: [], laterOnCovers: {}, laterOnOrder: {}, laterOnReadingPositions: {},
+      const detached = SYNC_ACCEPTANCE_BUILD ? await detachSyncPatch() : {};
+      await store.commit(stored, { ...detached, laterOnItems: [], laterOnCovers: {}, laterOnOrder: {}, laterOnReadingPositions: {},
         laterOnProjects: projects, laterOnCurrentItem: null, [store.EPOCH]: crypto.randomUUID() });
       return { ok: true };
     });

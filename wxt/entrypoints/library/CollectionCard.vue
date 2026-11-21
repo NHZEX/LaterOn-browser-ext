@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { isEmptySummary, resolveImage } from "../../../src/collection/item-edit";
+import { isEmptySummary } from "../../../src/collection/item-edit";
+import { groupCover } from "../../../src/sync/projection";
 import { cardTarget, formatSavedTime } from "../../../src/library/shared";
 import type { LibraryCollection } from "../../../src/library/shared";
 import type { StoredItem } from "../../../src/storage/contracts";
@@ -26,7 +27,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ select: [id: string, force?: boolean] }>();
 const target = computed(() => cardTarget(props.item.url) || "#");
-const cover = computed(() => resolveImage(props.item, props.collection.covers));
+const cover = computed(() => groupCover(props.item, props.collection.covers, props.collection.groups).source);
 const favicon = computed(() => resolveFavicon(props.item.favicon, props.collection.icons));
 const readLabel = computed(() => props.translate(props.item.status === "done" ? "unreadButton" : "readButton"));
 const description = computed(() => isEmptySummary(props.item.description) ? props.translate("noDescription") : props.item.description);

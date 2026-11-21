@@ -1,4 +1,5 @@
-import { buildEditPatch, isEmptySummary, resolveImage } from "../collection/item-edit";
+import { buildEditPatch, isEmptySummary } from "../collection/item-edit";
+import { groupCover } from "../sync/projection";
 import { nextStatus, normalizeItemState } from "../collection/item-state";
 import type { ItemChanges } from "../storage/contracts";
 import { captureEditBasis, editRecoveryNotice } from "../storage/edit-recovery";
@@ -21,7 +22,7 @@ export function usePanelItems(controls: SidepanelControls, commands: PanelComman
       const item = commands.find(id); if (!item) return;
       const editBasis = captureEditBasis(item);
       // 封面可能是远程 URL、local://id 独立本体或旧 data: 数据，共享解析保留三种兼容。
-      const cover = resolveImage(item, controls.covers.value);
+      const { source: cover, id: coverOwner } = groupCover(item, controls.covers.value, controls.collection.value.groups);
       const result = await commands.dialog(api => api.prompt({ title: t("editItem"),
         message: isEmptySummary(item.description) ? t("missingSummaryHint") : "",
         // 共享弹窗压缩上传图片或移除封面，协调器原子保存封面与指针。
@@ -36,7 +37,11 @@ export function usePanelItems(controls: SidepanelControls, commands: PanelComman
       // 对比打开时快照，只提交用户改动；手工编辑标记防止重新收藏时被抓取结果覆盖。
       const patch = buildEditPatch(item, { title: text("title"), description: text("description"), cover: text("cover") }, cover);
       if (!Object.keys(patch).length) return;
-      const saved = await commands.execute("mutateItems", { operation: "update", ids: [id], patch, editBasis });
+      const { cover: nextCover, imageEdited, ...textPatch } = patch;
+      const itemPatch = coverOwner === id ? patch : textPatch;
+      const saved = Object.keys(itemPatch).length
+        ? await commands.execute("mutateItems", { operation: "update", ids: [id], patch: itemPatch, editBasis }) : null;
+      if (coverOwner !== id && nextCover !== undefined && commands.current()) await update(coverOwner, { cover: nextCover, imageEdited });
       const notice = editRecoveryNotice(saved?.editConflict);
       if (notice) commands.notify(notice, "toast");
     });

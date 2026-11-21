@@ -6,6 +6,9 @@ import {
 } from "./contracts";
 import { internIcons } from "./icons";
 import { OVERRIDE_LOG } from "./contracts";
+import { SYNC_META } from "../sync/acceptance";
+import { groupMembers, groupOrderOwner, syncViewBound } from "../sync/projection";
+import type { SyncViewSnapshot } from "../sync/projection";
 import { appendEditRecovery, protectItemEdit, readEditRecovery, stampEditRevisions } from "./edit-recovery";
 import type {
   CollectionState, LegacyCollectionState, StoredItem, StoredProject, CollectionAction,
@@ -157,16 +160,22 @@ function deleteProject(stored: CollectionState, { id }: Operation<"deleteProject
   return result(patch, { projects: patch[PROJECTS], items: patch[ITEMS], covers: patch[COVERS], orders: patch[ORDER], affected: removed.size });
 }
 
-function moveItem(stored: CollectionState, { id, scope, beforeId }: Operation<"moveItem">): Mutation {
+function moveItem(stored: CollectionState & SyncViewSnapshot, { id, scope, beforeId }: Operation<"moveItem">): Mutation {
   if (scope !== "all" && scope !== "unfiled") projectIn(stored[PROJECTS] || [], scope);
-  const items = (stored[ITEMS] || []).filter((item) => scope === "all" || (scope === "unfiled" ? !item.projectId : item.projectId === scope));
-  if (!items.some((item) => item.id === id)) fail("ITEM_NOT_FOUND");
+  const inScope = (item: StoredItem) => scope === "all" || (scope === "unfiled" ? !item.projectId : item.projectId === scope);
+  const items = (stored[ITEMS] || []).filter(inScope);
   const orders = stored[ORDER] || {};
   const alive = new Set(items.map((item) => item.id));
   const saved = [...new Set<string>(Array.isArray(orders[scope]) ? orders[scope] : [])].filter((itemId) => alive.has(itemId));
-  const rest = items.filter((item) => !saved.includes(item.id)).sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0)).map((item) => item.id);
-  const full = [...saved, ...rest].filter((itemId) => itemId !== id).map((itemId) => ({ id: itemId }));
-  const next = { ...orders, [scope]: insertBefore(full, { id }, beforeId).map((item) => item.id) };
+  const slots = new Set(saved);
+  const groups = syncViewBound(stored) ? groupMembers(stored[ITEMS] || []) : undefined;
+  const owner = (itemId: string) => groupOrderOwner(itemId, slots, groups, inScope);
+  const source = owner(id);
+  if (!alive.has(source)) fail("ITEM_NOT_FOUND");
+  const rest = items.filter(item => !slots.has(item.id) && owner(item.id) === item.id)
+    .sort((left, right) => (right.savedAt || 0) - (left.savedAt || 0)).map(item => item.id);
+  const full = [...saved, ...rest].filter(itemId => itemId !== source).map(itemId => ({ id: itemId }));
+  const next = { ...orders, [scope]: insertBefore(full, { id: source }, beforeId ? owner(beforeId) : null).map(item => item.id) };
   return result({ [ORDER]: next }, { orders: next });
 }
 
@@ -244,10 +253,10 @@ function migrateLegacyData(stored: LegacyCollectionState): Mutation {
 
 const readKeys = {
   createProject: [PROJECTS], updateProject: [PROJECTS, ITEMS], setProjectPinned: [PROJECTS], moveProject: [PROJECTS],
-  deleteProject: [...KEYS, CURRENT, ACTIVE], moveItem: [ITEMS, PROJECTS, ORDER],
+  deleteProject: [...KEYS, CURRENT, ACTIVE], moveItem: [ITEMS, PROJECTS, ORDER, SYNC_META],
   mutateItems: [...KEYS, CURRENT, OVERRIDE_LOG], migrateLegacyData: [ITEMS, COVERS, ICONS],
   listEditRecovery: [ITEMS, OVERRIDE_LOG], clearEditRecovery: []
-} satisfies Record<CollectionAction, readonly (keyof CollectionState)[]>;
+} satisfies Record<CollectionAction, readonly (keyof (CollectionState & SyncViewSnapshot))[]>;
 
 function applyOperation(stored: CollectionState, command: CollectionCommand): Mutation {
   switch (command.action) {
@@ -267,7 +276,7 @@ function applyOperation(stored: CollectionState, command: CollectionCommand): Mu
 export async function execute(command: CollectionCommand): Promise<CollectionSuccess> {
   if (!Object.hasOwn(readKeys, command?.action)) fail("INVALID_OPERATION");
   return enqueue(async () => {
-    const stored = await browser.storage.local.get<CollectionState>([...readKeys[command.action], EPOCH]);
+    const stored = await browser.storage.local.get<CollectionState & SyncViewSnapshot>([...readKeys[command.action], EPOCH]);
     assertEpoch(stored, command.epoch);
     const { patch, response } = applyOperation(stored, command);
     const written = await commit(stored, command.action === "migrateLegacyData" ? { ...patch, [ITEMS]: response.items } : patch);

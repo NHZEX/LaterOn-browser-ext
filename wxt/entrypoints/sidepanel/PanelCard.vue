@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, shallowRef, watch } from "vue";
 import { cardTarget } from "../../../src/shared/card-media";
-import { resolveImage } from "../../../src/collection/item-edit";
 import { panelSavedTime } from "../../../src/sidepanel/shared";
 import type { StoredItem } from "../../../src/storage/contracts";
 import type { Translate } from "../../../src/shared/i18n";
@@ -11,11 +10,10 @@ import { resolveFavicon } from "../../../src/storage/icons";
 import ItemCopyMenu from "../../components/ItemCopyMenu.vue";
 import type { ItemLinkFormat } from "../../../src/collection/item-link";
 
-const props = defineProps<{ item: StoredItem; covers: Readonly<Record<string, string>>; icons: Readonly<Record<string, string>>; current: boolean; actions: PanelActions; translate: Translate }>();
+const props = defineProps<{ item: StoredItem; cover: string; icons: Readonly<Record<string, string>>; current: boolean; actions: PanelActions; translate: Translate }>();
 const faviconFailed = shallowRef(false);
 // 文字直接写明「标为已读 / 标为未读」；在读仍由打开文章进入。
 const readLabel = computed(() => props.translate(props.item.status === "done" ? "unreadButton" : "readButton"));
-const cover = computed(() => resolveImage(props.item, props.covers));
 const favicon = computed(() => resolveFavicon(props.item.favicon, props.icons));
 const savedTime = computed(() => {
   // 语言由上层响应式翻译入口驱动，日期的 locale 同步切换。

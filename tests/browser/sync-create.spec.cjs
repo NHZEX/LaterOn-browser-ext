@@ -10,9 +10,13 @@ const { test, expect, buildDir } = require("./extension.cjs");
 const acceptance = process.env.STAYSIDE_SYNC_ACCEPTANCE === "1";
 const folder = "/fixture-sync/";
 const regionName = "WebDAV sync acceptance";
+const coverImage = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 const listing = `<d:multistatus xmlns:d="DAV:"><d:response><d:href>${folder}</d:href><d:propstat>
 <d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop><d:status>HTTP/1.1 200 OK</d:status>
 </d:propstat></d:response></d:multistatus>`;
+
+const actualListing = files => listing.replace('</d:multistatus>', Array.from(files.keys(), url =>
+  `<d:response><d:href>${url}</d:href><d:propstat><d:prop><d:resourcetype/></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>`).join('') + '</d:multistatus>');
 
 test("普通构建不开放同步验收入口", async ({ page, extension }) => {
   test.skip(acceptance, "Default build only");
@@ -29,16 +33,23 @@ async function withDav(run) {
   const dav = { requests: [], files: new Map(), listing: '<d:multistatus xmlns:d="DAV:"/>' };
   const server = createServer(async (request, response) => {
     const { method, url, headers } = request;
+    if (method === "GET" && [`${folder}article`, `${folder}offline-addition`].includes(url)) {
+      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      response.end('<title>Reading</title><main style="height:5000px">Article</main>');
+      return;
+    }
     dav.requests.push({ method, url, headers });
     const chunks = [];
     for await (const chunk of request) chunks.push(chunk);
-    if (method === "PROPFIND") response.writeHead(207).end(dav.listing);
+    if (dav.offline) { response.writeHead(503).end(); return; }
+    if (method === "PROPFIND") response.writeHead(207).end(dav.discover ? actualListing(dav.files) : dav.listing);
     else if (method === "PUT") {
-      await dav.beforePut?.();
+      await dav.beforePut?.(url);
       dav.files.set(url, Buffer.concat(chunks));
       response.writeHead(201).end();
     } else if (method === "GET") {
       const bytes = dav.files.get(url);
+      await dav.beforeGet?.(url);
       if (bytes && dav.corruptSnapshot && url.endsWith(".gz")) {
         const snapshot = JSON.parse(gunzipSync(bytes));
         snapshot.state.members[0].title.value = "Different title";
@@ -65,6 +76,199 @@ async function openPanel(page, extension, endpoint) {
 }
 
 const readMeta = page => page.evaluate(async () => (await chrome.storage.local.get("laterOnSyncMeta")).laterOnSyncMeta);
+const openSettings = (context, extensionUrl) => context.newPage().then(async page => {
+  await page.goto(new URL("settings.html#backup", extensionUrl).href);
+  return page;
+});
+const syncPanel = page => page.getByRole("region", { name: regionName });
+
+async function previewJoin(panel, endpoint, collectionId) {
+  await panel.getByRole("textbox", { name: "Existing local WebDAV directory" }).fill(endpoint);
+  await panel.getByRole("textbox", { name: "Expected library ID" }).fill(collectionId);
+  await panel.getByRole("button", { name: "Preview join" }).click();
+}
+
+async function rejoin(page, endpoint, binding) {
+  const panel = syncPanel(page);
+  await panel.getByRole("button", { name: "Unbind" }).click();
+  await previewJoin(panel, endpoint, binding.collectionId);
+  await panel.getByRole("button", { name: "Confirm join" }).click();
+  await expect.poll(async () => (await readMeta(page))?.binding?.bindingId).not.toBe(binding.bindingId);
+  await expect(panel.getByRole("button", { name: "Sync now" })).toBeEnabled();
+}
+
+test("加入前核对并取消，非空配置确认后备份，并交换原始新增成员", async ({ page, extension }) => {
+  test.skip(!acceptance, "Requires sync-acceptance build");
+  await withDav(async (dav, endpoint) => {
+    dav.discover = true;
+    const first = await openPanel(page, extension, endpoint);
+    await first.getByRole("button", { name: "Create sync library" }).click();
+    await first.getByRole("button", { name: "Publish first snapshot" }).click();
+    await expect(first.getByRole("status")).toHaveText("First snapshot verified.");
+    const { binding: { collectionId } } = await readMeta(page);
+    const profile = await chromium.launchPersistentContext("", { channel: "chromium", headless: true,
+      args: [`--disable-extensions-except=${buildDir}`, `--load-extension=${buildDir}`] });
+    try {
+      const worker = profile.serviceWorkers()[0] || await profile.waitForEvent("serviceworker");
+      const secondPage = await profile.newPage();
+      const local = { id: "other-page", savedAt: 234, url: new URL("article", endpoint).href, title: "Other title", status: "reading",
+        image: "local://other-page", imageEdited: true };
+      const neighbor = { id: "neighbor-page", savedAt: 345, url: new URL("neighbor", endpoint).href, title: "Neighbor", status: "unread" };
+      await worker.evaluate(({ local, neighbor, coverImage }) => chrome.storage.local.set({ laterOnOnboardingSeen: true,
+        laterOnSettings: { language: "en", defaultSort: "custom", askFolderOnSingle: false }, laterOnItems: [local, neighbor],
+        laterOnActiveProject: "unfiled", laterOnFilter: "all", laterOnFilterChosen: true,
+        laterOnCovers: { [local.id]: coverImage }, laterOnReadingPositions: { [local.id]: 0 },
+        laterOnOrder: { all: [neighbor.id, local.id], unfiled: [local.id, neighbor.id] }
+      }), { local, neighbor, coverImage });
+      await secondPage.goto(new URL("settings.html#backup", worker.url()).href);
+      const second = secondPage.getByRole("region", { name: regionName });
+      const join = second.getByRole("button", { name: "Preview join" });
+      const identity = second.getByRole("textbox", { name: "Expected library ID" });
+      const read = () => secondPage.evaluate(() => chrome.storage.local.get(["laterOnItems", "laterOnReadingPositions", "laterOnPreRestoreBackup"]));
+      const puts = () => dav.requests.filter(({ method }) => method === "PUT").length;
+      await second.getByRole("textbox", { name: "Existing local WebDAV directory" }).fill(endpoint);
+      await identity.fill("00000000-0000-0000-0000-000000000000");
+      await join.click();
+      await expect(second.getByRole("alert")).toBeVisible();
+      expect(await readMeta(secondPage)).toBeUndefined();
+      await identity.fill(collectionId);
+      dav.corruptSnapshot = true;
+      await join.click();
+      await expect(second.getByRole("alert")).toBeVisible();
+      expect(await readMeta(secondPage)).toBeUndefined();
+      dav.corruptSnapshot = false;
+      await join.click();
+      await second.getByRole("button", { name: "Cancel preview" }).click();
+      expect((await read()).laterOnItems).toEqual([local, neighbor]);
+      expect(puts()).toBe(2);
+      await join.click();
+      await second.getByRole("button", { name: "Confirm join" }).click();
+      await expect(second.getByRole("status")).toHaveText("Joined. Use Sync now to exchange additions.");
+      const joined = await read();
+      expect(joined.laterOnItems.map(item => item.id)).toEqual([local.id, neighbor.id, "saved-page"]);
+      expect(joined.laterOnReadingPositions).toEqual({ [local.id]: 0 });
+      expect(joined.laterOnPreRestoreBackup.data.items.map(item => item.id)).toEqual([local.id, neighbor.id]);
+      expect(joined.laterOnPreRestoreBackup.data.covers).toEqual({ [local.id]: coverImage });
+      expect(puts()).toBe(2);
+      const library = await profile.newPage();
+      await library.goto(new URL("library.html?from=sidepanel&project=unfiled&filter=all", worker.url()).href);
+      const sidepanel = await profile.newPage();
+      await sidepanel.goto(new URL("sidepanel.html", worker.url()).href);
+      for (const [view, cards, cover] of [[library, "#cardGrid .card", ".cover-img"], [sidepanel, "#items .item", ".thumb-img"]]) {
+        await expect.poll(() => view.locator(cards).evaluateAll(elements => elements.map(element => element.dataset.id)))
+          .toEqual(["saved-page", neighbor.id]);
+        await expect(view.locator(`${cards}[data-id="saved-page"] ${cover}`)).toHaveAttribute("src", coverImage);
+      }
+      const order = await library.evaluate(async () => (await chrome.storage.local.get("laterOnOrder")).laterOnOrder);
+      expect(order).toEqual({ all: [neighbor.id, local.id], unfiled: [local.id, neighbor.id] });
+      await library.locator('#cardGrid [data-id="saved-page"] .edit').press("Enter");
+      const edit = library.getByRole("dialog").filter({ has: library.getByRole("heading", { name: "Edit page" }) });
+      await edit.getByRole("button", { name: "Remove cover" }).click();
+      await edit.getByRole("button", { name: "Save", exact: true }).click();
+      await expect.poll(() => library.evaluate(async () => (await chrome.storage.local.get("laterOnCovers")).laterOnCovers)).toEqual({});
+      await expect(library.locator('#cardGrid [data-id="saved-page"] .cover-img')).toHaveCount(0);
+      const article = await profile.newPage();
+      await article.goto(local.url);
+      await expect(async () => {
+        await article.evaluate(() => { window.scrollTo(0, 640); window.dispatchEvent(new Event("scroll")); });
+        expect((await read()).laterOnReadingPositions).toEqual({ [local.id]: 640 });
+      }).toPass({ timeout: 5000, intervals: [700] });
+      dav.offline = true;
+      await article.goto(new URL("offline-addition", endpoint).href);
+      await expect(sidepanel.locator("#saveCurrent")).toBeEnabled();
+      await sidepanel.locator("#saveCurrent").click();
+      await expect.poll(async () => (await read()).laterOnItems.length).toBe(4);
+      const offline = (await read()).laterOnItems.find(item => item.url.endsWith("/offline-addition"));
+      expect(puts()).toBe(2);
+      await second.getByRole("button", { name: "Sync now" }).click();
+      await expect(second.getByRole("alert")).toBeVisible();
+      expect((await read()).laterOnItems.some(item => item.id === offline.id)).toBe(true);
+      dav.offline = false;
+      await second.getByRole("button", { name: "Sync now" }).click();
+      await expect(second.getByRole("status")).toHaveText("Snapshot verified. Additions synced.");
+      await first.getByRole("button", { name: "Sync now" }).click();
+      await expect(first.getByRole("status")).toHaveText("Snapshot verified. Additions synced.");
+      const items = await page.evaluate(async () => (await chrome.storage.local.get("laterOnItems")).laterOnItems);
+      expect(items.map(item => item.id).sort()).toEqual(["saved-page", local.id, neighbor.id, offline.id].sort());
+      expect(items.find(item => item.id === local.id).status).not.toBe("reading");
+    } finally { await profile.close(); }
+  });
+});
+
+test("同库重绑挡住旧下载和未发送索引，清空或覆盖恢复不写服务端", async ({ page, context, extension }) => {
+  test.skip(!acceptance, "Requires sync-acceptance build");
+  await withDav(async (dav, endpoint) => {
+    dav.discover = true;
+    const panel = await openPanel(page, extension, endpoint);
+    await panel.getByRole("button", { name: "Create sync library" }).click();
+    await panel.getByRole("button", { name: "Publish first snapshot" }).click();
+    await expect(panel.getByRole("status")).toHaveText("First snapshot verified.");
+    const settings = await openSettings(context, extension.url);
+    const first = await readMeta(page);
+    const downloads = Promise.withResolvers();
+    const releaseDownload = Promise.withResolvers();
+    dav.beforeGet = async url => {
+      if (!url.endsWith(".gz")) return;
+      dav.beforeGet = undefined;
+      downloads.resolve();
+      await releaseDownload.promise;
+    };
+    await panel.getByRole("button", { name: "Sync now" }).click();
+    try {
+      await downloads.promise;
+      await rejoin(settings, endpoint, first.binding);
+    } finally { releaseDownload.resolve(); }
+    const rebound = await readMeta(settings);
+    expect(rebound.binding.collectionId).toBe(first.binding.collectionId);
+    expect(rebound.binding.bindingId).not.toBe(first.binding.bindingId);
+    await expect(panel.getByRole("alert")).toBeVisible();
+    expect(await readMeta(page)).toEqual(rebound);
+
+    const saved = await settings.evaluate(url => chrome.runtime.sendMessage({ type: "SAVE_ITEM", item: { url, title: "Local addition" } }),
+      new URL("queued", endpoint).href);
+    expect(saved.ok).toBe(true);
+    const prepared = Promise.withResolvers();
+    const releasePut = Promise.withResolvers();
+    dav.beforePut = async url => {
+      if (!url.endsWith(".gz")) return;
+      dav.beforePut = undefined;
+      prepared.resolve();
+      await releasePut.promise;
+    };
+    await panel.getByRole("button", { name: "Sync now" }).click();
+    try {
+      await prepared.promise;
+      await rejoin(settings, endpoint, rebound.binding);
+    } finally { releasePut.resolve(); }
+    await expect(panel.getByRole("alert")).toBeVisible();
+    const headWrites = dav.requests.filter(({ method, url }) => method === "PUT" && url.endsWith(".json"));
+    expect(headWrites).toHaveLength(1);
+    expect((await readMeta(settings)).binding.pending).toBeUndefined();
+    const count = dav.requests.length;
+
+    await settings.goto(new URL("settings.html#data", extension.url).href);
+    await settings.getByRole("button", { name: "Clear", exact: true }).click();
+    await settings.getByRole("button", { name: "Clear all", exact: true }).click();
+    await expect.poll(async () => (await readMeta(settings)).binding).toBeUndefined();
+    expect(await settings.evaluate(async () => (await chrome.storage.local.get("laterOnItems")).laterOnItems)).toEqual([]);
+    expect(dav.requests).toHaveLength(count);
+    const restore = await openSettings(context, extension.url);
+    await previewJoin(syncPanel(restore), endpoint, first.binding.collectionId);
+    await syncPanel(restore).getByRole("button", { name: "Confirm join" }).click();
+    await expect(syncPanel(restore).getByRole("button", { name: "Sync now" })).toBeEnabled();
+    const afterJoin = dav.requests.length;
+    const replaced = await restore.evaluate(async () => {
+      const exported = await chrome.runtime.sendMessage({ type: "BACKUP_EXPORT" });
+      const payload = { ...exported.payload, data: { ...exported.payload.data, items: [] } };
+      const { token } = await chrome.runtime.sendMessage({ type: "BACKUP_PREVIEW", payload, mode: "replace" });
+      return chrome.runtime.sendMessage({ type: "BACKUP_APPLY", payload, token, mode: "replace" });
+    });
+    expect(replaced.ok).toBe(true);
+    await expect(syncPanel(restore).getByRole("button", { name: "Create sync library" })).toBeEnabled();
+    expect((await readMeta(restore)).binding).toBeUndefined();
+    expect(dav.requests).toHaveLength(afterJoin);
+  });
+});
 
 test("设置页拒绝不完整清单，按顺序发布并回读快照", async ({ page, extension }) => {
   test.skip(!acceptance, "Requires sync-acceptance build");

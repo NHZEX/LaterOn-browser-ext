@@ -1,5 +1,7 @@
 import { matchesReadFilter, matchesSearch, normalizeSort, type ReadFilter } from "../collection/filter";
 import { sortCollectionItems } from "../shared/collection-sort";
+import { projectCards, projectOrder } from "../sync/projection";
+import type { MemberGroups } from "../sync/projection";
 import type { StoredItem, StoredProject } from "../storage/contracts";
 import type { Translate } from "../shared/i18n";
 
@@ -12,6 +14,7 @@ export function panelSavedTime(timestamp: number | undefined, language: string, 
 
 export interface PanelCollection {
   readonly items: readonly StoredItem[];
+  readonly groups?: MemberGroups;
   readonly icons: Readonly<Record<string, string>>;
   readonly projects: readonly StoredProject[];
   readonly archivedProjectIds: ReadonlySet<string>;
@@ -30,7 +33,8 @@ export function visiblePanelItems(collection: PanelCollection, scope: PanelScope
   const visible = collection.items.filter(item => !collection.archivedProjectIds.has(item.projectId ?? "")
     && (!!scope.query || (scope.project === "unfiled" ? !item.projectId : item.projectId === scope.project))
     && matchesReadFilter(item, scope.filter) && matchesSearch(item, scope.query));
-  return sortCollectionItems(visible, normalizeSort(collection.sortMode), collection.orders[scope.project]);
+  return sortCollectionItems(projectCards(visible, collection.groups), normalizeSort(collection.sortMode),
+    projectOrder(collection.orders[scope.project], collection.groups));
 }
 
 export function panelProjects(collection: PanelCollection): readonly { id: string; name: string; count: number }[] {

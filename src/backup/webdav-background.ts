@@ -351,13 +351,27 @@ export function registerWebdavBackup(sharePreset: (preset: WebdavPreset) => Prom
     return true;
   });
 
-  return task => serialize(async () => {
-    const stored = await chrome.storage.local.get<StoredBackupState>(BACKUP_STATE);
-    let state = stored[BACKUP_STATE] ?? { device: crypto.randomUUID() };
-    const meter = createWebdavMeter((state.settings ?? DEFAULT_BACKUP_OPTIONS).budgetMiB * MIB, () => state.usage, async usage => {
-      state = { ...state, usage };
-      await chrome.storage.local.set({ [BACKUP_STATE]: state });
+  return task => {
+    let remaining = Infinity;
+    const account = <Result>(record: (meter: ReturnType<typeof createWebdavMeter>, timestamp: number) => Promise<Result>) => serialize(async () => {
+      const stored = await chrome.storage.local.get<StoredBackupState>(BACKUP_STATE);
+      let state = stored[BACKUP_STATE] ?? { device: crypto.randomUUID() };
+      const timestamp = Date.now();
+      const meter = createWebdavMeter((state.settings ?? DEFAULT_BACKUP_OPTIONS).budgetMiB * MIB, () => state.usage, async usage => {
+        state = { ...state, usage };
+        await chrome.storage.local.set({ [BACKUP_STATE]: state });
+      }, () => timestamp);
+      const result = await record(meter, timestamp);
+      remaining = meter.remaining();
+      return result;
     });
-    return task(meter);
-  });
+    return task({
+      remaining: () => remaining,
+      async start(bytes) {
+        const startedAt = await account(async (meter, timestamp) => await meter.start(bytes) ? timestamp : undefined);
+        return startedAt === undefined ? undefined : () => account(meter => meter.confirm(bytes, startedAt));
+      },
+      downloaded: bytes => account(meter => meter.downloaded(bytes))
+    });
+  };
 }

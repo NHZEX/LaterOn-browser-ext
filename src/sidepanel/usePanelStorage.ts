@@ -6,6 +6,8 @@ import type { CollectionSuccess } from "../storage/contracts";
 import { FILTER, FILTER_CHOSEN, SETTINGS, type PanelSnapshot } from "./page";
 import { normalizePanelProject } from "./shared";
 import type { SidepanelControls } from "./useSidepanelControls";
+import { SYNC_META } from "../sync/acceptance";
+import { groupMembers, syncViewBound } from "../sync/projection";
 
 export function usePanelStorage(controls: SidepanelControls, onItems: () => void) {
   let alive = true, ready = false, mounted = false, coverVersion = 0;
@@ -19,8 +21,10 @@ export function usePanelStorage(controls: SidepanelControls, onItems: () => void
     // 两页共享筛选；首次未选择时默认未读，异常值仍规范为三档。
     if (initial) controls.state.filter = snapshot[FILTER_CHOSEN] ? normalizeFilter(snapshot[FILTER]) : "unread";
     else if (FILTER in snapshot) controls.state.filter = normalizeFilter(snapshot[FILTER]);
-    if (ITEMS in snapshot || ICONS in snapshot || PROJECTS in snapshot || ORDER in snapshot || SETTINGS in snapshot) controls.collection.value = {
-      items: ITEMS in snapshot ? normalizeItems(snapshot[ITEMS]) : previous.items, projects,
+    const items = ITEMS in snapshot ? normalizeItems(snapshot[ITEMS]) : previous.items;
+    const grouped = SYNC_META in snapshot ? syncViewBound(snapshot) : previous.groups !== undefined;
+    if (ITEMS in snapshot || ICONS in snapshot || PROJECTS in snapshot || ORDER in snapshot || SETTINGS in snapshot || SYNC_META in snapshot) controls.collection.value = {
+      items, groups: grouped ? (items === previous.items ? previous.groups ?? groupMembers(items) : groupMembers(items)) : undefined, projects,
       icons: ICONS in snapshot ? snapshot[ICONS] ?? {} : previous.icons,
       archivedProjectIds: PROJECTS in snapshot ? new Set((snapshot[PROJECTS] ?? []).filter(project => project.archived).map(project => project.id)) : previous.archivedProjectIds,
       orders: ORDER in snapshot ? snapshot[ORDER] ?? {} : previous.orders,
@@ -48,7 +52,7 @@ export function usePanelStorage(controls: SidepanelControls, onItems: () => void
   };
   function mount(): void { if (!mounted) { mounted = true; browser.storage.onChanged.addListener(changed); } }
   // 封面可能大于整个列表，故意不在初始读取中；先让列表最快出来。
-  function read(): Promise<PanelSnapshot> { return browser.storage.local.get<PanelSnapshot>([ITEMS, ICONS, PROJECTS, ACTIVE, CURRENT, SETTINGS, FILTER, FILTER_CHOSEN, ORDER, EPOCH]); }
+  function read(): Promise<PanelSnapshot> { return browser.storage.local.get<PanelSnapshot>([ITEMS, ICONS, PROJECTS, ACTIVE, CURRENT, SETTINGS, FILTER, FILTER_CHOSEN, ORDER, EPOCH, SYNC_META]); }
   // 缓存可操作时本地选择和外部切换都可能先于读取返回，按最后发生的一次恢复。
   function latest(snapshot: PanelSnapshot): PanelSnapshot {
     const localPreferences: PanelSnapshot = {

@@ -1,5 +1,6 @@
 import { watch } from "vue";
-import { buildEditPatch, isEmptySummary, resolveImage } from "../collection/item-edit";
+import { buildEditPatch, isEmptySummary } from "../collection/item-edit";
+import { groupCover } from "../sync/projection";
 import type { ItemChanges } from "../storage/contracts";
 import { captureEditBasis, editRecoveryNotice } from "../storage/edit-recovery";
 import type { LibraryCommands } from "./useLibraryCommands";
@@ -25,7 +26,8 @@ export function useLibraryItems(commands: LibraryCommands, createProject: (name:
     return commands.perform(`item:${id}`, async () => {
       const item = find(id); if (!item) return;
       const editBasis = captureEditBasis(item);
-      const cover = resolveImage(item, commands.collection.value.covers);
+      const { covers, groups } = commands.collection.value;
+      const { source: cover, id: coverOwner } = groupCover(item, covers, groups);
       // 摘要占位显示为空；共享弹窗负责上传压缩及移除，保存后由协调器同时写封面和指针。
       const result = await commands.prompt({ title: t("editItem"), message: isEmptySummary(item.description) ? t("missingSummaryHint") : "",
         cover: { name: "cover", label: t("cover"), value: cover }, fields: [
@@ -38,10 +40,15 @@ export function useLibraryItems(commands: LibraryCommands, createProject: (name:
       // 用打开时的收藏和解析后的封面比较，只写用户改动并设置手工编辑保护标记。
       const patch = buildEditPatch(item, { title: text("title"), description: text("description"), cover: text("cover") }, cover);
       if (!Object.keys(patch).length) { toast("noChanges"); return; }
-      const saved = await commands.execute("mutateItems", { operation: "update", ids: [id], patch, editBasis });
+      const { cover: nextCover, imageEdited, ...textPatch } = patch;
+      const itemPatch = coverOwner === id ? patch : textPatch;
+      const saved = Object.keys(itemPatch).length
+        ? await commands.execute("mutateItems", { operation: "update", ids: [id], patch: itemPatch, editBasis }) : null;
+      const coverSaved = coverOwner !== id && nextCover !== undefined && commands.current()
+        ? await update(coverOwner, { cover: nextCover, imageEdited }) : null;
       const notice = editRecoveryNotice(saved?.editConflict);
       if (notice) toast(notice);
-      else if (saved?.affected) toast("changesSaved");
+      else if (saved?.affected || coverSaved?.affected) toast("changesSaved");
     });
   }
   function remove(id: string): Promise<void> {

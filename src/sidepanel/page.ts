@@ -1,8 +1,9 @@
 import type { LegacyCollectionState } from "../storage/contracts";
 import type { StoredSettings } from "../settings/shared";
+import type { SyncViewSnapshot } from "../sync/projection";
 
 export const SETTINGS = "laterOnSettings", FILTER = "laterOnFilter", FILTER_CHOSEN = "laterOnFilterChosen";
-export interface PanelSnapshot extends LegacyCollectionState {
+export interface PanelSnapshot extends LegacyCollectionState, SyncViewSnapshot {
   readonly laterOnSettings?: StoredSettings;
   readonly laterOnFilter?: unknown;
   readonly laterOnFilterChosen?: boolean;
