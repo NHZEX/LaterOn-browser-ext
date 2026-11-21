@@ -16,7 +16,7 @@ export interface SyncBinding {
   readonly seen?: readonly SyncHead[];
   readonly pending?: PendingPublication;
   readonly confirmed?: PendingPublication;
-  readonly publishedSnapshots?: readonly number[];
+  readonly localPublications?: readonly SyncHead[];
   readonly paused?: true;
 }
 
@@ -26,7 +26,7 @@ export interface SyncMeta {
   readonly clock?: SyncClock;
   readonly detachedId?: string;
   readonly detachedHeads?: { readonly collectionId: string; readonly heads: readonly SyncHead[];
-    readonly endpoint?: string; readonly publishedSnapshots?: readonly number[] };
+    readonly endpoint?: string; readonly localPublications?: readonly SyncHead[] };
   readonly binding?: SyncBinding;
 }
 
@@ -44,7 +44,7 @@ export async function detachSyncPatch({ preserveVerifiedHeads = false } = {}): P
   const previous = await readMeta();
   const { deviceId = crypto.randomUUID(), allocatedSeq = 0, clock, binding } = previous ?? {};
   const detachedHeads = binding ? { collectionId: binding.collectionId, heads: verifiedHeads(binding), endpoint: binding.endpoint,
-    ...(binding.publishedSnapshots ? { publishedSnapshots: binding.publishedSnapshots } : {}) } : previous?.detachedHeads;
+    ...(binding.localPublications ? { localPublications: binding.localPublications } : {}) } : previous?.detachedHeads;
   return { [SYNC_META]: { deviceId, allocatedSeq, ...(clock ? { clock } : {}), detachedId: crypto.randomUUID(),
     ...(preserveVerifiedHeads && detachedHeads?.heads.length ? { detachedHeads } : {}) } };
 }

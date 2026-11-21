@@ -75,6 +75,12 @@ function parseListing(xml: string, target: string, strict: boolean): readonly Da
   }
 }
 
+function signalsPartialListing(response: Response): boolean {
+  if (response.status === 206 || response.headers.has("Content-Range")) return true;
+  const relations = (response.headers.get("Link") ?? "").matchAll(/;\s*rel\s*=\s*(?:"([^"]*)"|([^\s;,]+))/gi);
+  return Array.from(relations).some(([, quoted, token]) => (quoted ?? token ?? "").toLowerCase().split(/\s+/).includes("next"));
+}
+
 async function readBytes(response: Response, limit: number, meter: TransferMeter): Promise<Uint8Array<ArrayBuffer>> {
   if (!response.body) return new Uint8Array();
   const reader = response.body.getReader();
@@ -142,6 +148,10 @@ export function createWebdav(settings: Pick<BackupSettings, "endpoint" | "userna
   async function propfind(path: Path, depth: "0" | "1", strict = false): Promise<readonly DavEntry[] | null> {
     const url = href(path, true);
     const response = await request("PROPFIND", url, { Depth: depth, "Content-Type": "application/xml; charset=utf-8" }, properties, properties.length, [207]);
+    if (strict && signalsPartialListing(response)) {
+      await response.body?.cancel().catch(() => {});
+      throw new Error("WEBDAV_LIST");
+    }
     if (response.status !== 207) {
       await disposition(response, [404]);
       return null;

@@ -45,15 +45,15 @@ async function withDav(run) {
     for await (const chunk of request) chunks.push(chunk);
     const body = Buffer.concat(chunks);
     entry.requestBytes = body.length;
-    const reply = (status, data = "") => {
+    const reply = (status, data = "", responseHeaders = {}) => {
       entry.status = status;
       entry.responseBytes = Buffer.byteLength(data);
-      response.writeHead(status).end(data);
+      response.writeHead(status, responseHeaders).end(data);
     };
     if (dav.offline) { reply(503); return; }
     if (method === "PROPFIND") {
       if (dav.listStatus) reply(dav.listStatus);
-      else reply(207, dav.discover ? actualListing(dav.files) : dav.listing);
+      else reply(207, dav.discover ? actualListing(dav.files) : dav.listing, dav.listHeaders);
     } else if (method === "PUT") {
       const status = await dav.beforePut?.(url, body);
       if (status) { reply(status); return; }
@@ -64,7 +64,8 @@ async function withDav(run) {
       reply(201);
     } else if (method === "GET") {
       const bytes = dav.files.get(url);
-      await dav.beforeGet?.(url);
+      const status = await dav.beforeGet?.(url);
+      if (status) { reply(status); return; }
       if (bytes && dav.corruptSnapshot && url.endsWith(".gz")) {
         const snapshot = JSON.parse(gunzipSync(bytes));
         snapshot.state.members[0].title.value = "Different title";
@@ -99,7 +100,12 @@ const openSettings = (context, extensionUrl) => context.newPage().then(async pag
   return page;
 });
 const syncPanel = page => page.getByRole("region", { name: regionName });
-const headPathFor = deviceId => `${folder}head-${deviceId}.json`;
+const recordPathFor = ({ deviceId, seq, stateHash }) => `${folder}publication-${deviceId}-${seq}-${stateHash}.json`;
+const snapshotFileFor = ({ deviceId, seq, stateHash }) => `snapshot-${deviceId}-${seq}-${stateHash}.json.gz`;
+const atGeneration = (head, seq) => {
+  const key = { ...head, seq };
+  return { ...key, snapshotName: snapshotFileFor(key) };
+};
 const putPathsSince = (dav, count = 0) => dav.requests.slice(count).filter(({ method }) => method === "PUT").map(({ url }) => url);
 const requestsSince = (dav, count) => dav.requests.slice(count).map(({ method, url }) => `${method} ${url}`);
 
@@ -239,7 +245,7 @@ test("记录环回 WebDAV 的千条快照、待确认重试和限流流量", asy
     dav.afterPut = undefined;
     const beforeRetry = dav.requests.length;
     const retry = await measureTraffic(page, dav, () => syncNow(panel, "Retry publication"));
-    expect(putPathsSince(dav, beforeRetry)).toEqual([headPathFor(pending.deviceId)]);
+    expect(putPathsSince(dav, beforeRetry)).toEqual([recordPathFor(pending)]);
 
     const unchanged = await measureTraffic(page, dav, () => syncNow(panel));
     expect(unchanged.responses).toEqual([["PROPFIND", 207], ["GET", 200]]);
@@ -429,7 +435,7 @@ test("双配置通过编辑框分别改标题和摘要，再同步显式清空",
       await expect(right.locator('#cardGrid [data-id="saved-page"]')).toContainText("Left title");
       await expect(left.locator('#cardGrid [data-id="zz-auto-page"]')).toContainText("Manually named article");
       expect(await repeatSave("Auto title must not replace the remote hand edit")).toMatchObject({ duplicated: true, refreshed: false });
-      const secondHead = `${folder}head-${(await readMeta(secondPage)).deviceId}.json`;
+      const secondHead = recordPathFor((await readMeta(secondPage)).binding.confirmed.head);
       const earlierIndex = dav.files.get(secondHead);
       const stale = await openEdit(left);
       await title(stale).fill("Stale title draft");
@@ -454,14 +460,19 @@ test("双配置通过编辑框分别改标题和摘要，再同步显式清空",
       ]);
       expect((await recovery(secondPage)).map(({ kind, value }) => ({ kind, value }))).toEqual([{ kind: "overwritten", value: "Right notes" }]);
       const beforeReplay = await readMeta(page), beforeRecovery = await recovery(page);
-      const latestIndex = dav.files.get(secondHead);
+      const secondDevice = (await readMeta(secondPage)).deviceId;
+      const peerRecords = [...dav.files].filter(([url]) => url.startsWith(`${folder}publication-${secondDevice}-`));
       try {
+        for (const [url] of peerRecords) dav.files.delete(url);
         dav.files.set(secondHead, earlierIndex);
         await first.getByRole("button", { name: "Sync now" }).click();
         await expect(first.getByRole("alert")).toBeVisible();
         expect(await readMeta(page)).toEqual({ ...beforeReplay, binding: { ...beforeReplay.binding, paused: true } });
         expect(await recovery(page)).toEqual(beforeRecovery);
-      } finally { dav.files.set(secondHead, latestIndex); }
+      } finally {
+        dav.files.delete(secondHead);
+        for (const [url, bytes] of peerRecords) dav.files.set(url, bytes);
+      }
       await first.getByRole("button", { name: "Recheck and sync" }).click();
       await expect(first.getByRole("status")).toHaveText("Snapshot verified. Collection changes synced.");
       await page.getByRole("button", { name: "View local recovery records" }).click();
@@ -499,6 +510,7 @@ test("双配置通过编辑框分别改标题和摘要，再同步显式清空",
 
 test("同步按确认时的原始成员删除，乱序收敛且可主动重收", async ({ page, context, extension }) => {
   test.skip(!acceptance, "Requires sync-acceptance build");
+  test.setTimeout(60_000);
   await withDav(async (dav, endpoint) => {
     dav.discover = true;
     const first = await openPanel(page, extension, endpoint);
@@ -748,6 +760,7 @@ test("设置页拒绝不完整清单，按顺序发布并回读快照", async ({
     expect(created.binding.collectionId).not.toBe(created.binding.bindingId);
     expect(dav.requests.map(request => request.method)).toEqual(["PROPFIND", "PROPFIND"]);
     const dispatched = [];
+    dav.discover = true;
     dav.beforePut = async () => { dispatched.push(await readMeta(page)); };
     await publish.click();
     await expect(panel.getByRole("status")).toHaveText("First snapshot verified.");
@@ -756,9 +769,9 @@ test("设置页拒绝不完整清单，按顺序发布并回读快照", async ({
     expect(pending.head).toMatchObject({ seq: 1, collectionId: created.binding.collectionId, deviceId: created.deviceId });
     expect(pending.baseVersion).toBeTruthy();
     expect(JSON.stringify(pending)).not.toContain("My title");
-    const headPath = `${folder}head-${created.deviceId}.json`, snapshotPath = folder + pending.head.snapshotName;
+    const headPath = recordPathFor(pending.head), snapshotPath = folder + pending.head.snapshotName;
     expect(dav.requests.filter(({ method }) => method !== "PROPFIND").map(({ method, url }) => [method, url])).toEqual([
-      ["GET", headPath], ["PUT", snapshotPath], ["GET", headPath], ["PUT", headPath], ["GET", snapshotPath], ["GET", headPath]
+      ["PUT", snapshotPath], ["GET", snapshotPath], ["GET", headPath], ["PUT", headPath], ["GET", headPath]
     ]);
     expect(dav.requests.filter(({ method }) => method === "PUT").map(({ headers }) => headers["content-type"]))
       .toEqual(["application/gzip", "application/json"]);
@@ -774,7 +787,7 @@ test("设置页拒绝不完整清单，按顺序发布并回读快照", async ({
   });
 });
 
-test("索引写失败后跨重启核验原快照，只补写同一代索引", async () => {
+test("发布记录写失败后跨重启核验原快照，只补写同一代记录", async () => {
   test.skip(!acceptance, "Requires sync-acceptance build");
   await withDav(async (dav, endpoint) => {
     dav.discover = true;
@@ -814,7 +827,7 @@ test("索引写失败后跨重启核验原快照，只补写同一代索引", as
       expect(confirmed.binding.confirmed).toEqual(pending.binding.pending);
       expect(confirmed.binding.pending).toBeUndefined();
       expect(dav.requests.slice(count).filter(({ method }) => method === "PUT").map(({ url }) => url))
-        .toEqual([`${folder}head-${pending.deviceId}.json`]);
+        .toEqual([recordPathFor(pending.binding.pending.head)]);
     } finally {
       await context?.close();
       if (path.dirname(profile) !== root || !path.basename(profile).startsWith("stayside-sync-create-")) throw new Error("Unexpected profile path");
@@ -835,7 +848,7 @@ test("快照写入超时可续发，已落盘索引只核验且保留随后手�
     await panel.getByRole("button", { name: "Publish first snapshot" }).click();
     await expect(panel.getByRole("alert")).toBeVisible({ timeout: 32_000 });
     const pending = await readMeta(page);
-    const headPath = headPathFor(pending.deviceId);
+    const firstRecordPath = recordPathFor(pending.binding.pending.head);
     expect(pending.binding.confirmed).toBeUndefined();
     expect(putPathsSince(dav)).toEqual([folder + pending.binding.pending.head.snapshotName]);
     expect(dav.files.has(putPathsSince(dav)[0])).toBe(true);
@@ -843,12 +856,12 @@ test("快照写入超时可续发，已落盘索引只核验且保留随后手�
     dav.afterPut = undefined;
     await panel.getByRole("button", { name: "Retry publication" }).click();
     await expect(panel.getByRole("status")).toHaveText("Snapshot verified. Collection changes synced.");
-    expect(putPathsSince(dav, afterTimeout)).toEqual([headPath]);
+    expect(putPathsSince(dav, afterTimeout)).toEqual([firstRecordPath]);
 
     await editPublishedTitle(context, extension.url, "Title in the pending snapshot");
     const landed = Promise.withResolvers(), disconnect = Promise.withResolvers();
     dav.afterPut = async url => {
-      if (url !== headPath) return;
+      if (!url.endsWith(".json")) return;
       landed.resolve();
       await disconnect.promise;
       return "disconnect";
@@ -862,7 +875,7 @@ test("快照写入超时可续发，已落盘索引只核验且保留随后手�
     const uncertain = await readMeta(page);
     const published = uncertain.binding.pending;
     expect(uncertain.binding.confirmed.head.seq).toBe(1);
-    expect(JSON.parse(dav.files.get(headPath))).toEqual(published.head);
+    expect(JSON.parse(dav.files.get(recordPathFor(published.head)))).toEqual(published.head);
     expect(JSON.parse(gunzipSync(dav.files.get(folder + published.head.snapshotName))).state.members[0].title.value)
       .toBe("Title in the pending snapshot");
 
@@ -883,7 +896,7 @@ test("快照写入超时可续发，已落盘索引只核验且保留随后手�
     expect(putPathsSince(dav, beforeVerification)).toEqual([]);
     await panel.getByRole("button", { name: "Sync now" }).click();
     await expect(panel.getByRole("status")).toHaveText("Snapshot verified. Collection changes synced.");
-    const next = JSON.parse(dav.files.get(headPath));
+    const next = (await readMeta(page)).binding.confirmed.head;
     expect(next.seq).toBe(3);
     expect(JSON.parse(gunzipSync(dav.files.get(folder + next.snapshotName))).state.members[0].title.value).toBe("Newer local title");
   });
@@ -917,7 +930,7 @@ test("未被索引引用的快照缺失或损坏，只能分配新代次", async
   });
 });
 
-test("发现可信的更高本机索引时不重发旧索引，新代次越过远端上界", async ({ page, context, extension }) => {
+test("逆序列出第 10 和 9 代仍选择第 10 代，不重发过时发布", async ({ page, context, extension }) => {
   test.skip(!acceptance, "Requires sync-acceptance build");
   await withDav(async (dav, endpoint) => {
     dav.discover = true;
@@ -927,40 +940,34 @@ test("发现可信的更高本机索引时不重发旧索引，新代次越过�
     await panel.getByRole("button", { name: "Publish first snapshot" }).click();
     await expect(panel.getByRole("status")).toHaveText("First snapshot verified.");
     const original = (await readMeta(page)).binding.confirmed.head;
-    const index = headPathFor(original.deviceId);
-    const originalIndex = dav.files.get(index);
     await editPublishedTitle(context, extension.url, "Unpublished change to keep");
-    dav.beforePut = url => url === index ? 503 : undefined;
+    dav.beforePut = url => url.endsWith(".json") ? 503 : undefined;
     await panel.getByRole("button", { name: "Sync now" }).click();
     await expect(panel.getByRole("alert")).toBeVisible();
     expect((await readMeta(page)).allocatedSeq).toBe(2);
-    const high = { ...original, seq: 10, snapshotName: `snapshot-${original.deviceId}-10.json.gz` };
     const snapshot = JSON.parse(gunzipSync(dav.files.get(folder + original.snapshotName)));
-    dav.files.set(folder + high.snapshotName, gzipSync(JSON.stringify({ ...snapshot, seq: high.seq })));
-    const highIndex = Buffer.from(JSON.stringify(high));
-    dav.files.set(index, highIndex);
-    dav.beforeGet = url => { if (url === folder + high.snapshotName) dav.files.set(index, originalIndex); };
+    for (const seq of [10, 9]) {
+      const head = atGeneration(original, seq);
+      dav.files.set(folder + head.snapshotName, gzipSync(JSON.stringify({ ...snapshot, seq })));
+      dav.files.set(recordPathFor(head), Buffer.from(JSON.stringify(head)));
+    }
     const beforeRetry = dav.requests.length;
     dav.beforePut = undefined;
     await panel.getByRole("button", { name: "Retry publication" }).click();
-    await expect(panel.getByRole("status")).toContainText("Sync paused:");
-    dav.beforeGet = undefined;
-    await panel.getByRole("button", { name: "Recheck and sync" }).click();
-    await expect(panel.getByRole("status")).toContainText("Sync paused:");
-    expect(putPathsSince(dav, beforeRetry)).toEqual([]);
-    dav.files.set(index, highIndex);
-    await panel.getByRole("button", { name: "Recheck and sync" }).click();
     await expect(panel.getByRole("status")).toHaveText("Snapshot verified. Collection changes synced.");
     const { allocatedSeq, binding } = await readMeta(page);
     expect(allocatedSeq).toBe(11);
     expect(binding.confirmed.head.seq).toBe(11);
-    expect(putPathsSince(dav, beforeRetry)).toEqual([folder + binding.confirmed.head.snapshotName, index]);
+    expect(putPathsSince(dav, beforeRetry)).toEqual([folder + binding.confirmed.head.snapshotName, recordPathFor(binding.confirmed.head)]);
+    const reads = requestsSince(dav, beforeRetry);
+    expect(reads).toContain(`GET ${recordPathFor(atGeneration(original, 10))}`);
+    expect(reads).not.toContain(`GET ${recordPathFor(atGeneration(original, 9))}`);
     const latest = JSON.parse(gunzipSync(dav.files.get(folder + binding.confirmed.head.snapshotName)));
     expect(latest.state.members[0].title.value).toBe("Unpublished change to keep");
   });
 });
 
-test("第 7 代晚到覆盖第 8 代，已验证过第 8 代的配置暂停，新配置没有高水位", async ({ page, context, extension }) => {
+test("第 7 代发布晚到后，全新和重启的配置仍接入第 8 代", async ({ page, context, extension }) => {
   test.skip(!acceptance, "Requires sync-acceptance build");
   test.setTimeout(90_000);
   await withDav(async (dav, endpoint) => {
@@ -970,18 +977,20 @@ test("第 7 代晚到覆盖第 8 代，已验证过第 8 代的配置暂停，�
     await original.getByRole("button", { name: "Publish first snapshot" }).click();
     await expect(original.getByRole("status")).toHaveText("First snapshot verified.");
     const initial = await readMeta(page);
-    const index = headPathFor(initial.deviceId);
+    const recordAt = seq => Array.from(dav.files).find(([url, bytes]) => url.endsWith(".json") && JSON.parse(bytes).seq === seq);
     const save = (settings, title) => settings.evaluate(item => chrome.runtime.sendMessage({ type: "SAVE_ITEM", item }),
       { title, url: new URL(title, endpoint).href });
     const sync = async panel => {
       await panel.getByRole("button", { name: "Sync now" }).click();
       await expect(panel.getByRole("status")).toHaveText("Snapshot verified. Collection changes synced.");
     };
-    const join = async browser => {
+    const join = async (browser, checkPreview) => {
       await browser.worker.evaluate(() => chrome.storage.local.set({ laterOnSettings: { language: "en" } }));
       const settings = await openSettings(browser.context, browser.url);
       const panel = syncPanel(settings);
       await previewJoin(panel, endpoint, initial.binding.collectionId);
+      await expect(panel.getByRole("button", { name: "Confirm join" })).toBeEnabled();
+      await checkPreview?.();
       await panel.getByRole("button", { name: "Confirm join" }).click();
       await expect(panel.getByRole("button", { name: "Sync now" })).toBeEnabled();
       return settings;
@@ -990,7 +999,7 @@ test("第 7 代晚到覆盖第 8 代，已验证过第 8 代的配置暂停，�
     for (const seq of [2, 3, 4, 5, 6]) {
       expect((await save(page, `generation-${seq}`)).ok).toBe(true);
       await sync(original);
-      expect(JSON.parse(dav.files.get(index)).seq).toBe(seq);
+      expect(recordAt(seq)).toBeDefined();
     }
 
     const currentPage = await openSettings(context, extension.url);
@@ -998,7 +1007,7 @@ test("第 7 代晚到覆盖第 8 代，已验证过第 8 代的配置暂停，�
     const dispatched = Promise.withResolvers();
     const release = Promise.withResolvers();
     dav.beforePut = async (url, body) => {
-      if (url !== index || JSON.parse(body).seq !== 7) return;
+      if (!url.endsWith(".json") || JSON.parse(body).seq !== 7) return;
       dispatched.resolve();
       await release.promise;
     };
@@ -1013,8 +1022,7 @@ test("第 7 代晚到覆盖第 8 代，已验证过第 8 代的配置暂停，�
       expect((await readMeta(currentPage)).allocatedSeq).toBe(7);
       expect((await save(currentPage, "generation-8-only")).ok).toBe(true);
       await sync(current);
-      const eighthIndex = dav.files.get(index);
-      expect(JSON.parse(eighthIndex).seq).toBe(8);
+      const [eighthPath, eighthIndex] = recordAt(8);
 
       await withRestartableProfile(async restart => {
         const seen = await join(await restart());
@@ -1025,33 +1033,25 @@ test("第 7 代晚到覆盖第 8 代，已验证过第 8 代的配置暂停，�
         expect((await readMeta(peerPage)).binding.seen).toContainEqual(JSON.parse(eighthIndex));
 
         release.resolve();
-        await expect.poll(() => JSON.parse(dav.files.get(index)).seq).toBe(7);
+        await expect.poll(() => Boolean(recordAt(7))).toBe(true);
         await expect(original.getByRole("alert")).toBeVisible();
+        expect(dav.files.get(eighthPath)).toEqual(eighthIndex);
         expect((await readMeta(currentPage)).binding.confirmed.head.seq).toBe(8);
-        const beforeRecheck = dav.requests.length;
-        for (const panel of [current, peer]) {
-          await panel.getByRole("button", { name: "Sync now" }).click();
-          await expect(panel.getByRole("status")).toContainText("Sync paused:");
-        }
+        await sync(current);
+        await sync(peer);
         expect(await urls(currentPage)).toContain(eighthUrl);
         expect(await urls(peerPage)).toContain(eighthUrl);
-        expect(putPathsSince(dav, beforeRecheck)).toEqual([]);
-
-        await current.getByRole("button", { name: "Unbind" }).click();
-        await previewJoin(current, endpoint, initial.binding.collectionId);
-        await expect(current.getByRole("alert")).toBeVisible();
-        await expect(current.getByRole("button", { name: "Confirm join" })).toHaveCount(0);
         await withRestartableProfile(async startFresh => {
-          const fresh = await join(await startFresh());
+          const start = dav.requests.length;
+          const fresh = await join(await startFresh(), () => {
+            const reads = requestsSince(dav, start);
+            expect(reads).toContain(`GET ${eighthPath}`);
+            expect(reads).not.toContain(`GET ${recordAt(7)[0]}`);
+          });
           expect(await urls(fresh)).toContain(seventhUrl);
-          expect(await urls(fresh)).not.toContain(eighthUrl);
+          expect(await urls(fresh)).toContain(eighthUrl);
+          expect(putPathsSince(dav, start)).toEqual([]);
         });
-        expect(putPathsSince(dav, beforeRecheck)).toEqual([]);
-
-        dav.files.set(index, eighthIndex);
-        await peer.getByRole("button", { name: "Recheck and sync" }).click();
-        await expect(peer.getByRole("status")).toHaveText("Snapshot verified. Collection changes synced.");
-        expect(await urls(peerPage)).toContain(eighthUrl);
       });
     } finally { release.resolve(); }
   });
@@ -1077,7 +1077,8 @@ test("两套配置收敛后只读取设备索引，不完整清单不能静默�
       await syncNow(first);
       await syncNow(second);
       const other = await readMeta(peerPage);
-      const indexes = [headPathFor(owner.deviceId), headPathFor(other.deviceId)].sort();
+      const firstHead = (await readMeta(page)).binding.confirmed.head;
+      const indexes = [recordPathFor(firstHead), recordPathFor(other.binding.confirmed.head)].sort();
       expect((await readMeta(page)).binding.confirmed.head.stateHash).toBe(other.binding.confirmed.head.stateHash);
 
       for (const panel of [first, second]) {
@@ -1088,7 +1089,7 @@ test("两套配置收敛后只读取设备索引，不完整清单不能静默�
 
       const before = (await readMeta(page)).binding.state;
       const limit = Array.from({ length: 749 }, (_, index) => [`${folder}filler-${index}`, null]);
-      for (const visible of [new Map([[headPathFor(owner.deviceId), null]]), new Map(limit)]) {
+      for (const visible of [new Map([[recordPathFor(firstHead), null]]), new Map(limit)]) {
         dav.discover = false;
         dav.listing = actualListing(visible);
         const start = dav.requests.length;
@@ -1103,7 +1104,7 @@ test("两套配置收敛后只读取设备索引，不完整清单不能静默�
   });
 });
 
-test("只在确认索引后清理本设备旧快照，删除失败可跨重启重试", async () => {
+test("确认后依次清理旧记录和快照，删除失败可跨重启重试", async () => {
   test.skip(!acceptance, "Requires sync-acceptance build");
   await withDav(async (dav, endpoint) => {
     dav.discover = true;
@@ -1113,20 +1114,20 @@ test("只在确认索引后清理本设备旧快照，删除失败可跨重启�
       const panel = await openPanel(settings, owner, endpoint);
       await publishFirst(panel);
       const origin = await readMeta(settings);
-      const index = headPathFor(origin.deviceId);
+      const firstRecord = recordPathFor(origin.binding.confirmed.head);
       const first = folder + origin.binding.confirmed.head.snapshotName;
-      const foreign = `${folder}snapshot-00000000-0000-4000-8000-000000000000-1.json.gz`;
+      const foreign = folder + snapshotFileFor({ deviceId: "00000000-0000-4000-8000-000000000000", seq: 1, stateHash: "f".repeat(64) });
       dav.files.set(foreign, Buffer.from("outside this device's records"));
       await saveSyncItem(settings, endpoint, "publication-two");
       await syncNow(panel);
       const second = folder + (await readMeta(settings)).binding.confirmed.head.snapshotName;
       const checked = Promise.withResolvers(), release = Promise.withResolvers();
       dav.beforeGet = async url => {
-        if (url !== index || JSON.parse(dav.files.get(index)).seq !== 3) return;
+        if (!url.endsWith(".json") || !dav.files.has(url) || JSON.parse(dav.files.get(url)).seq !== 3) return;
         checked.resolve();
         await release.promise;
       };
-      dav.beforeDelete = () => 503;
+      dav.beforeDelete = url => url === first ? 503 : undefined;
       const start = dav.requests.length;
       await saveSyncItem(settings, endpoint, "publication-three");
       try {
@@ -1134,13 +1135,15 @@ test("只在确认索引后清理本设备旧快照，删除失败可跨重启�
         await checked.promise;
         expect(requestsSince(dav, start).filter(request => request.startsWith("DELETE"))).toEqual([]);
         expect(dav.files.has(first)).toBe(true);
+        expect(dav.files.has(firstRecord)).toBe(true);
       } finally {
         release.resolve();
       }
       await expect(panel.getByRole("status")).toHaveText("Snapshot verified. Collection changes synced.");
-      const third = folder + (await readMeta(settings)).binding.confirmed.head.snapshotName;
-      expect(requestsSince(dav, start).filter(request => request.startsWith("DELETE"))).toEqual([`DELETE ${first}`]);
-      expect(dav.requests.slice(start).filter(({ method }) => method === "PROPFIND")).toHaveLength(1);
+      const thirdHead = (await readMeta(settings)).binding.confirmed.head;
+      const third = folder + thirdHead.snapshotName;
+      expect(requestsSince(dav, start).filter(request => request.startsWith("DELETE"))).toEqual([`DELETE ${firstRecord}`, `DELETE ${first}`]);
+      expect(dav.files.has(firstRecord)).toBe(false);
       expect(dav.files.has(first)).toBe(true);
       await expect(panel.getByRole("alert")).toHaveCount(0);
 
@@ -1150,34 +1153,38 @@ test("只在确认索引后清理本设备旧快照，删除失败可跨重启�
       dav.beforeDelete = undefined;
       const retry = dav.requests.length;
       await syncNow(reloaded);
-      expect(requestsSince(dav, retry).filter(request => request.startsWith("DELETE"))).toEqual([`DELETE ${first}`]);
+      expect(requestsSince(dav, retry).filter(request => request.startsWith("DELETE"))).toEqual([`DELETE ${firstRecord}`, `DELETE ${first}`]);
       expect(dav.requests.slice(retry).filter(({ method }) => method === "PROPFIND")).toHaveLength(1);
       expect([...dav.files.keys()].filter(url => url.endsWith(".gz")).sort()).toEqual([second, third, foreign].sort());
       const steady = dav.requests.length;
       await syncNow(reloaded);
-      expect(requestsSince(dav, steady)).toEqual([`PROPFIND ${folder}`, `GET ${index}`]);
+      expect(requestsSince(dav, steady)).toEqual([`PROPFIND ${folder}`, `GET ${recordPathFor(thirdHead)}`]);
     });
   });
 });
 
-test("读取旧索引遇快照 404 时只追一次新索引，仍缺失则不合并", async ({ page, extension }) => {
+for (const missingFile of ["发布记录", "快照"]) test(`读取旧${missingFile}遇 404 时只重新发现一次`, async ({ page, extension }) => {
   test.skip(!acceptance, "Requires sync-acceptance build");
   await withDav(async (dav, endpoint) => {
     dav.discover = true;
     const first = await openPanel(page, extension, endpoint);
     await publishFirst(first);
     const owner = await readMeta(page);
-    const index = headPathFor(owner.deviceId);
-    const oldBytes = dav.files.get(index);
-    const oldPath = folder + owner.binding.confirmed.head.snapshotName;
+    const oldHead = owner.binding.confirmed.head;
+    const oldRecord = recordPathFor(oldHead), oldPath = folder + oldHead.snapshotName;
     await saveSyncItem(page, endpoint, "visible-in-new-snapshot");
     await syncNow(first);
-    const newBytes = dav.files.get(index);
-    const newHead = JSON.parse(newBytes);
-    const newPath = folder + newHead.snapshotName;
-    dav.files.delete(oldPath);
-    dav.files.set(index, oldBytes);
-    dav.beforeGet = url => { if (url === index) dav.files.set(index, newBytes); };
+    const newHead = (await readMeta(page)).binding.confirmed.head;
+    const newRecord = recordPathFor(newHead), newPath = folder + newHead.snapshotName;
+    const newBytes = dav.files.get(newRecord);
+    const missingPath = missingFile === "发布记录" ? oldRecord : oldPath;
+    dav.files.delete(newRecord);
+    dav.beforeGet = url => {
+      if (url !== missingPath) return;
+      dav.files.set(newRecord, newBytes);
+      dav.files.delete(missingPath);
+      return 404;
+    };
 
     await withRestartableProfile(async restart => {
       const peer = await restart();
@@ -1188,26 +1195,115 @@ test("读取旧索引遇快照 404 时只追一次新索引，仍缺失则不合
       await previewJoin(panel, endpoint, owner.binding.collectionId);
       await expect(panel.getByRole("button", { name: "Confirm join" })).toBeVisible();
       expect(requestsSince(dav, start)).toEqual([
-        `PROPFIND ${folder}`, `GET ${index}`, `GET ${oldPath}`, `GET ${index}`, `GET ${newPath}`
+        `PROPFIND ${folder}`, `GET ${oldRecord}`, ...(missingPath === oldPath ? [`GET ${oldPath}`] : []),
+        `PROPFIND ${folder}`, `GET ${newRecord}`, `GET ${newPath}`
       ]);
+      expect(dav.requests.slice(start).filter(({ status }) => status === 404).map(({ url }) => url)).toEqual([missingPath]);
       dav.beforeGet = undefined;
       await panel.getByRole("button", { name: "Confirm join" }).click();
       await expect(panel.getByRole("button", { name: "Sync now" })).toBeEnabled();
       const before = await readMeta(settings);
       expect(before.binding.state.members.map(member => member.title.value)).toContain("visible-in-new-snapshot");
 
-      const headFor = seq => ({ ...newHead, seq, snapshotName: `snapshot-${newHead.deviceId}-${seq}.json.gz` });
-      const third = headFor(3), fourth = headFor(4);
-      dav.files.set(index, Buffer.from(JSON.stringify(third)));
-      dav.beforeGet = url => { if (url === index) dav.files.set(index, Buffer.from(JSON.stringify(fourth))); };
+      const third = atGeneration(newHead, 3), fourth = atGeneration(newHead, 4);
+      dav.files.set(recordPathFor(third), Buffer.from(JSON.stringify(third)));
+      dav.beforeGet = url => {
+        if (url === folder + third.snapshotName) dav.files.set(recordPathFor(fourth), Buffer.from(JSON.stringify(fourth)));
+      };
       const retry = dav.requests.length;
       await panel.getByRole("button", { name: "Sync now" }).click();
       await expect(panel.getByRole("status")).toContainText("Sync paused:");
       expect(requestsSince(dav, retry)).toEqual([
-        `PROPFIND ${folder}`, `GET ${index}`, `GET ${headPathFor(before.deviceId)}`, `GET ${folder + third.snapshotName}`,
-        `GET ${index}`, `GET ${folder + fourth.snapshotName}`
+        `PROPFIND ${folder}`, `GET ${recordPathFor(third)}`, `GET ${folder + third.snapshotName}`,
+        `PROPFIND ${folder}`, `GET ${recordPathFor(fourth)}`, `GET ${folder + fourth.snapshotName}`
       ]);
       expect(await readMeta(settings)).toEqual({ ...before, binding: { ...before.binding, paused: true } });
     });
+  });
+});
+
+test("首次接入拒绝显式分页，不预览半份目录", async ({ page, extension }) => {
+  test.skip(!acceptance, "Requires sync-acceptance build");
+  await withDav(async (dav, endpoint) => {
+    dav.discover = true;
+    await publishFirst(await openPanel(page, extension, endpoint));
+    const { collectionId } = (await readMeta(page)).binding;
+    await withRestartableProfile(async start => {
+      const peer = await start();
+      await peer.worker.evaluate(() => chrome.storage.local.set({ laterOnSettings: { language: "en" } }));
+      const settings = await openSettings(peer.context, peer.url);
+      const panel = syncPanel(settings);
+      for (const headers of [{ Link: `<${endpoint}?page=2>; rel="next"` }, { "Content-Range": "items 0-1/4" }]) {
+        dav.listHeaders = headers;
+        const start = dav.requests.length;
+        await previewJoin(panel, endpoint, collectionId);
+        await expect(panel.getByRole("alert")).toBeVisible();
+        expect(requestsSince(dav, start)).toEqual([`PROPFIND ${folder}`]);
+        await expect(panel.getByRole("button", { name: "Confirm join" })).toHaveCount(0);
+        expect(await readMeta(settings)).toBeUndefined();
+      }
+    });
+  });
+});
+
+test("孤立快照不可接入，混合目录、同代冲突和损坏最高代不降级", async ({ page, extension }) => {
+  test.skip(!acceptance, "Requires sync-acceptance build");
+  await withDav(async (dav, endpoint) => {
+    dav.discover = true;
+    const first = await openPanel(page, extension, endpoint);
+    await publishFirst(first);
+    const base = (await readMeta(page)).binding.confirmed.head;
+    const basePath = recordPathFor(base), baseBytes = dav.files.get(basePath);
+    const legacy = `${folder}head-${base.deviceId}.json`;
+    const higher = atGeneration(base, 2);
+    const duplicate = atGeneration({ ...base, stateHash: "e".repeat(64) }, 1);
+    await withRestartableProfile(async start => {
+      const peer = await start();
+      await peer.worker.evaluate(() => chrome.storage.local.set({ laterOnSettings: { language: "en" } }));
+      const settings = await openSettings(peer.context, peer.url);
+      const panel = syncPanel(settings);
+      for (const records of [[], [[legacy, baseBytes]], [[legacy, baseBytes], [basePath, baseBytes]],
+        [[basePath, baseBytes], [recordPathFor(duplicate), Buffer.from(JSON.stringify(duplicate))]],
+        [[basePath, baseBytes], [recordPathFor(higher), Buffer.from("invalid JSON")]]]) {
+        for (const url of dav.files.keys()) if (url.endsWith(".json")) dav.files.delete(url);
+        for (const [url, body] of records) dav.files.set(url, body);
+        const before = dav.requests.length;
+        await previewJoin(panel, endpoint, base.collectionId);
+        await expect(panel.getByRole("alert")).toBeVisible();
+        await expect(panel.getByRole("button", { name: "Confirm join" })).toHaveCount(0);
+        expect(await readMeta(settings)).toBeUndefined();
+        expect(dav.requests.slice(before).filter(({ method }) => method !== "PROPFIND").map(({ method, url }) => [method, url]))
+          .toEqual(records.some(([url]) => url === recordPathFor(higher)) ? [["GET", recordPathFor(higher)]] : []);
+      }
+      await panel.getByRole("textbox", { name: "Empty local WebDAV directory" }).fill(endpoint);
+      await panel.getByRole("button", { name: "Create sync library" }).click();
+      await expect(panel.getByRole("alert")).toBeVisible();
+      expect(await readMeta(settings)).toBeUndefined();
+    });
+  });
+});
+
+test("发布记录能直接读取但目录仍漏列时，发端不报成功", async ({ page, extension }) => {
+  test.skip(!acceptance, "Requires sync-acceptance build");
+  await withDav(async (dav, endpoint) => {
+    dav.discover = true;
+    const panel = await openPanel(page, extension, endpoint);
+    await panel.getByRole("button", { name: "Create sync library" }).click();
+    dav.afterPut = url => {
+      if (!url.endsWith(".json")) return;
+      dav.discover = false;
+      dav.listing = actualListing(new Map([...dav.files].filter(([name]) => name !== url)));
+    };
+    await panel.getByRole("button", { name: "Publish first snapshot" }).click();
+    await expect(panel.getByRole("status")).toContainText("Sync paused:");
+    const { binding } = await readMeta(page);
+    const record = recordPathFor(binding.pending.head);
+    expect(binding.confirmed).toBeUndefined();
+    expect(dav.requests.some(({ method, url, status }) => method === "GET" && url === record && status === 200)).toBe(true);
+    dav.discover = true;
+    const before = dav.requests.length;
+    await syncNow(panel, "Recheck and sync");
+    expect((await readMeta(page)).binding.confirmed.head).toEqual(binding.pending.head);
+    expect(putPathsSince(dav, before)).toEqual([]);
   });
 });
