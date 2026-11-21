@@ -15,4 +15,4 @@ ITER: ITER-007
 
 ## Answer
 
-隔离 Chromium 回归确认：第 7 代晚到后，第 8 代记录未改变，首次和重启接入都保留第 8 代。发端还验证了单文件可读但目录漏列时不会确认发布。执行方式见 [浏览器专项测试](../../../tests/browser/README.md#首份-webdav-同步快照)；实际入口完整列举与可见性仍由 [工单 10](10-qualify-target-webdav.md) 复验。
+隔离 Chromium 回归确认：第 7 代晚到后，第 8 代记录未改变，首次和重启接入都保留第 8 代。发端还验证了单文件可读但目录漏列时不会确认发布。执行方式见 [浏览器专项测试](../../../tests/browser/README.md#首份-webdav-同步快照)；代表入口实测和其他入口的手动试用判定见 [工单 10](10-qualify-target-webdav.md)。
