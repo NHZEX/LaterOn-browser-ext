@@ -26,7 +26,7 @@
 | --- | --- | --- |
 | ITER-005 | **搁置**：网址列表导入，用户于 2026-10-27 暂缓 | 不作为默认下一步；若重启，需明确可恢复队列、失败重试、手动编辑保护及不抢占标签页 |
 | ITER-006 | 未排期：选中标签与标签组收集 | 固定任务快照、当前窗口边界和快捷键分配，保留翻译 |
-| ITER-007 | **第一阶段纳入 1.79.0，待既有配置验收**。手动与自动全量备份、轮转及跨浏览器配置恢复已通过隔离 WebDAV 验证。[第二阶段首期](../.scratch/iter-007-webdav-manual-sync/spec.md)限桌面 Chrome / Edge 手动双向同步：新增收藏、标题、摘要及删除。[不可变发布记录](../.scratch/iter-007-webdav-manual-sync/issues/11-verify-immutable-publication-records.md)已通过隔离回归及代表入口实测；普通构建仍关闭 | 第一阶段按 [备份说明](backup-format.md#webdav-备份与恢复) 在用户既有配置中验收。第二阶段推进默认关闭的手动试用：坚果云直连和 OpenList 不重复跑完整回归；拟试用入口按 [工单 10](../.scratch/iter-007-webdav-manual-sync/issues/10-qualify-target-webdav.md) 确认全新配置能读到已发布代次，没测不开放该入口、不阻塞后续开发 |
+| ITER-007 | **第一阶段纳入 1.79.0，待既有配置验收**。手动与自动全量备份、轮转及跨浏览器配置恢复已通过隔离 WebDAV 验证。[第二阶段首期](../.scratch/iter-007-webdav-manual-sync/spec.md)限桌面 Chrome / Edge 手动双向同步：新增收藏、标题、摘要及删除。[不可变发布记录](../.scratch/iter-007-webdav-manual-sync/issues/11-verify-immutable-publication-records.md)已通过隔离回归及代表入口实测；普通构建仍关闭 | 第一阶段按 [备份说明](backup-format.md#webdav-备份与恢复) 在用户既有配置中验收。第二阶段先完成[试用前修补与双配置回归（工单 12–15）](../.scratch/iter-007-webdav-manual-sync/issues/15-opt-in-manual-webdav-sync-trial.md)，再接入默认关闭的手动试用。坚果云直连和 OpenList 不重复跑完整回归；拟试用入口按 [工单 10](../.scratch/iter-007-webdav-manual-sync/issues/10-qualify-target-webdav.md) 核对全新配置接入，没测不开放该入口、不阻塞后续开发 |
 | ITER-009 | 按需继续共享两页规则 | 编辑、状态、筛选和排序已有共享实现；随实际重复提取，保留界面差异，不按旧 A / B 阶段重复实施 |
 | ITER-010 | 部分完成：封面回退、GitHub 标签发布流程已有实现；CI 同名 Release 保护已落地 | 透明封面专项与远端重复发布路径仍待下次打标签验收；Windows 路径 / 部署相关改动按需在 Windows 检查 |
 | ITER-011 | 未排期：首次搜索项目定位 | PR #4 仅是历史参考；先在当前 Vue 实现复现行为再决定是否修复 |
