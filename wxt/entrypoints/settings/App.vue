@@ -5,10 +5,12 @@ import { browser } from "wxt/browser";
 import * as settings from "../../../src/settings/store";
 import { applyLanguage, t } from "../../../src/shared/i18n";
 import { resolveSettings } from "../../../src/settings/shared";
+import { SYNC_ACCEPTANCE_BUILD } from "../../../src/sync/acceptance";
 import { clampDays } from "./shared";
 import { useDialog } from "./useDialog";
 import BackupPanel from "./BackupPanel.vue";
 import EditRecoveryPanel from "./EditRecoveryPanel.vue";
+import SyncAcceptancePanel from "./SyncAcceptancePanel.vue";
 import StorageUsagePanel from "./StorageUsagePanel.vue";
 import ShortcutsPanel from "./ShortcutsPanel.vue";
 import NotificationSetting from "./NotificationSetting.vue";
@@ -200,6 +202,7 @@ onUnmounted(() => {
           <TabsContent v-if="backupVisited" v-show="activeTab === 'backup'" value="backup" force-mount class="settings-tab-panel">
             <BackupPanel v-model:busy="maintenanceBusy" :dialog="dialog" />
             <EditRecoveryPanel :dialog="dialog" />
+            <SyncAcceptancePanel v-if="SYNC_ACCEPTANCE_BUILD" />
           </TabsContent>
           <TabsContent v-if="dataVisited" v-show="activeTab === 'data'" value="data" force-mount class="settings-tab-panel">
             <StorageUsagePanel v-if="activeTab === 'data'" />

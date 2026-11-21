@@ -13,6 +13,7 @@ import { recordDiag } from "./diagnostics";
 import { registerMessages } from "../storage/coordinator";
 import { registerBackup } from "../backup/background";
 import { registerWebdavBackup } from "../backup/webdav-background";
+import { registerSyncAcceptance } from "../sync/acceptance-background";
 import { registerConfigurationSync } from "../settings/sync-background";
 import { registerReadingPosition } from "./reading-position";
 import { registerOmnibox } from "./omnibox";
@@ -61,7 +62,7 @@ export function registerBackground() {
   // MV3 listeners must be registered synchronously on every worker start.
   registerMessages();
   registerBackup();
-  registerWebdavBackup(registerConfigurationSync());
+  registerSyncAcceptance(registerWebdavBackup(registerConfigurationSync()));
   registerReadingPosition();
   registerFeedback();
   registerOmnibox();

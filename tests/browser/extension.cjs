@@ -1,7 +1,7 @@
 const path = require("node:path");
 const { test: base, chromium, expect } = require("@playwright/test");
 
-const buildDir = path.resolve(__dirname, "../../.output/chrome-mv3");
+const buildDir = path.resolve(__dirname, "../../.output", process.env.STAYSIDE_SYNC_ACCEPTANCE === "1" ? "chrome-mv3-sync-acceptance" : "chrome-mv3");
 const test = base.extend({
   context: async ({ viewport, colorScheme }, use) => {
     // Empty userDataDir lets Playwright create and remove a fresh temporary profile per test.

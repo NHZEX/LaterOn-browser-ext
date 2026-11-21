@@ -20,6 +20,17 @@
 pnpm test:browser:smoke
 ```
 
+### 首份 WebDAV 同步快照
+
+普通构建不开放同步验收入口。隔离构建仅接受本机环回地址和预先建好的专用空目录；每个目录只用一个浏览器配置创建，不要连接现有备份目录或真实服务。专项测试使用临时浏览器配置和环回 WebDAV 夹具。
+
+```powershell
+pnpm exec wxt build --mode sync-acceptance
+$env:STAYSIDE_SYNC_ACCEPTANCE = '1'
+try { pnpm exec playwright test tests/browser/sync-create.spec.cjs }
+finally { Remove-Item Env:STAYSIDE_SYNC_ACCEPTANCE }
+```
+
 下列命令用于完整验证，不作为每次提交或打 tag 的固定前置步骤：
 
 ```powershell

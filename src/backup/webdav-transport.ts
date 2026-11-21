@@ -32,14 +32,27 @@ function parseMultiStatus(xml: string): Element {
   throw new Error("WEBDAV_LIST");
 }
 
-function parseListing(xml: string, target: string): readonly DavEntry[] {
+const successStatus = (status: Element) => /^HTTP\/\d(?:\.\d)? 2\d\d(?: |$)/.test(status.textContent?.trim() ?? "");
+
+function successfulResourceType(response: Element): Element | undefined {
+  const status = davChildren(response, "status");
+  if (status.some(entry => !successStatus(entry))) return;
+  const properties = davChildren(response, "propstat").filter(entry => {
+    const result = davChildren(entry, "status");
+    return result.length === 1 && result.every(successStatus);
+  });
+  const types = properties.flatMap(entry => davChildren(entry, "prop").flatMap(prop => davChildren(prop, "resourcetype")));
+  return types.length === 1 ? types[0] : undefined;
+}
+
+function parseListing(xml: string, target: string, strict: boolean): readonly DavEntry[] {
   const responses = davChildren(parseMultiStatus(xml), "response");
   // Nutstore may cap a response at 750 entries. Never rotate from a potentially incomplete list.
   if (responses.length >= 750) throw new Error("WEBDAV_LIST_LIMIT");
   const base = new URL(target);
   const expected = decodeURIComponent(base.pathname).replace(/\/$/, "");
   try {
-    return responses.flatMap(response => {
+    const entries = responses.flatMap(response => {
       const href = davChildren(response, "href")[0]?.textContent?.trim();
       if (!href) return [];
       const url = new URL(href, base);
@@ -48,10 +61,15 @@ function parseListing(xml: string, target: string): readonly DavEntry[] {
       const name = path === expected ? "" : path.startsWith(expected + "/") ? path.slice(expected.length + 1) : null;
       if (name === null || name.includes("/") || name.includes("\\")) return [];
 
-      const type = response.getElementsByTagNameNS(DAV_NAMESPACE, "resourcetype").item(0);
+      const type = strict ? successfulResourceType(response) : response.getElementsByTagNameNS(DAV_NAMESPACE, "resourcetype").item(0);
+      if (strict && (!type || davChildren(response, "href").length !== 1)) throw new Error("WEBDAV_LIST");
       const length = response.getElementsByTagNameNS(DAV_NAMESPACE, "getcontentlength").item(0)?.textContent?.trim() ?? "";
       return [{ name, directory: !!type && davChildren(type, "collection").length > 0, bytes: /^\d+$/.test(length) ? Number(length) : null }];
     });
+    if (strict && (entries.length !== responses.length || new Set(entries.map(entry => entry.name)).size !== entries.length)) {
+      throw new Error("WEBDAV_LIST");
+    }
+    return entries;
   } catch {
     throw new Error("WEBDAV_LIST");
   }
@@ -88,16 +106,16 @@ async function readBytes(response: Response, limit: number, meter: TransferMeter
 
 export interface WebdavClient {
   test(): Promise<void>;
-  list(path: Path): Promise<readonly DavEntry[] | null>;
+  list(path: Path, strict?: boolean): Promise<readonly DavEntry[] | null>;
   hasDirectory(path: Path): Promise<boolean>;
   directory(path: Path): Promise<void>;
-  get(path: Path): Promise<Uint8Array<ArrayBuffer> | null>;
+  get(path: Path, limit?: number): Promise<Uint8Array<ArrayBuffer> | null>;
   put(path: Path, body: Uint8Array<ArrayBuffer>, contentType: string): Promise<void>;
   move(from: Path, to: Path): Promise<"moved" | "occupied" | "missing">;
   remove(path: Path): Promise<void>;
 }
 
-export function createWebdav(settings: BackupSettings, meter: TransferMeter, fetcher: typeof fetch = fetch): WebdavClient {
+export function createWebdav(settings: Pick<BackupSettings, "endpoint" | "username" | "password">, meter: TransferMeter, fetcher: typeof fetch = fetch): WebdavClient {
   const credentials = new TextEncoder().encode(`${settings.username}:${settings.password}`);
   const authorization = "Basic " + btoa(Array.from(credentials, byte => String.fromCharCode(byte)).join(""));
   const href = (path: Path, collection = false) => settings.endpoint + path.map(encodeURIComponent).join("/") + (path.length && collection ? "/" : "");
@@ -121,14 +139,14 @@ export function createWebdav(settings: BackupSettings, meter: TransferMeter, fet
     throw new Error(`WEBDAV_HTTP_${response.status}`);
   }
 
-  async function propfind(path: Path, depth: "0" | "1"): Promise<readonly DavEntry[] | null> {
+  async function propfind(path: Path, depth: "0" | "1", strict = false): Promise<readonly DavEntry[] | null> {
     const url = href(path, true);
     const response = await request("PROPFIND", url, { Depth: depth, "Content-Type": "application/xml; charset=utf-8" }, properties, properties.length, [207]);
     if (response.status !== 207) {
       await disposition(response, [404]);
       return null;
     }
-    return parseListing(new TextDecoder("utf-8", { fatal: true }).decode(await readBytes(response, 2 * MIB, meter)), url);
+    return parseListing(new TextDecoder("utf-8", { fatal: true }).decode(await readBytes(response, 2 * MIB, meter)), url, strict);
   }
 
   async function hasDirectory(path: Path): Promise<boolean> {
@@ -140,8 +158,8 @@ export function createWebdav(settings: BackupSettings, meter: TransferMeter, fet
       if (!await hasDirectory([])) throw new Error("WEBDAV_DIRECTORY");
     },
     hasDirectory,
-    async list(path) {
-      const entries = await propfind(path, "1");
+    async list(path, strict) {
+      const entries = await propfind(path, "1", strict);
       if (!entries) return null;
       if (!entries.some(entry => !entry.name && entry.directory)) throw new Error("WEBDAV_DIRECTORY");
       return entries.filter(entry => entry.name);
@@ -151,9 +169,9 @@ export function createWebdav(settings: BackupSettings, meter: TransferMeter, fet
       const status = await disposition(response, [201, 405]);
       if (status === 405 && !await hasDirectory(path)) throw new Error("WEBDAV_DIRECTORY");
     },
-    async get(path) {
+    async get(path, limit = MAX_ARCHIVE_BYTES) {
       const response = await request("GET", href(path));
-      if (response.status === 200) return readBytes(response, MAX_ARCHIVE_BYTES, meter);
+      if (response.status === 200) return readBytes(response, Math.min(limit, MAX_ARCHIVE_BYTES), meter);
       await disposition(response, [404]);
       return null;
     },

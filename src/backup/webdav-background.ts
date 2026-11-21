@@ -7,6 +7,7 @@ import { ARCHIVE_VERSION, createBackupArchive, readBackupArchive } from "./webda
 import { WEBDAV_DOWNLOAD_MESSAGE } from "./webdav-download";
 import type { WebdavDownloadSuccess, WebdavFailure } from "./webdav-download";
 import { budgetError, createWebdavMeter } from "./webdav-meter";
+import type { TransferMeter } from "./webdav-meter";
 import { createWebdav } from "./webdav-transport";
 import type { DavEntry, WebdavClient } from "./webdav-transport";
 import {
@@ -170,9 +171,11 @@ async function publish(
   throw new Error("WEBDAV_NAME");
 }
 
-export function registerWebdavBackup(sharePreset: (preset: WebdavPreset) => Promise<void>): void {
+export type RunWebdavTransfer = <Result>(task: (meter: TransferMeter) => Promise<Result>) => Promise<Result>;
+
+export function registerWebdavBackup(sharePreset: (preset: WebdavPreset) => Promise<void>): RunWebdavTransfer {
   let queue: Promise<unknown> = Promise.resolve();
-  const serialize = (task: () => Promise<unknown>) => {
+  const serialize = <Result>(task: () => Promise<Result>): Promise<Result> => {
     const next = queue.then(task);
     queue = next.catch(() => {});
     return next;
@@ -346,5 +349,15 @@ export function registerWebdavBackup(sharePreset: (preset: WebdavPreset) => Prom
     }
     serialize(async () => ({ ok: true, ...await run(message) })).then(respond).catch(error => respond(failure(error)));
     return true;
+  });
+
+  return task => serialize(async () => {
+    const stored = await chrome.storage.local.get<StoredBackupState>(BACKUP_STATE);
+    let state = stored[BACKUP_STATE] ?? { device: crypto.randomUUID() };
+    const meter = createWebdavMeter((state.settings ?? DEFAULT_BACKUP_OPTIONS).budgetMiB * MIB, () => state.usage, async usage => {
+      state = { ...state, usage };
+      await chrome.storage.local.set({ [BACKUP_STATE]: state });
+    });
+    return task(meter);
   });
 }
