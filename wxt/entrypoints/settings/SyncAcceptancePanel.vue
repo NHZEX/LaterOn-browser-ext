@@ -76,7 +76,7 @@ onUnmounted(() => { chrome.storage.onChanged.removeListener(refresh); });
       <button class="setting-action" type="submit" :disabled="busy">{{ t('syncAcceptancePreview') }}</button>
     </form>
     <template v-if="preview">
-      <p class="setting-note">{{ t('syncAcceptanceJoinSummary', { collectionId: preview.collectionId, local: preview.local, incoming: preview.incoming }) }}</p>
+      <p class="setting-note">{{ t('syncAcceptanceJoinSummary', { collectionId: preview.collectionId, local: preview.local, incoming: preview.incoming, removed: preview.removed }) }}</p>
       <button class="setting-action" type="button" :disabled="busy" @click="confirmJoin">{{ t('syncAcceptanceJoin') }}</button>
       <button class="setting-action" type="button" :disabled="busy" @click="cancelJoin">{{ t('syncAcceptanceCancel') }}</button>
     </template>

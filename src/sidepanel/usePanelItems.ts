@@ -1,5 +1,5 @@
 import { buildEditPatch, isEmptySummary } from "../collection/item-edit";
-import { editableCard, groupCover } from "../sync/projection";
+import { captureCardDeletion, editableCard, groupCover } from "../sync/projection";
 import { nextStatus, normalizeItemState } from "../collection/item-state";
 import type { ItemChanges } from "../storage/contracts";
 import { editRecoveryNotice } from "../storage/edit-recovery";
@@ -49,12 +49,13 @@ export function usePanelItems(controls: SidepanelControls, commands: PanelComman
   function remove(id: string): Promise<void> {
     return commands.perform(`item:${id}`, async () => {
       const item = commands.find(id); if (!item) return;
+      const target = captureCardDeletion([id], controls.collection.value.groups);
       // 删除不可撤销，始终先确认；弹窗加载失败保留收藏，长标题截断以免撑高确认框。
       const raw = item.title?.trim() || t("itemFallback");
       const confirmed = await commands.dialog(api => api.confirm({ tone: "danger",
         title: t("deleteItemTitle", { title: raw.length > 26 ? `${raw.slice(0, 26)}…` : raw }),
         message: t("deleteCannotUndo"), confirmText: t("delete") }), "operationFailed");
-      if (confirmed && commands.current() && commands.find(id)) await commands.execute("mutateItems", { operation: "delete", ids: [id] });
+      if (confirmed && commands.current()) await commands.execute("mutateItems", { operation: "delete", ...target });
     });
   }
   async function copy(id: string, format: ItemLinkFormat): Promise<void> {

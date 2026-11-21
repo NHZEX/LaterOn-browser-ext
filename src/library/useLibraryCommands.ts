@@ -3,6 +3,7 @@ import type { Ref } from "vue";
 import type { StorageClient } from "../storage/client";
 import type { CollectionAction, CollectionSuccess, CommandFields, ItemChanges } from "../storage/contracts";
 import type { Translate } from "../shared/i18n";
+import type { captureCardDeletion } from "../sync/projection";
 import type { LibraryCollection } from "./shared";
 
 import type { PromptOptions, PromptValues } from "../ui/types";
@@ -49,8 +50,11 @@ export function useLibraryCommands(collection: Readonly<Ref<LibraryCollection>>)
       return result;
     } catch { if (effects.value === boundary) toast(failure); return null; }
   }
-  function mutate(operation: "update" | "delete", ids: readonly string[], patch?: ItemChanges): Promise<CollectionSuccess | null> {
+  function mutate(operation: "update", ids: readonly string[], patch?: ItemChanges): Promise<CollectionSuccess | null> {
     return execute("mutateItems", { operation, ids, patch });
+  }
+  function removeItems(target: ReturnType<typeof captureCardDeletion>): Promise<CollectionSuccess | null> {
+    return execute("mutateItems", { operation: "delete", ...target });
   }
   async function restoreFocus(origin: Element | null, fallback = "#searchInput"): Promise<void> {
     await nextTick();
@@ -97,7 +101,7 @@ export function useLibraryCommands(collection: Readonly<Ref<LibraryCollection>>)
   }
   function pick(request: ItemPickerRequest) { return effects.value?.pick(request); }
   function dispose(): void { if (openDialogs) effects.value?.closeDialog(); effects.value = null; active.clear(); }
-  return { collection, current, t, bind, toast, navigate, execute, mutate, perform, prompt, confirm, pick, restoreFocus, dispose };
+  return { collection, current, t, bind, toast, navigate, execute, mutate, removeItems, perform, prompt, confirm, pick, restoreFocus, dispose };
 }
 
 export type LibraryCommands = ReturnType<typeof useLibraryCommands>;

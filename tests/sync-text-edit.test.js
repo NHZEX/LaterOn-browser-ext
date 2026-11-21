@@ -64,6 +64,22 @@ test("合并卡片标题和摘要可各有来源，来源变化只拦受影响�
   assert.equal(removed.drafts[0].itemId, "B");
 });
 
+test("删除恢复只收录本机手写字段，旧快照不能复活成员或重复写入", () => {
+  const remote = { ...original, titleEdited: true, textAuthors: { title: secondDevice } };
+  const automatic = { ...original, id: "B" };
+  const base = initialSyncState([remote, automatic], firstDevice);
+  const edited = write(binding(firstDevice, base), [remote, automatic], "A", { description: "Local notes" }, 110);
+  const local = edited.meta.binding.state;
+  const deleted = mergeSyncStates(local, { members: [], deletedIds: ["A", "B"] });
+  const received = receiveSyncText(edited.items, local, deleted, firstDevice, 120);
+  assert.deepEqual(received.items, []);
+  assert.deepEqual([...received.removed], ["A", "B"]);
+  assert.deepEqual(received.records.map(({ field, value }) => ({ field, value })), [{ field: "description", value: "Local notes" }]);
+  const replayed = receiveSyncText(received.items, deleted, mergeSyncStates(deleted, local), firstDevice, 121);
+  assert.deepEqual(replayed.items, []);
+  assert.deepEqual(replayed.records, []);
+});
+
 test("重复收藏的自动刷新不进入已有修订，也不覆盖收到的手写值", async () => {
   const seed = initialSyncState([original], firstDevice);
   const refreshed = { ...original };

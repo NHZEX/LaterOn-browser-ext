@@ -7,6 +7,7 @@ export interface SyncJoinPreview {
   readonly proof: string;
   readonly local: number;
   readonly incoming: number;
+  readonly removed: number;
   readonly collectionId: string;
 }
 export type SyncAcceptanceReply = { readonly ok: true; readonly status: SyncAcceptanceStatus;

@@ -71,7 +71,7 @@ export type CollectionOperation =
   | { readonly action: "deleteProject"; readonly id: string }
   | { readonly action: "moveItem"; readonly id: string; readonly scope: string; readonly beforeId: string | null }
   | { readonly action: "mutateItems"; readonly operation: "update" | "delete"; readonly ids: readonly string[]; readonly patch?: ItemChanges;
-      readonly editBasis?: ItemEditBasis }
+      readonly editBasis?: ItemEditBasis; readonly deleteBindingId?: string | null }
   | { readonly action: "listEditRecovery" }
   | { readonly action: "clearEditRecovery" }
   | { readonly action: "migrateLegacyData" };
@@ -134,7 +134,8 @@ export function isCollectionCommand(value: unknown): value is CollectionCommand 
     case "moveItem": return isString(value.id) && isString(value.scope) && isAnchor(value.beforeId);
     case "mutateItems": return (value.operation === "update" || value.operation === "delete")
       && Array.isArray(value.ids) && value.ids.every(isString) && (value.patch === undefined || isItemChanges(value.patch))
-      && (value.editBasis === undefined || (value.operation === "update" && value.ids.length === 1 && isEditBasis(value.editBasis)));
+      && (value.editBasis === undefined || (value.operation === "update" && value.ids.length === 1 && isEditBasis(value.editBasis)))
+      && (value.deleteBindingId === undefined || (value.operation === "delete" && (value.deleteBindingId === null || isString(value.deleteBindingId))));
     case "listEditRecovery":
     case "clearEditRecovery":
     case "migrateLegacyData": return true;

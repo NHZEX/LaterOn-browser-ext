@@ -44,6 +44,11 @@ export function editableCard(item: StoredItem, groups?: MemberGroups) {
   return projectItemText(members[0] ?? item, members, groups?.text);
 }
 
+export function captureCardDeletion(ids: readonly string[], groups?: MemberGroups) {
+  return { ids: [...new Set(ids.flatMap(id => groups?.get(id)?.map(member => member.id) ?? [id]))],
+    deleteBindingId: groups?.text?.bindingId ?? null };
+}
+
 export function projectCards(scoped: readonly StoredItem[], groups?: MemberGroups): readonly StoredItem[] {
   if (!groups) return scoped;
   const cards = new Map<string, StoredItem>();

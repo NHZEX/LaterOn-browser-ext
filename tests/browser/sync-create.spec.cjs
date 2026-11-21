@@ -335,6 +335,163 @@ test("双配置通过编辑框分别改标题和摘要，再同步显式清空",
   });
 });
 
+test("同步按确认时的原始成员删除，乱序收敛且可主动重收", async ({ page, context, extension }) => {
+  test.skip(!acceptance, "Requires sync-acceptance build");
+  await withDav(async (dav, endpoint) => {
+    dav.discover = true;
+    const first = await openPanel(page, extension, endpoint);
+    const articleUrl = new URL("article", endpoint).href;
+    const delayedUrl = new URL("offline-addition", endpoint).href;
+    const groupUrl = new URL("group", endpoint).href;
+    const makeItem = (id, savedAt, url, title) => ({ id, savedAt, url, title });
+    const seed = (view, data) => view.evaluate(values => chrome.storage.local.set({
+      laterOnSettings: { language: "en" }, laterOnOnboardingSeen: true, ...values
+    }), data);
+    await seed(page, { laterOnItems: [
+      { ...makeItem("left-article", 100, articleUrl, "Original title"), titleEdited: true, description: "Original notes", descriptionEdited: true },
+      makeItem("left-delayed", 100, delayedUrl, "Left delayed"), makeItem("left-group", 100, groupUrl, "Left group")
+    ] });
+    await first.getByRole("button", { name: "Create sync library" }).click();
+    await first.getByRole("button", { name: "Publish first snapshot" }).click();
+    await expect(first.getByRole("status")).toHaveText("First snapshot verified.");
+    const root = path.resolve(tmpdir());
+    const profileDir = await mkdtemp(path.join(root, "stayside-sync-delete-test-"));
+    let profile;
+    try {
+      profile = await chromium.launchPersistentContext(profileDir, { channel: "chromium", headless: true,
+        args: [`--disable-extensions-except=${buildDir}`, `--load-extension=${buildDir}`] });
+      const worker = profile.serviceWorkers()[0] || await profile.waitForEvent("serviceworker");
+      const secondPage = await openSettings(profile, worker.url());
+      const second = syncPanel(secondPage);
+      await seed(secondPage, { laterOnItems: [
+        { ...makeItem("right-article", 200, articleUrl, "Surviving title"), description: "Surviving notes", image: "local://right-article" },
+        makeItem("right-delayed", 200, delayedUrl, "Right delayed"), makeItem("right-group", 200, groupUrl, "Right group")
+      ], laterOnCovers: { "right-article": coverImage }, laterOnReadingPositions: { "right-article": 480 },
+      laterOnOrder: { unfiled: ["right-delayed", "right-article", "right-group"] } });
+      await secondPage.reload();
+      await previewJoin(second, endpoint, (await readMeta(page)).binding.collectionId);
+      await second.getByRole("button", { name: "Confirm join" }).click();
+      await expect(second.getByRole("status")).toHaveText("Joined. Use Sync now to exchange collection changes.");
+      const library = async (profile, url) => {
+        const view = await profile.newPage();
+        await view.goto(new URL("library.html?from=sidepanel&project=unfiled&filter=all", url).href);
+        return view;
+      };
+      const left = await library(context, extension.url), right = await library(profile, worker.url());
+      await right.locator("#sortSelect").selectOption("custom");
+      const sidepanel = await profile.newPage();
+      await sidepanel.goto(new URL("sidepanel.html", worker.url()).href);
+      const card = (view, id) => view.locator(`#cardGrid [data-id="${id}"]`);
+      const sync = async panel => {
+        await panel.getByRole("button", { name: "Sync now" }).click();
+        await expect(panel.getByRole("status")).toHaveText("Snapshot verified. Collection changes synced.");
+        await expect(panel.getByRole("alert")).toHaveCount(0);
+        await expect(panel.getByRole("button", { name: "Sync now" })).toBeEnabled();
+      };
+      const openDelete = async (view, target) => {
+        await target.locator(".delete").press("Enter");
+        return view.getByRole("dialog").getByRole("button", { name: "Delete", exact: true });
+      };
+      const edit = async (field, value) => {
+        await card(right, "left-article").locator(".edit").press("Enter");
+        const dialog = right.getByRole("dialog");
+        await dialog.getByRole("textbox", { name: field, exact: true }).fill(value);
+        await dialog.getByRole("button", { name: "Save", exact: true }).click();
+        await expect(dialog).toBeHidden();
+      };
+      const state = async view => (await readMeta(view)).binding.state;
+      const stored = view => view.evaluate(() => chrome.storage.local.get([
+        "laterOnItems", "laterOnCovers", "laterOnReadingPositions", "laterOnOrder", "laterOnOverrideLog"
+      ]));
+      const cardOrder = () => right.locator("#cardGrid .card").evaluateAll(elements => elements.map(element => element.dataset.id));
+      await expect(card(right, "left-article").locator(".cover-img")).toHaveAttribute("src", coverImage);
+      await expect.poll(cardOrder).toEqual(["left-delayed", "left-article", "left-group"]);
+      const survivor = (await state(secondPage)).members.find(member => member.id === "right-article");
+      await edit("Title", "Published on the right");
+      await expect.poll(async () => (await state(secondPage)).members.find(member => member.id === "left-article").title.value)
+        .toBe("Published on the right");
+      await sync(second);
+      await edit("Summary", "Unpublished on the right");
+      await expect.poll(async () => (await state(secondPage)).members.find(member => member.id === "left-article").description.value)
+        .toBe("Unpublished on the right");
+      await (await openDelete(left, card(left, "left-article"))).click();
+      await expect(card(left, "left-article")).toHaveCount(0);
+      expect((await state(page)).deletedIds).toEqual(["left-article"]);
+      const delayed = await openDelete(left, card(left, "left-delayed"));
+      await expect(delayed).toBeVisible();
+      await sync(first);
+      await delayed.click();
+      await expect(card(left, "right-delayed")).toBeVisible();
+      await sync(first);
+      await sync(second);
+      await expect(card(right, "right-article")).toContainText("Surviving title");
+      await expect(card(right, "right-article")).toContainText("Surviving notes");
+      await expect(card(right, "right-article").locator(".cover-img")).toHaveAttribute("src", coverImage);
+      await expect.poll(cardOrder).toEqual(["right-delayed", "right-article", "left-group"]);
+      expect(await stored(secondPage)).toMatchObject({ laterOnReadingPositions: { "right-article": 480 },
+        laterOnOrder: { unfiled: ["right-delayed", "right-article", "right-group"] } });
+      expect((await state(page)).members.find(member => member.id === survivor.id)).toEqual(survivor);
+      expect(await state(page)).toEqual(await state(secondPage));
+      expect((await readMeta(page)).binding.confirmed.head.stateHash).toBe((await readMeta(secondPage)).binding.confirmed.head.stateHash);
+      const article = await profile.newPage();
+      await article.goto(articleUrl);
+      const resume = article.getByRole("button", { name: "Continue from last position" });
+      await resume.click();
+      await expect.poll(() => article.evaluate(() => Math.round(scrollY))).toBe(480);
+      await secondPage.getByRole("button", { name: "View local recovery records" }).click();
+      for (const value of [/^Published on the right$/, /^Unpublished on the right$/]) {
+        await expect(secondPage.getByRole("listitem").filter({ hasText: "Overwritten local edit" })
+          .locator(".edit-recovery-value").filter({ hasText: value })).toHaveCount(1);
+      }
+      expect((await stored(secondPage)).laterOnOverrideLog).toHaveLength(2);
+      await sync(first);
+      await sync(second);
+      expect((await stored(secondPage)).laterOnOverrideLog).toHaveLength(2);
+      const stale = await openDelete(left, card(left, "right-delayed"));
+      await expect(stale).toBeVisible();
+      await right.locator("#selectMode").click();
+      const selectGroup = card(right, "left-group").locator(".select-check");
+      await selectGroup.press("Space");
+      await expect(selectGroup).toBeChecked();
+      await right.locator("#bulkDelete").click();
+      await right.getByRole("dialog").getByRole("button", { name: "Delete 1", exact: true }).click();
+      await expect(card(right, "left-group")).toHaveCount(0);
+      await expect(right.getByText("Finished deleting selected pages")).toBeVisible();
+      expect((await state(secondPage)).deletedIds).toEqual(["left-article", "left-delayed", "left-group", "right-group"]);
+      await (await openDelete(sidepanel, sidepanel.locator('#items [data-id="right-article"]'))).click();
+      await expect(sidepanel.locator('#items [data-id="right-article"]')).toHaveCount(0);
+      await sync(second);
+      const leftBinding = (await readMeta(page)).binding;
+      await first.getByRole("button", { name: "Unbind" }).click();
+      await previewJoin(first, endpoint, leftBinding.collectionId);
+      await expect(first.getByText(/remove 3 local items/)).toBeVisible();
+      await first.getByRole("button", { name: "Cancel preview" }).click();
+      await expect(card(left, "right-article")).toBeVisible();
+      await previewJoin(first, endpoint, leftBinding.collectionId);
+      await first.getByRole("button", { name: "Confirm join" }).click();
+      await expect(first.getByRole("button", { name: "Sync now" })).toBeEnabled();
+      expect((await readMeta(page)).binding.bindingId).not.toBe(leftBinding.bindingId);
+      await expect(card(left, "right-article")).toHaveCount(0);
+      await stale.click();
+      await expect(left.getByText("Something went wrong. Try again.")).toBeVisible();
+      await expect(card(left, "right-delayed")).toBeVisible();
+      await article.bringToFront();
+      await sidepanel.locator("#saveCurrent").click();
+      await expect.poll(async () => (await stored(secondPage)).laterOnItems.some(item => item.url === articleUrl)).toBe(true);
+      const collected = (await stored(secondPage)).laterOnItems.find(item => item.url === articleUrl);
+      expect(["left-article", "right-article"]).not.toContain(collected.id);
+      await sync(second);
+      await sync(first);
+      await expect(card(left, collected.id)).toBeVisible();
+      expect(await state(page)).toEqual(await state(secondPage));
+      expect((await state(page)).deletedIds).toContain("right-article");
+    } finally {
+      try { await profile?.close(); }
+      finally { if (path.dirname(profileDir) === root && path.basename(profileDir).startsWith("stayside-sync-delete-test-")) await rm(profileDir, { recursive: true, force: true }); }
+    }
+  });
+});
+
 test("同库重绑挡住旧下载和未发送索引，清空或覆盖恢复不写服务端", async ({ page, context, extension }) => {
   test.skip(!acceptance, "Requires sync-acceptance build");
   await withDav(async (dav, endpoint) => {

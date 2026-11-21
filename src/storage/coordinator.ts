@@ -10,7 +10,9 @@ import { SYNC_META } from "../sync/acceptance";
 import { groupMembers, groupOrderOwner, syncViewBound } from "../sync/projection";
 import type { SyncViewSnapshot } from "../sync/projection";
 import { editView, planSyncEdit, projectItemText, withItemText, writeSyncEdit } from "../sync/text-edit";
+import { mergeSyncStates } from "../sync/state";
 import { appendEditRecovery, protectItemEdit, readEditRecovery, stampEditRevisions, stripLegacyEditState } from "./edit-recovery";
+import { itemRemovalPatch, pruneProjectPicks } from "./item-deletion";
 import type {
   CollectionState, LegacyCollectionState, StoredItem, StoredProject, CollectionAction,
   CollectionCommand, CollectionResponse, CollectionSuccess, Operation
@@ -85,13 +87,6 @@ const validName = (projects: readonly StoredProject[], name: string | undefined,
   if (projects.some((p) => p.id !== id && p.name === clean)) fail("DUPLICATE_PROJECT_NAME");
   return clean;
 };
-const pruneProjectPicks = (projects: readonly StoredProject[], items: readonly StoredItem[]): StoredProject[] => projects.map((project) => {
-  if (!Array.isArray(project.coverPick)) return project;
-  const alive = new Set(items.filter((item) => item.projectId === project.id).map((item) => item.id));
-  const picks = project.coverPick.filter((id: string) => alive.has(id));
-  const { coverPick, ...fields } = project;
-  return picks.length ? { ...fields, coverPick: picks } : fields;
-});
 
 function createProject(stored: CollectionState, { name }: Operation<"createProject">): Mutation {
   const projects = stored[PROJECTS] || [];
@@ -188,8 +183,22 @@ function moveItem(stored: CollectionState & SyncViewSnapshot, { id, scope, befor
   return result({ [ORDER]: next }, { orders: next });
 }
 
-function mutateItems(stored: CollectionState, { operation, ids, patch = {} }: Operation<"mutateItems">): Mutation {
-  if (!["delete", "update"].includes(operation) || !Array.isArray(ids) || ids.some((id) => typeof id !== "string")) fail("Invalid item mutation");
+function deleteItems(stored: StoredCollection, { ids, deleteBindingId }: Operation<"mutateItems">): Mutation {
+  const meta = syncViewBound(stored) ? stored[SYNC_META] : undefined;
+  if (deleteBindingId !== undefined && deleteBindingId !== (meta?.binding?.bindingId ?? null)) fail("STALE_COLLECTION");
+  const targets = new Set(ids);
+  const original = stored[ITEMS] ?? [];
+  const removed = new Set(original.filter(item => targets.has(item.id)).map(item => item.id));
+  if (!removed.size) return result({}, { affected: 0 });
+  const items = original.filter(item => !removed.has(item.id));
+  const write = itemRemovalPatch(stored, items, removed);
+  const syncMeta = meta?.binding && { ...meta, binding: { ...meta.binding,
+    state: mergeSyncStates(meta.binding.state ?? { members: [], deletedIds: [] }, { members: [], deletedIds: [...removed] }) } };
+  return result({ ...write, ...(syncMeta ? { [SYNC_META]: syncMeta } : {}) },
+    { items, covers: write[COVERS], affected: removed.size, ...(syncMeta ? { syncMeta } : {}) });
+}
+
+function updateItems(stored: CollectionState, { ids, patch = {} }: Operation<"mutateItems">): Mutation {
   const allowed = ["title", "description", "titleEdited", "descriptionEdited", "imageEdited", "status", "projectId", "cover"];
   if (!patch || Object.keys(patch).some((key) => !allowed.includes(key))) fail("Invalid item mutation");
   if (patch.status && !["unread", "reading", "done"].includes(patch.status)) fail("Invalid item mutation");
@@ -202,7 +211,7 @@ function mutateItems(stored: CollectionState, { operation, ids, patch = {} }: Op
   const original = stored[ITEMS] || [];
   const affected = original.filter((item) => targets.has(item.id)).length;
   const { cover, ...changes } = patch;
-  const items = operation === "delete" ? original.filter((item) => !targets.has(item.id)) : original.map((item) => {
+  const items = original.map((item) => {
     if (!targets.has(item.id)) return item;
     const status = changes.status;
     return { ...item, ...changes,
@@ -211,17 +220,11 @@ function mutateItems(stored: CollectionState, { operation, ids, patch = {} }: Op
   });
   const covers = { ...(stored[COVERS] || {}) };
   const write: { -readonly [K in keyof CollectionState]: CollectionState[K] } = { [ITEMS]: items };
-  if (operation === "delete") {
-    ids.forEach((id: string) => { delete covers[id]; });
-    write[COVERS] = covers;
-    write[ORDER] = Object.fromEntries(Object.entries(stored[ORDER] || {}).map(([scope, list]) => [scope, list.filter((id) => !targets.has(id))]));
-    write[POSITIONS] = Object.fromEntries(Object.entries(stored[POSITIONS] || {}).filter(([id]) => !targets.has(id)));
-    if (stored[CURRENT] != null && targets.has(stored[CURRENT])) write[CURRENT] = null;
-  } else if ("cover" in patch) {
+  if ("cover" in patch) {
     original.filter((item) => targets.has(item.id)).forEach((item) => { if (cover) covers[item.id] = cover; else delete covers[item.id]; });
     write[COVERS] = covers;
   }
-  if (operation === "delete" || "projectId" in patch) {
+  if ("projectId" in patch) {
     const projects = stored[PROJECTS] || [];
     const next = pruneProjectPicks(projects, items);
     if (!isEqual(projects, next)) write[PROJECTS] = next;
@@ -230,8 +233,11 @@ function mutateItems(stored: CollectionState, { operation, ids, patch = {} }: Op
 }
 
 function mutateItemsWithRecovery(stored: StoredCollection, command: Operation<"mutateItems">): Mutation {
+  if (!["delete", "update"].includes(command.operation) || !Array.isArray(command.ids)
+    || command.ids.some(id => typeof id !== "string")) fail("Invalid item mutation");
+  if (command.operation === "delete") return deleteItems(stored, command);
   const { editBasis, patch = {}, ids: [id] } = command;
-  if (!editBasis || command.operation !== "update" || id === undefined) return mutateItems(stored, command);
+  if (!editBasis || id === undefined) return updateItems(stored, command);
   const item = stored[ITEMS]?.find(entry => entry?.id === id);
   const now = Date.now();
   const meta = stored[SYNC_META];
@@ -243,7 +249,7 @@ function mutateItemsWithRecovery(stored: StoredCollection, command: Operation<"m
     const current = anchor && projectItemText(members[0] ?? anchor, members, bound && editView(bound));
     const { changes, drafts } = planSyncEdit(id, current, editBasis, patch, now);
     const { title: _title, description: _description, titleEdited: _titleEdited, descriptionEdited: _descriptionEdited, ...rest } = patch;
-    const local = item && Object.keys(rest).length ? mutateItems(stored, { ...command, patch: rest }) : result({});
+    const local = item && Object.keys(rest).length ? updateItems(stored, { ...command, patch: rest }) : result({});
     const edited = bound && changes.size ? writeSyncEdit(bound, local.patch[ITEMS] ?? original, changes, now) : undefined;
     return result({ ...local.patch, ...(edited ? { [ITEMS]: edited.items, [SYNC_META]: edited.meta } : {}),
       ...(drafts.length ? { [OVERRIDE_LOG]: appendEditRecovery(drafts, readEditRecovery(stored, now)) } : {}) },
@@ -251,7 +257,7 @@ function mutateItemsWithRecovery(stored: StoredCollection, command: Operation<"m
       ...(drafts.length ? { editConflict: edited || local.response.affected ? "partial" : "pending" } : {}) });
   }
   const checked = protectItemEdit(id, item, patch, editBasis, now);
-  const mutation = mutateItems(stored, { ...command, patch: checked.patch, editBasis: undefined });
+  const mutation = updateItems(stored, { ...command, patch: checked.patch });
   const items = mutation.patch[ITEMS]?.map(entry => entry.id === id && entry.textAuthors ? ITEM_TEXT_FIELDS.reduce((next, field) => {
     const value = checked.patch[field];
     return value === undefined ? next : withItemText(next, field, value, true);

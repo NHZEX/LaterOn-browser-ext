@@ -5,6 +5,7 @@ import type { Translate } from "../shared/i18n";
 import { cardTarget } from "./shared";
 import type { LibraryCollection } from "./shared";
 import type { LibrarySelection } from "./useLibrarySelection";
+import { captureCardDeletion } from "../sync/projection";
 
 interface PickerRequest {
   readonly anchor: HTMLElement;
@@ -16,7 +17,8 @@ interface PickerRequest {
 interface BulkEffects {
   readonly translate: Translate;
   readonly toast: (message: string) => void;
-  readonly mutate: (operation: "update" | "delete", ids: readonly string[], patch?: ItemChanges) => Promise<CollectionSuccess | null>;
+  readonly mutate: (operation: "update", ids: readonly string[], patch?: ItemChanges) => Promise<CollectionSuccess | null>;
+  readonly removeItems: (target: ReturnType<typeof captureCardDeletion>) => Promise<CollectionSuccess | null>;
   readonly confirm: (config: { tone: "danger"; title: string; message: string; confirmText: string }) => Promise<boolean>;
   readonly pick: (request: PickerRequest) => { readonly close: () => void };
   readonly openWindow: (urls: readonly string[]) => Promise<{ readonly id?: number } | null | undefined>;
@@ -45,14 +47,18 @@ export function useLibraryBulk(selection: LibrarySelection, collection: Readonly
   }
   async function remove(): Promise<void> {
     const batch = snapshot(); if (!batch) return;
+    const target = captureCardDeletion(batch.ids, collection.value.groups);
     const { translate: t, confirm, toast } = batch.boundary;
     pending.value = true;
     try {
       const confirmed = await confirm({ tone: "danger", title: t("bulkDeleteTitle", { n: batch.ids.length }),
         message: t("cannotUndo"), confirmText: t("bulkDeleteButton", { n: batch.ids.length }) });
       if (!confirmed || !batch.current()) return;
-      const result = await batch.boundary.mutate("delete", batch.ids);
-      if (result && batch.current()) { toast(t("bulkDeleted", { n: result.affected ?? 0 })); selection.complete(batch.ids); }
+      const result = await batch.boundary.removeItems(target);
+      if (result && batch.current()) {
+        if (result.affected) toast(target.deleteBindingId ? t("bulkSyncDeleteCompleted") : t("bulkDeleted", { n: result.affected }));
+        selection.complete(batch.ids);
+      }
     } catch { if (batch.current()) toast(t("operationFailed")); }
     finally { pending.value = false; }
   }

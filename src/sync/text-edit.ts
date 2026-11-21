@@ -82,9 +82,20 @@ export function writeSyncEdit(meta: BoundMeta, items: readonly StoredItem[], cha
 export function receiveSyncText(items: readonly StoredItem[], previous: SyncState, state: SyncState, deviceId: string, now: number) {
   const before = indexMembers(previous), after = indexMembers(state);
   const records: EditRecoveryEntry[] = [];
-  const next = items.map(item => {
-    if (!item) return item;
+  const tombstones = new Set(state.deletedIds);
+  const removed = new Set<string>();
+  const next = items.flatMap(item => {
+    if (!item) return [item];
     const old = before.get(item.id), incoming = after.get(item.id);
+    if (tombstones.has(item.id)) {
+      removed.add(item.id);
+      for (const field of ITEM_TEXT_FIELDS) {
+        const loser = old?.[field];
+        if (loser?.manual && loser.revision.deviceId === deviceId) records.push({ itemId: item.id,
+          title: item.title ?? "", field, value: loser.value, kind: "overwritten", createdAt: now });
+      }
+      return [];
+    }
     if (!old || !incoming) return item;
     return ITEM_TEXT_FIELDS.reduce((updated, field) => {
       const winner = incoming[field], loser = old[field];
@@ -105,5 +116,5 @@ export function receiveSyncText(items: readonly StoredItem[], previous: SyncStat
     return ITEM_TEXT_FIELDS.reduce((updated, field) => withItemText(updated, field, member[field].value, member[field].manual,
       member[field].manual && member[field].revision.deviceId !== deviceId ? member[field].revision.deviceId : undefined), item);
   });
-  return { items: [...next, ...added], records, added: added.length };
+  return { items: [...next, ...added], records, added: added.length, removed };
 }

@@ -3,10 +3,11 @@ import { saveLocalRecovery } from "../backup/background";
 import type { RunWebdavTransfer } from "../backup/webdav-background";
 import type { TransferMeter } from "../backup/webdav-meter";
 import type { WebdavClient } from "../backup/webdav-transport";
-import { ITEMS, KEYS, OVERRIDE_LOG, isRecord } from "../storage/contracts";
+import { CURRENT, ITEMS, KEYS, OVERRIDE_LOG, isRecord } from "../storage/contracts";
 import type { CollectionState } from "../storage/contracts";
 import { commit, enqueue } from "../storage/coordinator";
 import { appendEditRecovery, readEditRecovery } from "../storage/edit-recovery";
+import { itemRemovalPatch } from "../storage/item-deletion";
 import { SYNC_ACCEPTANCE_BUILD, SYNC_ACCEPTANCE_MESSAGE, SYNC_META } from "./acceptance";
 import type { SyncAcceptanceReply, SyncAcceptanceStatus, SyncJoinPreview } from "./acceptance";
 import { detachSyncPatch, readMeta } from "./binding";
@@ -106,7 +107,6 @@ async function discover(dav: WebdavClient, collectionId: string, seen: readonly 
     const previous = seen.find(entry => entry.deviceId === head.deviceId);
     if (previous && (head.seq < previous.seq || (head.seq === previous.seq && !matchesSyncHead(bytes, previous)))) return rejected();
     const snapshot = await verifySyncSnapshot(await dav.get([head.snapshotName]), head);
-    if (snapshot.deletedIds.length) return rejected();
     heads.push(head);
     clock = stateClock(snapshot, clock);
     state = mergeSyncStates(state, snapshot);
@@ -124,8 +124,9 @@ function mergeIntoCollection(stored: CollectionState, previous: SyncState, state
   const now = Date.now();
   const items = stored[ITEMS] ?? [];
   const incoming = receiveSyncText(items, previous, state, deviceId, now);
-  return { added: incoming.added, patch: {
-    ...(incoming.added || incoming.items.some((item, index) => item !== items[index]) ? { [ITEMS]: incoming.items } : {}),
+  return { added: incoming.added, removed: incoming.removed.size, patch: {
+    ...(incoming.removed.size ? itemRemovalPatch(stored, incoming.items, incoming.removed)
+      : incoming.added || incoming.items.some((item, index) => item !== items[index]) ? { [ITEMS]: incoming.items } : {}),
     ...(incoming.records.length ? { [OVERRIDE_LOG]: appendEditRecovery(incoming.records, readEditRecovery(stored, now)) } : {}) } };
 }
 
@@ -136,7 +137,7 @@ async function evaluateJoin(message: Record<string, unknown>, meter: TransferMet
   if (initial?.binding) return rejected();
   const { heads, state, clock } = await discover(davFor(endpoint, meter), collectionId);
   return enqueue(async () => {
-    const stored = await chrome.storage.local.get<StoredSync>([SYNC_META, ...KEYS, OVERRIDE_LOG]);
+    const stored = await chrome.storage.local.get<StoredSync>([SYNC_META, ...KEYS, CURRENT, OVERRIDE_LOG]);
     const prior = stored[SYNC_META];
     if (prior?.binding || prior?.detachedId !== initial?.detachedId) return rejected();
     const items = stored[ITEMS] ?? [];
@@ -146,7 +147,7 @@ async function evaluateJoin(message: Record<string, unknown>, meter: TransferMet
     const previous = initialSyncState(items, deviceId);
     const merged = mergeSyncStates(previous, state);
     const incoming = mergeIntoCollection(stored, previous, merged, deviceId);
-    if (!confirm) return { proof, collectionId, local: items.length, incoming: incoming.added };
+    if (!confirm) return { proof, collectionId, local: items.length - incoming.removed, incoming: incoming.added, removed: incoming.removed };
     if (message.proof !== proof) return rejected();
     if (items.length || stored.laterOnProjects?.length) await saveLocalRecovery(stored);
     const own = heads.find(head => head.deviceId === deviceId);
@@ -179,7 +180,7 @@ async function syncCollection(binding: SyncBinding, meter: TransferMeter, first:
   const { heads, state, clock } = await discover(dav, binding.collectionId, binding.confirmed ? [...peerHeads, binding.confirmed.head] : peerHeads);
   const prepared = await enqueue(async () => {
     const current = await requireCurrentBinding(binding);
-    const stored = await chrome.storage.local.get<StoredSync>([...KEYS, OVERRIDE_LOG]);
+    const stored = await chrome.storage.local.get<StoredSync>([...KEYS, CURRENT, OVERRIDE_LOG]);
     const previous = withLocalAdditions(current.binding.state ?? { members: [], deletedIds: [] }, stored, current.deviceId);
     const merged = mergeSyncStates(previous, state);
     const nextBinding: SyncBinding = { ...current.binding, seen: heads, state: merged };

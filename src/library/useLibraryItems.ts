@@ -1,6 +1,6 @@
 import { watch } from "vue";
 import { buildEditPatch, isEmptySummary } from "../collection/item-edit";
-import { editableCard, groupCover } from "../sync/projection";
+import { captureCardDeletion, editableCard, groupCover } from "../sync/projection";
 import type { ItemChanges } from "../storage/contracts";
 import { editRecoveryNotice } from "../storage/edit-recovery";
 import type { LibraryCommands } from "./useLibraryCommands";
@@ -54,11 +54,12 @@ export function useLibraryItems(commands: LibraryCommands, createProject: (name:
   function remove(id: string): Promise<void> {
     return commands.perform(`item:${id}`, async () => {
       const item = find(id); if (!item) return;
+      const target = captureCardDeletion([id], commands.collection.value.groups);
       // 删除不可撤销，先确认；长标题截断，避免把确认框撑成大段文字。
       const raw = item.title?.trim() || t("itemFallback");
       if (!await commands.confirm({ tone: "danger", title: t("deleteItemTitle", { title: raw.length > 26 ? `${raw.slice(0, 26)}…` : raw }),
         message: t("deleteCannotUndo"), confirmText: t("delete") })) return;
-      if (commands.current() && find(id) && await commands.mutate("delete", [id])) toast("itemDeleted");
+      if (commands.current() && (await commands.removeItems(target))?.affected) toast("itemDeleted");
     });
   }
   async function copy(id: string, format: ItemLinkFormat): Promise<void> {

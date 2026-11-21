@@ -27,7 +27,7 @@ export function bindPageAdapters(controls: LibraryControls): { mount: () => void
     closeDialog: () => openedDialog?.close(),
     pick: request => openFolderPicker({ ...request, theme: controls.preferences.value.theme || "system",
       language: document.documentElement.lang, folders: projectPickerFolders(collection.value, t) }) });
-  bulk.bind({ translate: t, toast: controls.notice.show, mutate: commands.mutate, confirm: commands.confirm,
+  bulk.bind({ translate: t, toast: controls.notice.show, mutate: commands.mutate, removeItems: commands.removeItems, confirm: commands.confirm,
     pick: request => openFolderPicker({ ...request, theme: controls.preferences.value.theme || "system",
       language: document.documentElement.lang, folders: projectPickerFolders(collection.value, t),
       onPick: (id, name) => request.onPick(id || "", name),
