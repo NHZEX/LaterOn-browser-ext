@@ -2,6 +2,9 @@ import type { BackgroundItem } from "./shared";
 import type { BackgroundSnapshot } from "./shared";
 import { enqueue as queueItemWrite, commit, migrateIcons } from "../storage/coordinator";
 import { ICONS } from "../storage/icons";
+import { SYNC_META } from "../sync/acceptance";
+import { syncViewBound } from "../sync/projection";
+import type { SyncViewSnapshot } from "../sync/projection";
 import { STORAGE_KEY, ORDER_KEY, SETTINGS_KEY, COVERS_KEY } from "./shared";
 import { resetActionAppearance } from "./feedback";
 
@@ -33,7 +36,8 @@ export async function purgeExpiredItems() {
 
 async function purgeExpiredItemsNow() {
   try {
-    const stored = await chrome.storage.local.get<BackgroundSnapshot>([STORAGE_KEY, ORDER_KEY, SETTINGS_KEY, COVERS_KEY, ICONS]);
+    const stored = await chrome.storage.local.get<BackgroundSnapshot & SyncViewSnapshot>([STORAGE_KEY, ORDER_KEY, SETTINGS_KEY, COVERS_KEY, ICONS, SYNC_META]);
+    if (syncViewBound(stored)) return 0;
     const settings = stored[SETTINGS_KEY] || {};
     // 缺少开关的旧设置仍沿用已开启的行为。
     if (settings.autoCleanEnabled === false) return 0;

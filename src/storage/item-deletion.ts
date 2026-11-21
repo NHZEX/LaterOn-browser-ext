@@ -1,3 +1,5 @@
+import type { SyncMeta } from "../sync/binding";
+import { mergeSyncStates } from "../sync/state";
 import { COVERS, CURRENT, ITEMS, ORDER, POSITIONS, PROJECTS } from "./contracts";
 import type { CollectionState, StoredItem, StoredProject } from "./contracts";
 
@@ -21,4 +23,10 @@ export function itemRemovalPatch(stored: CollectionState, items: readonly Stored
     [ORDER]: Object.fromEntries(Object.entries(stored[ORDER] ?? {}).map(([scope, ids]) => [scope, ids.filter(id => !removed.has(id))])),
     ...(stored[CURRENT] != null && removed.has(stored[CURRENT]) ? { [CURRENT]: null } : {}),
     ...(remaining.some((project, index) => project !== projects[index]) ? { [PROJECTS]: remaining } : {}) };
+}
+
+export function recordSyncDeletions(meta: SyncMeta | undefined, removed: ReadonlySet<string>): SyncMeta | undefined {
+  if (!meta?.binding || !removed.size) return;
+  const state = mergeSyncStates(meta.binding.state ?? { members: [], deletedIds: [] }, { members: [], deletedIds: [...removed] });
+  return { ...meta, binding: { ...meta.binding, state } };
 }

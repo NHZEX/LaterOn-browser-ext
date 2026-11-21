@@ -508,6 +508,78 @@ test("双配置通过编辑框分别改标题和摘要，再同步显式清空",
   });
 });
 
+test("项目级联删除同步原始成员，同网址成员及本机项目不受影响", async ({ page, context, extension }) => {
+  test.skip(!acceptance, "Requires sync-acceptance build");
+  test.setTimeout(60_000);
+  await withDav(async (dav, endpoint) => {
+    dav.discover = true;
+    const first = await openPanel(page, extension, endpoint);
+    const project = { id: "local-project", name: "Local project", createdAt: 1 };
+    await page.evaluate(async project => {
+      const { laterOnItems: [saved] } = await chrome.storage.local.get("laterOnItems");
+      await chrome.storage.local.set({ laterOnOnboardingSeen: true, laterOnProjects: [project], laterOnItems: [saved,
+        { ...saved, id: "outside-project", title: "Keep me", savedAt: 456, projectId: null }] });
+    }, project);
+    await publishFirst(first);
+    const { confirmed: { head: oldHead } } = (await readMeta(page)).binding;
+    const oldSnapshot = JSON.parse(gunzipSync(dav.files.get(folder + oldHead.snapshotName)));
+    const readLibrary = view => view.evaluate(() => chrome.storage.local.get(["laterOnItems", "laterOnProjects", "laterOnSyncMeta"]));
+    await withRestartableProfile(async start => {
+      const peer = await start();
+      const peerProject = { ...project, name: "Peer’s local project" };
+      await peer.worker.evaluate(project => chrome.storage.local.set({ laterOnSettings: { language: "en" },
+        laterOnProjects: [project] }), peerProject);
+      const secondPage = await openSettings(peer.context, peer.url);
+      const second = syncPanel(secondPage);
+      await previewJoin(second, endpoint, oldHead.collectionId);
+      await second.getByRole("button", { name: "Confirm join" }).click();
+      await expect(second.getByRole("status")).toHaveText("Joined. Use Sync now to exchange collection changes.");
+      expect((await readLibrary(secondPage)).laterOnItems.map(({ id }) => id).sort()).toEqual(["outside-project", "saved-page"]);
+
+      const library = await context.newPage();
+      await library.goto(new URL("library.html?from=sidepanel&project=all&filter=all", extension.url).href);
+      const projectRow = library.locator('.project-row[data-id="local-project"]');
+      await projectRow.hover();
+      await projectRow.locator(".project-more").click();
+      await library.locator(".folder-menu").getByText("Delete project", { exact: true }).click();
+      await page.evaluate(() => {
+        window.projectDeletion = new Promise(resolve => {
+          const onDelete = (changes, area) => {
+            if (area !== "local" || !changes.laterOnProjects) return;
+            chrome.storage.onChanged.removeListener(onDelete);
+            resolve({ ids: changes.laterOnItems?.newValue.map(({ id }) => id),
+              deletedIds: changes.laterOnSyncMeta?.newValue.binding.state.deletedIds });
+          };
+          chrome.storage.onChanged.addListener(onDelete);
+        });
+      });
+      await library.locator(".lod-ok").click();
+      await expect(projectRow).toHaveCount(0);
+      expect(await page.evaluate(() => window.projectDeletion)).toEqual({ ids: ["outside-project"], deletedIds: ["saved-page"] });
+
+      await syncNow(first);
+      await syncNow(second);
+      const expectPeerSurvivor = async () => {
+        const peerLibrary = await readLibrary(secondPage);
+        expect(peerLibrary.laterOnItems).toMatchObject([{ id: "outside-project", title: "Keep me" }]);
+        expect(peerLibrary.laterOnItems[0].projectId).toBeFalsy();
+        expect(peerLibrary.laterOnProjects).toEqual([peerProject]);
+        expect(peerLibrary.laterOnSyncMeta.binding.state.deletedIds).toEqual(["saved-page"]);
+      };
+      await expectPeerSurvivor();
+
+      const replay = { ...oldHead, deviceId: "00000000-0000-4000-8000-000000000099" };
+      replay.snapshotName = snapshotFileFor(replay);
+      dav.files.set(folder + replay.snapshotName, gzipSync(JSON.stringify({ ...oldSnapshot, deviceId: replay.deviceId })));
+      dav.files.set(recordPathFor(replay), Buffer.from(JSON.stringify(replay)));
+      const beforeReplay = dav.requests.length;
+      await syncNow(second);
+      expect(requestsSince(dav, beforeReplay)).toContain(`GET ${folder + replay.snapshotName}`);
+      await expectPeerSurvivor();
+    });
+  });
+});
+
 test("同步按确认时的原始成员删除，乱序收敛且可主动重收", async ({ page, context, extension }) => {
   test.skip(!acceptance, "Requires sync-acceptance build");
   test.setTimeout(60_000);

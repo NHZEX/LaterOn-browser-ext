@@ -25,8 +25,9 @@ const entries = new Map([
 ]);
 const scripts = new Map();
 
-function compiledScript(name) {
-  if (scripts.has(name)) return scripts.get(name);
+function compiledScript(name, mode) {
+  const key = JSON.stringify([name, mode]);
+  if (scripts.has(key)) return scripts.get(key);
   const { outputFiles } = buildSync({
     stdin: {
       contents: entries.get(name),
@@ -38,14 +39,15 @@ function compiledScript(name) {
     write: false,
     format: "iife",
     platform: "browser",
-    target: "esnext"
+    target: "esnext",
+    ...(mode ? { define: { "import.meta.env.MODE": JSON.stringify(mode) } } : {})
   });
   const script = outputFiles[0].text;
-  scripts.set(name, script);
+  scripts.set(key, script);
   return script;
 }
 
-module.exports = (name) => {
+module.exports = (name, { mode } = {}) => {
   if (["i18n.js", "dialog.js", "onboarding.js"].includes(name)) return require("./ui-modules.cjs");
   if (["boot.js", "content-folder-picker.js", "content-metadata.js", "content-reading-position.js", "content-translation.js"].includes(name)) {
     return require("./library-page.cjs").script(name);
@@ -54,5 +56,5 @@ module.exports = (name) => {
   if (name === "sidepanel-page.js") return require("./library-page.cjs")(undefined, "sidepanel").script;
   if (name === "library.html") return require("./library-page.cjs")().html;
   if (name === "library-page.js") return require("./library-page.cjs")().script;
-  return entries.has(name) ? compiledScript(name) : readFileSync(sourcePath(name), "utf8");
+  return entries.has(name) ? compiledScript(name, mode) : readFileSync(sourcePath(name), "utf8");
 };

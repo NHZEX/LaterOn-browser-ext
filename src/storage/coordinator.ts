@@ -10,9 +10,8 @@ import { SYNC_META } from "../sync/acceptance";
 import { groupMembers, groupOrderOwner, syncViewBound } from "../sync/projection";
 import type { SyncViewSnapshot } from "../sync/projection";
 import { editView, planSyncEdit, projectItemText, withItemText, writeSyncEdit } from "../sync/text-edit";
-import { mergeSyncStates } from "../sync/state";
 import { appendEditRecovery, protectItemEdit, readEditRecovery, stampEditRevisions, stripLegacyEditState } from "./edit-recovery";
-import { itemRemovalPatch, pruneProjectPicks } from "./item-deletion";
+import { itemRemovalPatch, pruneProjectPicks, recordSyncDeletions } from "./item-deletion";
 import type {
   CollectionState, LegacyCollectionState, StoredItem, StoredProject, CollectionAction,
   CollectionCommand, CollectionResponse, CollectionSuccess, Operation
@@ -146,10 +145,11 @@ function moveProject(stored: CollectionState, { id, beforeId }: Operation<"moveP
   return result(isEqual(projects, next) ? {} : { [PROJECTS]: next }, { projects: next });
 }
 
-function deleteProject(stored: CollectionState, { id }: Operation<"deleteProject">): Mutation {
+function deleteProject(stored: StoredCollection, { id }: Operation<"deleteProject">): Mutation {
   const projects = stored[PROJECTS] || [];
   projectIn(projects, id);
   const removed = new Set((stored[ITEMS] || []).filter((item) => item.projectId === id).map((item) => item.id));
+  const syncMeta = recordSyncDeletions(syncViewBound(stored) ? stored[SYNC_META] : undefined, removed);
   const withoutRemoved = <T>(map: Readonly<Record<string, T>> | undefined): Record<string, T> =>
     Object.fromEntries(Object.entries(map || {}).filter(([key]) => !removed.has(key)));
   const patch = {
@@ -159,7 +159,8 @@ function deleteProject(stored: CollectionState, { id }: Operation<"deleteProject
     [ORDER]: Object.fromEntries(Object.entries(stored[ORDER] || {}).filter(([scope]) => scope !== id)
       .map(([scope, ids]) => [scope, ids.filter((itemId) => !removed.has(itemId))])),
     ...(stored[CURRENT] != null && removed.has(stored[CURRENT]) ? { [CURRENT]: null } : {}),
-    ...(stored[ACTIVE] === id ? { [ACTIVE]: "all" } : {})
+    ...(stored[ACTIVE] === id ? { [ACTIVE]: "all" } : {}),
+    ...(syncMeta ? { [SYNC_META]: syncMeta } : {})
   };
   return result(patch, { projects: patch[PROJECTS], items: patch[ITEMS], covers: patch[COVERS], orders: patch[ORDER], affected: removed.size });
 }
@@ -192,8 +193,7 @@ function deleteItems(stored: StoredCollection, { ids, deleteBindingId }: Operati
   if (!removed.size) return result({}, { affected: 0 });
   const items = original.filter(item => !removed.has(item.id));
   const write = itemRemovalPatch(stored, items, removed);
-  const syncMeta = meta?.binding && { ...meta, binding: { ...meta.binding,
-    state: mergeSyncStates(meta.binding.state ?? { members: [], deletedIds: [] }, { members: [], deletedIds: [...removed] }) } };
+  const syncMeta = recordSyncDeletions(meta, removed);
   return result({ ...write, ...(syncMeta ? { [SYNC_META]: syncMeta } : {}) },
     { items, covers: write[COVERS], affected: removed.size, ...(syncMeta ? { syncMeta } : {}) });
 }
@@ -291,7 +291,7 @@ function migrateLegacyData(stored: LegacyCollectionState): Mutation {
 
 const readKeys = {
   createProject: [PROJECTS], updateProject: [PROJECTS, ITEMS], setProjectPinned: [PROJECTS], moveProject: [PROJECTS],
-  deleteProject: [...KEYS, CURRENT, ACTIVE], moveItem: [ITEMS, PROJECTS, ORDER, SYNC_META],
+  deleteProject: [...KEYS, CURRENT, ACTIVE, SYNC_META], moveItem: [ITEMS, PROJECTS, ORDER, SYNC_META],
   mutateItems: [...KEYS, CURRENT, OVERRIDE_LOG, SYNC_META], migrateLegacyData: [ITEMS, COVERS, ICONS],
   listEditRecovery: [ITEMS, ICONS, OVERRIDE_LOG], clearEditRecovery: [ITEMS, ICONS]
 } satisfies Record<CollectionAction, readonly (keyof (CollectionState & SyncViewSnapshot))[]>;

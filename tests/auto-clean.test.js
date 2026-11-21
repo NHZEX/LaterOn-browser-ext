@@ -8,7 +8,7 @@ const { createWorkerContext } = require("./helpers/worker-context.cjs");
 const path = require("path");
 
 const ROOT = path.join(__dirname, "..");
-const code = require("./helpers/read-runtime.cjs")("background-test-api.js");
+const code = require("./helpers/read-runtime.cjs")("background-test-api.js", { mode: "sync-acceptance" });
 const DAY = 24 * 60 * 60 * 1000;
 
 let failures = 0;
@@ -18,6 +18,7 @@ function check(label, ok, extra = "") {
 }
 
 const listeners = {};
+const messageListeners = [];
 const store = { laterOnSettings: { autoCleanDays: 30 } };
 const alarms = [];
 const mockChrome = {
@@ -42,7 +43,7 @@ const mockChrome = {
   runtime: {
     onInstalled: { addListener() {} },
     onStartup: { addListener() {} },
-    onMessage: { addListener(fn) { listeners.onMessage = fn; } },
+    onMessage: { addListener(fn) { messageListeners.push(fn); } },
     getURL: (p) => `chrome-extension://lateron/${p}`
   },
   tabs: {
@@ -61,7 +62,7 @@ const mockChrome = {
 };
 
 const sandbox = {
-  chrome: mockChrome, console, importScripts() {},
+  chrome: mockChrome, console, crypto: require("node:crypto").webcrypto, importScripts() {},
   LaterOnUrl: { normalize(value) { try { const url = new URL(value); url.hash = ""; return url.href.replace(/\/$/, ""); } catch { return String(value || ""); } } },
   setTimeout, clearTimeout, setInterval, clearInterval,
   Promise, URL, Set, Map, RegExp, JSON, Object, Array, Math, Date,
@@ -69,13 +70,15 @@ const sandbox = {
 };
 createWorkerContext(sandbox);
 vm.runInContext(code, sandbox, { filename: "background.js" });
+let workerApi = sandbox.backgroundTest;
 
 // 触发一次清除：模拟「设置变了」→ 后台立刻按新设置扫一遍。
 async function purge() {
-  await listeners.onStorageChanged({ laterOnSettings: { newValue: store.laterOnSettings } }, "local");
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  listeners.onStorageChanged({ laterOnSettings: { newValue: store.laterOnSettings } }, "local");
+  await settleWrites();
 }
 
+const settleWrites = () => workerApi.execute({ action: "mutateItems", operation: "delete", ids: [] });
 const ago = (days) => Date.now() - days * DAY;
 const item = (id, extra = {}) => ({ id, title: id, url: `https://x.com/${id}`, savedAt: ago(400), status: "unread", ...extra });
 
@@ -197,6 +200,7 @@ async function run() {
     // 新 worker 的启动清理也必须遵守持久化的关闭设置。
     const restarted = createWorkerContext({ ...sandbox });
     vm.runInContext(code, restarted, { filename: "background.js" });
+    workerApi = restarted.backgroundTest;
     await restarted.backgroundTest.purgeExpiredItems();
     check("worker 重启后仍保留所有已读网页", JSON.stringify(store) === before);
 
@@ -205,6 +209,40 @@ async function run() {
     const ids = store.laterOnItems.map(it => it.id);
     check("重新开启立即清理普通及归档的到期已读", !ids.includes("old") && !ids.includes("archived-old"));
     check("恢复原有 90 天期限，40 天已读及其他状态仍保留", ids.includes("fresh") && ids.includes("reading") && ids.includes("unread") && store.laterOnSettings.autoCleanDays === 90);
+  }
+
+  console.log("\n── ⑨ 绑定时暂停清理，解绑后沿用原设置 ──");
+  {
+    const settings = { autoCleanEnabled: true, autoCleanDays: 90 };
+    const expired = item("expired", { status: "done", doneAt: ago(91) });
+    const fresh = item("fresh", { status: "done", doneAt: ago(89) });
+    const ids = () => store.laterOnItems.map(({ id }) => id).join(",");
+    const alarm = async () => {
+      listeners.onAlarm({ name: "laterOnAutoClean" });
+      await settleWrites();
+    };
+    store.laterOnSettings = settings;
+    store.laterOnSyncMeta = { deviceId: "device", allocatedSeq: 1, binding: {
+      endpoint: "http://localhost/fixture-sync/", collectionId: "collection", bindingId: "binding",
+      state: { members: [], deletedIds: ["already-deleted"] }
+    } };
+    for (const [label, trigger] of [["设置变化", purge], ["定时", alarm]]) {
+      store.laterOnItems = [expired, fresh];
+      const before = JSON.stringify(store);
+      await trigger();
+      check(`绑定时${label}清理不修改收藏、删除记录或偏好`, JSON.stringify(store) === before, ids());
+    }
+    const detached = await new Promise((resolve, reject) => {
+      if (!messageListeners.some(listener => listener({ type: "LATERON_SYNC_ACCEPTANCE", action: "unbind" },
+        { url: "chrome-extension://lateron/settings.html" }, resolve) === true)) reject(new Error("No sync unbind handler"));
+    });
+    check("真实解绑入口解除绑定且不修改偏好", detached.ok && detached.status === "unbound"
+      && JSON.stringify(store.laterOnSettings) === JSON.stringify(settings));
+    for (const [label, trigger] of [["设置变化", purge], ["定时", alarm]]) {
+      store.laterOnItems = [expired, fresh];
+      await trigger();
+      check(`解绑后${label}清理沿用 90 天期限`, ids() === "fresh" && store.laterOnSettings.autoCleanDays === 90, ids());
+    }
   }
 
   console.log(failures ? `\n❌ 有 ${failures} 项没通过` : "\n🎉 全部通过");
