@@ -80,10 +80,12 @@ test("外部删除编辑目标不复活；挂起写入阻止重复命令，卸�
   const env = createPanelPage(t, { store: store() }); await ready(env); const calls = track(env);
   await openDialog(env); field(env, "title").value = "Stale";
   env.broadcast({ laterOnItems: env.store.laterOnItems.filter(item => item.id !== "a") }); await submit(env);
-  assert.equal(calls.length, 0); assert.equal(env.document.activeElement.id, "searchInput");
+  assert.equal(env.store.laterOnItems.some(item => item.id === "a"), false);
+  assert.equal(env.store.laterOnOverrideLog[0].value, "Stale");
+  assert.equal(calls.length, 1); assert.equal(env.document.activeElement.id, "searchInput");
   const pending = hold(env, "mutateItems", true);
   env.click(env.item("b").querySelector(".read-toggle")); await env.until(pending.entered, "挂起成功响应");
-  env.click(env.item("b").querySelector(".read-toggle")); await env.flush(); assert.equal(calls.length, 1);
+  env.click(env.item("b").querySelector(".read-toggle")); await env.flush(); assert.equal(calls.length, 2);
   env.window.dispatchEvent(new env.window.Event("pagehide")); pending.release(); await env.flush();
   assert.equal(env.count(), 0, "卸载后不能从响应重新挂载卡片"); assert.equal(env.store.laterOnItems.find(item => item.id === "b").status, "done");
 });

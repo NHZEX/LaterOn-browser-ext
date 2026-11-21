@@ -1,6 +1,7 @@
 import { buildEditPatch, isEmptySummary, resolveImage } from "../collection/item-edit";
 import { nextStatus, normalizeItemState } from "../collection/item-state";
 import type { ItemChanges } from "../storage/contracts";
+import { captureEditBasis, editRecoveryNotice } from "../storage/edit-recovery";
 import type { SidepanelControls } from "./useSidepanelControls";
 import type { PanelCommands } from "./usePanelCommands";
 import { t } from "../shared/i18n";
@@ -18,6 +19,7 @@ export function usePanelItems(controls: SidepanelControls, commands: PanelComman
   function edit(id: string): Promise<void> {
     return commands.perform(`item:${id}`, async () => {
       const item = commands.find(id); if (!item) return;
+      const editBasis = captureEditBasis(item);
       // 封面可能是远程 URL、local://id 独立本体或旧 data: 数据，共享解析保留三种兼容。
       const cover = resolveImage(item, controls.covers.value);
       const result = await commands.dialog(api => api.prompt({ title: t("editItem"),
@@ -29,11 +31,14 @@ export function usePanelItems(controls: SidepanelControls, commands: PanelComman
           { name: "description", label: t("summary"), value: isEmptySummary(item.description) ? "" : item.description ?? "",
             placeholder: t("summaryPlaceholder"), multiline: true, maxLength: 500 }
         ], confirmText: t("save") }), "dialogLoadFailed");
-      if (!result || !result.ok || !commands.current() || !commands.find(id)) return;
+      if (!result || !result.ok || !commands.current()) return;
       const text = (key: string) => typeof result.values?.[key] === "string" ? result.values[key] : undefined;
       // 对比打开时快照，只提交用户改动；手工编辑标记防止重新收藏时被抓取结果覆盖。
       const patch = buildEditPatch(item, { title: text("title"), description: text("description"), cover: text("cover") }, cover);
-      if (Object.keys(patch).length) await update(id, patch);
+      if (!Object.keys(patch).length) return;
+      const saved = await commands.execute("mutateItems", { operation: "update", ids: [id], patch, editBasis });
+      const notice = editRecoveryNotice(saved?.editConflict);
+      if (notice) commands.notify(notice, "toast");
     });
   }
   function remove(id: string): Promise<void> {

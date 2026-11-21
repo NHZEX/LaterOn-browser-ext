@@ -1,11 +1,18 @@
 import type { BackupItem, BackupProject } from "../backup/core";
 import type { IconMap } from "./icons";
+import type { EditRecoveryEntry } from "./edit-recovery";
 import { ICONS } from "./icons.ts";
 export { ICONS } from "./icons.ts";
 
 // Local records can predate the complete, validated backup format.
 // favicon may also hold an internal icon:// reference, resolved before backup validation.
-export type StoredItem = Pick<BackupItem, "id"> & Partial<Omit<BackupItem, "id">>;
+export const ITEM_TEXT_FIELDS = ["title", "description"] as const;
+export type ItemTextField = typeof ITEM_TEXT_FIELDS[number];
+interface ItemTextVersion { readonly value: string | null; readonly revision: string | null }
+export type ItemEditBasis = Readonly<Record<ItemTextField, ItemTextVersion>>;
+export type StoredItem = Pick<BackupItem, "id"> & Partial<Omit<BackupItem, "id">> & {
+  readonly editRevisions?: Readonly<Partial<Record<ItemTextField, string>>>;
+};
 export type StoredProject = Pick<BackupProject, "id"> & Partial<Omit<BackupProject, "id">>;
 
 export const ITEMS = "laterOnItems", PROJECTS = "laterOnProjects", COVERS = "laterOnCovers";
@@ -13,12 +20,14 @@ export const ORDER = "laterOnOrder", POSITIONS = "laterOnReadingPositions";
 export const CURRENT = "laterOnCurrentItem", ACTIVE = "laterOnActiveProject";
 export const KEYS = [ITEMS, PROJECTS, COVERS, ICONS, ORDER, POSITIONS] as const;
 export const EPOCH = "laterOnCollectionEpoch";
+export const OVERRIDE_LOG = "laterOnOverrideLog";
 
 export interface EpochSnapshot {
   readonly laterOnCollectionEpoch?: string;
 }
 
 export interface CollectionState extends EpochSnapshot {
+  readonly laterOnOverrideLog?: readonly EditRecoveryEntry[];
   readonly laterOnItems?: readonly StoredItem[];
   readonly laterOnProjects?: readonly StoredProject[];
   readonly laterOnCovers?: Readonly<Record<string, string>>;
@@ -59,7 +68,10 @@ export type CollectionOperation =
   | { readonly action: "moveProject"; readonly id: string; readonly beforeId: string | null }
   | { readonly action: "deleteProject"; readonly id: string }
   | { readonly action: "moveItem"; readonly id: string; readonly scope: string; readonly beforeId: string | null }
-  | { readonly action: "mutateItems"; readonly operation: "update" | "delete"; readonly ids: readonly string[]; readonly patch?: ItemChanges }
+  | { readonly action: "mutateItems"; readonly operation: "update" | "delete"; readonly ids: readonly string[]; readonly patch?: ItemChanges;
+      readonly editBasis?: ItemEditBasis }
+  | { readonly action: "listEditRecovery" }
+  | { readonly action: "clearEditRecovery" }
   | { readonly action: "migrateLegacyData" };
 
 export type CollectionAction = CollectionOperation["action"];
@@ -68,6 +80,7 @@ export type CommandFields<A extends CollectionAction> = A extends CollectionActi
 export type CollectionCommand = CollectionOperation & { readonly epoch?: string };
 
 export interface CollectionResponse {
+  readonly editRecovery?: readonly EditRecoveryEntry[];
   readonly items?: readonly StoredItem[];
   readonly projects?: readonly StoredProject[];
   readonly project?: StoredProject;
@@ -76,6 +89,7 @@ export interface CollectionResponse {
   readonly orders?: Readonly<Record<string, readonly string[]>>;
   readonly affected?: number;
   readonly existed?: boolean;
+  readonly editConflict?: "partial" | "pending";
 }
 
 export type CollectionSuccess = CollectionResponse & { readonly ok: true };
@@ -100,6 +114,9 @@ const isProjectChanges = (value: unknown): value is ProjectChanges => isChanges(
   coverPick: (entry) => Array.isArray(entry) && entry.every(isString)
 });
 
+const isTextVersion = (value: unknown): value is ItemTextVersion => isRecord(value) && isAnchor(value.value) && isAnchor(value.revision);
+const isEditBasis = (value: unknown): value is ItemEditBasis => isRecord(value) && isTextVersion(value.title) && isTextVersion(value.description);
+
 // Runtime messages remain untrusted even when extension callers use TS types.
 export function isCollectionCommand(value: unknown): value is CollectionCommand {
   if (!isRecord(value) || (value.epoch !== undefined && !isString(value.epoch))) return false;
@@ -111,7 +128,10 @@ export function isCollectionCommand(value: unknown): value is CollectionCommand 
     case "deleteProject": return isString(value.id);
     case "moveItem": return isString(value.id) && isString(value.scope) && isAnchor(value.beforeId);
     case "mutateItems": return (value.operation === "update" || value.operation === "delete")
-      && Array.isArray(value.ids) && value.ids.every(isString) && (value.patch === undefined || isItemChanges(value.patch));
+      && Array.isArray(value.ids) && value.ids.every(isString) && (value.patch === undefined || isItemChanges(value.patch))
+      && (value.editBasis === undefined || (value.operation === "update" && value.ids.length === 1 && isEditBasis(value.editBasis)));
+    case "listEditRecovery":
+    case "clearEditRecovery":
     case "migrateLegacyData": return true;
     default: return false;
   }

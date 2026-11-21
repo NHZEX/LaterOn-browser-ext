@@ -20,7 +20,7 @@ async function menu(env, action, id = "p") {
 }
 function key(env, element, value) { element.dispatchEvent(new env.window.KeyboardEvent("keydown", { key: value, bubbles: true, cancelable: true })); }
 
-test("编辑期间外部更新保留草稿、焦点和光标；仅提交修改字段，无自身广播也更新卡片", async t => {
+test("编辑期间外部更新保留草稿、焦点和光标；无自身广播也保存可找回的草稿", async t => {
   const env = createLibraryPage(t, { items: [makeItem("a", { image: "local://a" })], covers: { a: "old-cover" } });
   await ready(env, "unfiled");
   const trigger = env.card("a").querySelector(".edit"); trigger.focus(); trigger.click(); await opened(env);
@@ -33,8 +33,12 @@ test("编辑期间外部更新保留草稿、焦点和光标；仅提交修改�
   assert.deepEqual(mutations(env).at(-1).patch, { title: "My title", titleEdited: true });
   assert.equal(env.store.laterOnItems[0].description, "External summary"); assert.equal(env.store.laterOnItems[0].status, "reading");
   assert.equal(env.store.laterOnCovers.a, "new-external-cover");
-  assert.equal(env.card("a").querySelector("h2").textContent, "My title"); assert.equal(env.document.activeElement, trigger);
-  trigger.click(); await opened(env); field(env, "title").value = "Cancelled"; await submit(env, false);
+  assert.equal(env.card("a").querySelector("h2").textContent, "External title"); assert.equal(env.document.activeElement, trigger);
+  trigger.click(); await opened(env);
+  assert.equal(field(env, "title").value, "External title");
+  assert.deepEqual(env.store.laterOnOverrideLog.map(({ field, value, kind }) => ({ field, value, kind })),
+    [{ field: "title", value: "My title", kind: "draft" }]);
+  field(env, "title").value = "Cancelled"; await submit(env, false);
   assert.equal(mutations(env).length, 1); assert.equal(env.document.activeElement, trigger);
 });
 
@@ -43,10 +47,12 @@ test("弹窗目标被外部删除后不复活；确认删除失败后可重试�
   await ready(env, "unfiled");
   env.card("a").querySelector(".edit").click(); await opened(env); field(env, "title").value = "Stale";
   env.broadcast({ laterOnItems: [makeItem("b")] }); await env.flush(); await submit(env);
-  assert.equal(mutations(env).length, 0); assert.equal(env.document.activeElement.id, "searchInput");
+  assert.deepEqual(env.store.laterOnItems.map(item => item.id), ["b"]);
+  assert.equal(env.store.laterOnOverrideLog[0].value, "Stale");
+  assert.equal(env.document.activeElement.id, "searchInput");
   env.broadcast({ laterOnItems: [makeItem("a"), makeItem("b")], laterOnOrder: { all: ["a", "b"], unfiled: ["b", "a"] } }); await env.flush();
   env.card("a").querySelector(".delete").click(); await opened(env); await submit(env, false);
-  assert.equal(mutations(env).length, 0);
+  assert.equal(mutations(env).length, 1);
   env.card("a").querySelector(".delete").click(); await opened(env); env.failNextWrite(); await submit(env);
   assert.equal(env.store.laterOnItems.length, 2); assert.equal(env.store.laterOnCovers.a, "cover-a"); assert.ok(env.card("a"));
   env.card("a").querySelector(".delete").click(); await opened(env); await submit(env);

@@ -1,6 +1,7 @@
 import { watch } from "vue";
 import { buildEditPatch, isEmptySummary, resolveImage } from "../collection/item-edit";
 import type { ItemChanges } from "../storage/contracts";
+import { captureEditBasis, editRecoveryNotice } from "../storage/edit-recovery";
 import type { LibraryCommands } from "./useLibraryCommands";
 import { nextStatus, normalizeItemState } from "../collection/item-state";
 import { copyItemLink, type ItemLinkFormat } from "../collection/item-link";
@@ -23,6 +24,7 @@ export function useLibraryItems(commands: LibraryCommands, createProject: (name:
   function edit(id: string): Promise<void> {
     return commands.perform(`item:${id}`, async () => {
       const item = find(id); if (!item) return;
+      const editBasis = captureEditBasis(item);
       const cover = resolveImage(item, commands.collection.value.covers);
       // 摘要占位显示为空；共享弹窗负责上传压缩及移除，保存后由协调器同时写封面和指针。
       const result = await commands.prompt({ title: t("editItem"), message: isEmptySummary(item.description) ? t("missingSummaryHint") : "",
@@ -31,12 +33,15 @@ export function useLibraryItems(commands: LibraryCommands, createProject: (name:
           { name: "url", label: t("pageUrl"), value: item.url, multiline: true, rows: 2, readOnly: true },
           { name: "description", label: t("summary"), value: isEmptySummary(item.description) ? "" : item.description ?? "",
             placeholder: t("summaryPlaceholder"), multiline: true, maxLength: 500 }], confirmText: t("save") });
-      if (!result?.ok || !commands.current() || !find(id)) return;
+      if (!result?.ok || !commands.current()) return;
       const text = (key: string) => typeof result.values?.[key] === "string" ? result.values[key] : undefined;
       // 用打开时的收藏和解析后的封面比较，只写用户改动并设置手工编辑保护标记。
       const patch = buildEditPatch(item, { title: text("title"), description: text("description"), cover: text("cover") }, cover);
       if (!Object.keys(patch).length) { toast("noChanges"); return; }
-      if (await update(id, patch)) toast("changesSaved");
+      const saved = await commands.execute("mutateItems", { operation: "update", ids: [id], patch, editBasis });
+      const notice = editRecoveryNotice(saved?.editConflict);
+      if (notice) toast(notice);
+      else if (saved?.affected) toast("changesSaved");
     });
   }
   function remove(id: string): Promise<void> {

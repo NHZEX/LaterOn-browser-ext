@@ -4,11 +4,11 @@ const { webcrypto } = require('node:crypto');
 const read = require('./helpers/read-runtime.cjs');
 const clone = value => JSON.parse(JSON.stringify(value));
 const store = { laterOnItems: [], laterOnProjects: [], laterOnCovers: {}, laterOnOrder: {}, laterOnReadingPositions: {} };
-const changed = [], listeners = [];
+const changed = [], listeners = [], writes = [];
 let reads = 0, failWrite = false;
 const local = {
   async get(keys) { reads++; return clone(Object.fromEntries(keys.filter(key => key in store).map(key => [key, store[key]]))); },
-  async set(patch) { if (failWrite) throw Error('write failure'); Object.assign(store, clone(patch)); }
+  async set(patch) { if (failWrite) throw Error('write failure'); writes.push(clone(patch)); Object.assign(store, clone(patch)); }
 };
 const chrome = { storage: { local, onChanged: { addListener(fn) { changed.push(fn); } } },
   runtime: { onMessage: { addListener(fn) { listeners.push(fn); } }, getURL: name => `chrome-extension://fixture/${name}` } };
@@ -31,6 +31,36 @@ function page() {
   const first = page(), second = page();
   assert.equal(reads, 0, 'no extra reads during page startup');
   first.api.initialize(clone(store)); second.api.initialize(clone(store));
+  store.laterOnItems = [{ id: 'trip', title: 'Original', description: 'Original summary', pendingEdits: { title: ['Legacy text'] } }];
+  const basis = { title: { value: 'Original', revision: null }, description: { value: 'Original summary', revision: null } };
+  const update = (api, patch, editBasis) => api.run('mutateItems', { operation: 'update', ids: ['trip'], patch, editBasis });
+  await update(second.api, { title: 'Current' });
+  const beforeDraft = writes.length;
+  const saved = await update(first.api, { title: 'Stale draft', titleEdited: true, description: 'Saved summary', descriptionEdited: true }, basis);
+  assert.equal(saved.editConflict, 'partial');
+  assert.equal(store.laterOnItems[0].title, 'Current');
+  assert.equal(store.laterOnItems[0].description, 'Saved summary');
+  assert.deepEqual(store.laterOnItems[0].pendingEdits, { title: ['Legacy text'] });
+  assert.equal(writes.length, beforeDraft + 1);
+  assert.deepEqual(writes.at(-1).laterOnOverrideLog.map(({ kind, value }) => [kind, value]), [['draft', 'Stale draft'], ['legacy', 'Legacy text']]);
+  assert.equal(writes.at(-1).laterOnItems[0].description, 'Saved summary');
+  const list = () => first.api.run('listEditRecovery', {});
+  assert.equal((await list()).editRecovery.length, 2);
+  await update(first.api, { title: 'Stale draft', titleEdited: true }, basis);
+  assert.equal((await list()).editRecovery.length, 2, 'Retry does not duplicate the same draft');
+  await update(second.api, { title: 'Original' });
+  const reverted = await update(first.api, { title: 'Stale after revert' }, basis);
+  assert.equal(reverted.editConflict, 'pending');
+  assert.equal(store.laterOnItems[0].title, 'Original', 'A reverted value still has a different revision');
+  await Promise.all(Array.from({ length: 101 }, (_, index) => update(first.api, { title: `Draft ${index}` }, basis)));
+  const bounded = (await list()).editRecovery;
+  assert.equal(bounded.length, 100);
+  assert.equal(bounded[0].value, 'Draft 100');
+  assert.equal(bounded.at(-1).value, 'Draft 1');
+  await first.api.run('clearEditRecovery', {});
+  assert.deepEqual(clone((await list()).editRecovery), []);
+  assert.deepEqual(store.laterOnItems[0].pendingEdits, { title: ['Legacy text'] });
+  store.laterOnItems = [];
   assert.equal(first.api.commit, undefined, 'whole collection patch API is removed');
   const one = (await first.api.run('createProject', { name: 'One' })).project;
   const two = (await second.api.run('createProject', { name: 'Two' })).project;

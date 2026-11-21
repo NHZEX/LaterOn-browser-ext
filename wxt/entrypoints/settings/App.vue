@@ -8,6 +8,7 @@ import { resolveSettings } from "../../../src/settings/shared";
 import { clampDays } from "./shared";
 import { useDialog } from "./useDialog";
 import BackupPanel from "./BackupPanel.vue";
+import EditRecoveryPanel from "./EditRecoveryPanel.vue";
 import StorageUsagePanel from "./StorageUsagePanel.vue";
 import ShortcutsPanel from "./ShortcutsPanel.vue";
 import NotificationSetting from "./NotificationSetting.vue";
@@ -198,6 +199,7 @@ onUnmounted(() => {
           </TabsContent>
           <TabsContent v-if="backupVisited" v-show="activeTab === 'backup'" value="backup" force-mount class="settings-tab-panel">
             <BackupPanel v-model:busy="maintenanceBusy" :dialog="dialog" />
+            <EditRecoveryPanel :dialog="dialog" />
           </TabsContent>
           <TabsContent v-if="dataVisited" v-show="activeTab === 'data'" value="data" force-mount class="settings-tab-panel">
             <StorageUsagePanel v-if="activeTab === 'data'" />

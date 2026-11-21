@@ -5,6 +5,8 @@ import {
   isRecord, isCollectionCommand
 } from "./contracts";
 import { internIcons } from "./icons";
+import { OVERRIDE_LOG } from "./contracts";
+import { appendEditRecovery, protectItemEdit, readEditRecovery, stampEditRevisions } from "./edit-recovery";
 import type {
   CollectionState, LegacyCollectionState, StoredItem, StoredProject, CollectionAction,
   CollectionCommand, CollectionResponse, CollectionSuccess, Operation
@@ -34,7 +36,7 @@ export async function commit(stored: CollectionState, patch: CollectionState): P
     if (Object.keys(patch).length) await browser.storage.local.set(patch);
     return patch;
   }
-  const normalized = await internIcons(patch[ITEMS] || [], stored[ICONS] || {});
+  const normalized = await internIcons(stampEditRevisions(stored[ITEMS] || [], patch[ITEMS] || [], () => crypto.randomUUID()), stored[ICONS] || {});
   const { laterOnItems: _items, laterOnIcons: _icons, ...rest } = patch;
   const next = { ...rest,
     ...(!isEqual(stored[ITEMS], normalized.items) ? { [ITEMS]: normalized.items } : {}),
@@ -209,6 +211,23 @@ function mutateItems(stored: CollectionState, { operation, ids, patch = {} }: Op
   return result(write, { items, covers, affected });
 }
 
+function mutateItemsWithRecovery(stored: CollectionState, command: Operation<"mutateItems">): Mutation {
+  const { editBasis, patch = {}, ids: [id] } = command;
+  if (!editBasis || command.operation !== "update" || id === undefined) return mutateItems(stored, command);
+  const item = stored[ITEMS]?.find(entry => entry?.id === id);
+  const now = Date.now();
+  const checked = protectItemEdit(id, item, patch, editBasis, now);
+  const mutation = mutateItems(stored, { ...command, patch: checked.patch, editBasis: undefined });
+  if (!checked.conflict) return mutation;
+  return result({ ...mutation.patch, [OVERRIDE_LOG]: appendEditRecovery(checked.records, readEditRecovery(stored, now)) },
+    { ...mutation.response, editConflict: checked.conflict });
+}
+
+function listEditRecovery(stored: CollectionState): Mutation {
+  const entries = readEditRecovery(stored, Date.now());
+  return result(!stored[OVERRIDE_LOG] && entries.length ? { [OVERRIDE_LOG]: entries } : {}, { editRecovery: entries });
+}
+
 function migrateLegacyData(stored: LegacyCollectionState): Mutation {
   const original = stored[ITEMS] || [];
   const covers = { ...(stored[COVERS] || {}) };
@@ -226,7 +245,8 @@ function migrateLegacyData(stored: LegacyCollectionState): Mutation {
 const readKeys = {
   createProject: [PROJECTS], updateProject: [PROJECTS, ITEMS], setProjectPinned: [PROJECTS], moveProject: [PROJECTS],
   deleteProject: [...KEYS, CURRENT, ACTIVE], moveItem: [ITEMS, PROJECTS, ORDER],
-  mutateItems: [...KEYS, CURRENT], migrateLegacyData: [ITEMS, COVERS, ICONS]
+  mutateItems: [...KEYS, CURRENT, OVERRIDE_LOG], migrateLegacyData: [ITEMS, COVERS, ICONS],
+  listEditRecovery: [ITEMS, OVERRIDE_LOG], clearEditRecovery: []
 } satisfies Record<CollectionAction, readonly (keyof CollectionState)[]>;
 
 function applyOperation(stored: CollectionState, command: CollectionCommand): Mutation {
@@ -237,7 +257,9 @@ function applyOperation(stored: CollectionState, command: CollectionCommand): Mu
     case "moveProject": return moveProject(stored, command);
     case "deleteProject": return deleteProject(stored, command);
     case "moveItem": return moveItem(stored, command);
-    case "mutateItems": return mutateItems(stored, command);
+    case "mutateItems": return mutateItemsWithRecovery(stored, command);
+    case "listEditRecovery": return listEditRecovery(stored);
+    case "clearEditRecovery": return result({ [OVERRIDE_LOG]: [] }, { editRecovery: [] });
     case "migrateLegacyData": return migrateLegacyData(stored);
   }
 }
