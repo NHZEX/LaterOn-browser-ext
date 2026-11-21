@@ -119,10 +119,20 @@ export function seedText(value: string | undefined, manual: boolean, deviceId: s
     revision: { wallTime: 0, logical: manual ? 1 : 0, deviceId } };
 }
 
-export function initialSyncState(items: readonly StoredItem[], deviceId: string): SyncState {
-  const members = items.filter(Boolean).map(item => ({ id: item.id, url: item.url, savedAt: item.savedAt ?? 0,
-    title: seedText(item.title, item.titleEdited === true, isDeviceId(item.textAuthors?.title) ? item.textAuthors.title : deviceId),
-    description: seedText(item.description, item.descriptionEdited === true,
-      isDeviceId(item.textAuthors?.description) ? item.textAuthors.description : deviceId, true) }));
+function reusePublishedRevision(seed: SyncText, published?: SyncText): SyncText {
+  return published && seed.value === published.value && seed.manual === published.manual
+    && (!seed.manual || seed.revision.deviceId === published.revision.deviceId) ? published : seed;
+}
+
+export function initialSyncState(items: readonly StoredItem[], deviceId: string, published?: SyncState): SyncState {
+  const publishedMembers = new Map(published?.members.map(member => [member.id, member]));
+  const members = items.filter(Boolean).map(item => {
+    const known = publishedMembers.get(item.id);
+    const title = seedText(item.title, item.titleEdited === true, isDeviceId(item.textAuthors?.title) ? item.textAuthors.title : deviceId);
+    const description = seedText(item.description, item.descriptionEdited === true,
+      isDeviceId(item.textAuthors?.description) ? item.textAuthors.description : deviceId, true);
+    return { id: item.id, url: item.url, savedAt: item.savedAt ?? 0,
+      title: reusePublishedRevision(title, known?.title), description: reusePublishedRevision(description, known?.description) };
+  });
   return parseSyncState({ members, deletedIds: [] });
 }

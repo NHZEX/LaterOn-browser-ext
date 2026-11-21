@@ -24,6 +24,7 @@ const snapshotName = ({ deviceId, seq }: PublicationIdentity) => `snapshot-${dev
 const sameIdentity = (value: Record<string, unknown>, identity: PublicationIdentity): boolean =>
   value.collectionId === identity.collectionId && value.deviceId === identity.deviceId && value.seq === identity.seq;
 const unverified = (): never => { throw new Error("SYNC_UNVERIFIED"); };
+export const encodeSyncHead = (head: SyncHead): Uint8Array<ArrayBuffer> => encode(head);
 
 export async function createPublication(identity: PublicationIdentity, state: SyncState): Promise<{
   readonly head: SyncHead;
@@ -48,11 +49,11 @@ export function parseSyncHead(bytes: Uint8Array): SyncHead {
 }
 
 export function matchesSyncHead(bytes: Uint8Array | null, intent: SyncHead): boolean {
-  if (!bytes) return false;
-  const head = parseSyncHead(bytes);
-  return head.collectionId === intent.collectionId && head.deviceId === intent.deviceId && head.seq === intent.seq
-    && head.snapshotName === intent.snapshotName && head.stateHash === intent.stateHash;
+  return bytes !== null && sameSyncHead(parseSyncHead(bytes), intent);
 }
+
+export const sameSyncHead = (left: SyncHead, right: SyncHead): boolean => left.collectionId === right.collectionId
+  && left.deviceId === right.deviceId && left.seq === right.seq && left.snapshotName === right.snapshotName && left.stateHash === right.stateHash;
 
 export async function verifySyncSnapshot(bytes: Uint8Array<ArrayBuffer> | null, head: SyncHead): Promise<SyncState> {
   if (!bytes) return unverified();
