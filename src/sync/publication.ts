@@ -20,7 +20,7 @@ export interface SyncHead extends PublicationIdentity {
 const encode = (value: object) => new TextEncoder().encode(JSON.stringify(value));
 const decode = (bytes: Uint8Array): unknown => JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
 export const headName = (deviceId: string) => `head-${deviceId}.json`;
-const snapshotName = ({ deviceId, seq }: PublicationIdentity) => `snapshot-${deviceId}-${seq}.json.gz`;
+export const snapshotName = ({ deviceId, seq }: Pick<PublicationIdentity, "deviceId" | "seq">): string => `snapshot-${deviceId}-${seq}.json.gz`;
 const sameIdentity = (value: Record<string, unknown>, identity: PublicationIdentity): boolean =>
   value.collectionId === identity.collectionId && value.deviceId === identity.deviceId && value.seq === identity.seq;
 const unverified = (): never => { throw new Error("SYNC_UNVERIFIED"); };

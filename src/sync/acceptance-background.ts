@@ -12,7 +12,7 @@ import { SYNC_ACCEPTANCE_BUILD, SYNC_ACCEPTANCE_MESSAGE, SYNC_META } from "./acc
 import type { SyncAcceptanceReply, SyncAcceptanceStatus, SyncJoinPreview } from "./acceptance";
 import { detachSyncPatch, readMeta, verifiedHeads } from "./binding";
 import type { PendingPublication, SyncBinding, SyncMeta } from "./binding";
-import { createPublication, encodeSyncHead, headName, MAX_HEAD_BYTES, parseSyncHead, sameSyncHead, verifySyncSnapshot } from "./publication";
+import { createPublication, encodeSyncHead, headName, MAX_HEAD_BYTES, parseSyncHead, sameSyncHead, snapshotName, verifySyncSnapshot } from "./publication";
 import type { SyncHead } from "./publication";
 import { hashSyncState, initialSyncState, isDeviceId, maxClock, mergeSyncStates, stateClock, zeroClock } from "./state";
 import type { SyncState } from "./state";
@@ -28,7 +28,7 @@ interface Discovered {
 
 const rejected = (): never => { throw new Error("SYNC_ACCEPTANCE_REJECTED"); };
 const safetyPause = (): never => { throw new Error("SYNC_SAFETY_PAUSE"); };
-const emptyDiscovery: Discovered = { heads: [], state: { members: [], deletedIds: [] }, clock: zeroClock };
+const emptyState: SyncState = { members: [], deletedIds: [] };
 
 function acceptanceEndpoint(value: unknown): string {
   if (typeof value !== "string") return rejected();
@@ -46,7 +46,7 @@ async function requireCurrentBinding(expected: SyncBinding): Promise<BoundMeta> 
 
 function davFor(endpoint: string, meter: TransferMeter, binding?: SyncBinding): WebdavClient {
   return createWebdav({ endpoint: acceptanceEndpoint(endpoint), username: "", password: "" }, meter, async (input, options) => {
-    if (options?.method !== "PUT" || !binding) return fetch(input, options);
+    if (!binding || (options?.method !== "PUT" && options?.method !== "DELETE")) return fetch(input, options);
     const dispatched = await enqueue(async () => {
       await requireCurrentBinding(binding);
       return { response: fetch(input, options) };
@@ -101,6 +101,12 @@ const asPublication = (head: SyncHead): PendingPublication => ({ head, baseVersi
 const indexMatches = (observed: SyncHead | null, expected?: SyncHead): boolean => expected
   ? observed !== null && sameSyncHead(observed, expected) : observed === null;
 
+function confirmHead(binding: SyncBinding, head: SyncHead): SyncBinding {
+  const locallyPublished = binding.pending && sameSyncHead(binding.pending.head, head);
+  return { ...binding, confirmed: asPublication(head),
+    ...(locallyPublished ? { publishedSnapshots: [...(binding.publishedSnapshots ?? []), head.seq] } : {}) };
+}
+
 async function publishIndex(dav: WebdavClient, binding: SyncBinding, pending: PendingPublication, baseline?: SyncHead): Promise<boolean> {
   const { head } = pending;
   const index = headName(head.deviceId);
@@ -114,11 +120,12 @@ async function publishIndex(dav: WebdavClient, binding: SyncBinding, pending: Pe
   if (!indexMatches(readback, head)) return safetyPause();
   return enqueue(async () => {
     const current = await requireCurrentBinding(binding);
-    const { pending: active, paused: _paused, ...rest } = current.binding;
+    const active = current.binding.pending;
     if (!active || !sameSyncHead(active.head, head)) return rejected();
+    const { pending: _pending, paused: _paused, ...verified } = confirmHead(current.binding, head);
     const stored = await chrome.storage.local.get<StoredSync>(ITEMS);
-    const latest = withLocalAdditions(rest.state ?? emptyDiscovery.state, stored, current.deviceId);
-    await chrome.storage.local.set({ [SYNC_META]: { ...current, binding: { ...rest, confirmed: pending } } });
+    const latest = withLocalAdditions(verified.state ?? emptyState, stored, current.deviceId);
+    await chrome.storage.local.set({ [SYNC_META]: { ...current, binding: verified } });
     return await hashSyncState(latest) !== pending.baseVersion;
   });
 }
@@ -141,30 +148,50 @@ async function publish(dav: WebdavClient, meta: BoundMeta, state: SyncState): Pr
   return publishIndex(dav, binding, pending, baseline);
 }
 
-async function discover(dav: WebdavClient, collectionId: string, seen: readonly SyncHead[] = [], owner?: BoundMeta): Promise<Discovered> {
-  const entries = await dav.list([], true);
+async function discoverIndexes(dav: WebdavClient, collectionId: string, seen: readonly SyncHead[], owner?: BoundMeta): Promise<readonly SyncHead[]> {
+  const entries = await dav.list([], true).catch((error: unknown) => {
+    if (error instanceof Error && /^(?:WEBDAV_LIST(?:_LIMIT)?|WEBDAV_DIRECTORY)$/.test(error.message)) return safetyPause();
+    throw error;
+  });
   if (!entries) return safetyPause();
   const names = entries.filter(entry => entry.name.startsWith("head-")).sort((left, right) => left.name < right.name ? -1 : 1);
   if (!names.length && (!owner?.binding.pending || owner.binding.joined || owner.binding.confirmed
     || !entries.every(entry => !entry.directory && isAllocatedSnapshot(entry.name, owner)))) return safetyPause();
+  if (seen.some(head => !names.some(entry => entry.name === headName(head.deviceId)))) return safetyPause();
   const heads: SyncHead[] = [];
-  let state: SyncState = { members: [], deletedIds: [] };
-  let clock = zeroClock;
   for (const { name, directory } of names) {
     if (directory) return safetyPause();
     const head = await readIndex(dav, name, collectionId);
     if (!head) return safetyPause();
     const previous = seen.find(entry => entry.deviceId === head.deviceId);
     if (previous && (head.seq < previous.seq || (head.seq === previous.seq && !sameSyncHead(head, previous)))) return safetyPause();
-    const snapshot = await readSnapshot(dav, head);
-    if (!snapshot) return safetyPause();
+    heads.push(head);
+  }
+  if (owner && !heads.some(head => head.deviceId === owner.deviceId)
+    && await readIndex(dav, headName(owner.deviceId), collectionId)) return safetyPause();
+  return heads;
+}
+
+async function readAdvertisedSnapshot(dav: WebdavClient, advertised: SyncHead): Promise<{ head: SyncHead; state: SyncState }> {
+  const bytes = await dav.get([advertised.snapshotName]);
+  if (bytes !== null) return { head: advertised, state: await verifySyncSnapshot(bytes, advertised).catch(safetyPause) };
+  const newer = await readIndex(dav, headName(advertised.deviceId), advertised.collectionId);
+  if (!newer || newer.seq <= advertised.seq) return safetyPause();
+  const state = await readSnapshot(dav, newer);
+  if (!state) return safetyPause();
+  return { head: newer, state };
+}
+
+async function readDiscovered(dav: WebdavClient, indexes: readonly SyncHead[]): Promise<Discovered> {
+  const heads: SyncHead[] = [];
+  let state = emptyState;
+  let clock = zeroClock;
+  for (const index of indexes) {
+    const { head, state: snapshot } = await readAdvertisedSnapshot(dav, index);
     heads.push(head);
     clock = stateClock(snapshot, clock);
     state = mergeSyncStates(state, snapshot);
   }
-  if (seen.some(previous => !heads.some(head => head.deviceId === previous.deviceId))) return safetyPause();
-  if (owner && !heads.some(head => head.deviceId === owner.deviceId)
-    && await readIndex(dav, headName(owner.deviceId), collectionId)) return safetyPause();
   return { heads, state, clock };
 }
 
@@ -195,8 +222,10 @@ async function evaluateJoin(message: Record<string, unknown>, meter: TransferMet
   if (!isDeviceId(collectionId)) return rejected();
   const initial = await readMeta();
   if (initial?.binding) return rejected();
-  const seen = initial?.detachedHeads?.collectionId === collectionId ? initial.detachedHeads.heads : [];
-  const { heads, state, clock } = await discover(davFor(endpoint, meter), collectionId, seen);
+  const detached = initial?.detachedHeads?.collectionId === collectionId ? initial.detachedHeads : undefined;
+  const dav = davFor(endpoint, meter);
+  const indexes = await discoverIndexes(dav, collectionId, detached?.heads ?? []);
+  const { heads, state, clock } = await readDiscovered(dav, indexes);
   return enqueue(async () => {
     const stored = await chrome.storage.local.get<StoredSync>([SYNC_META, ...KEYS, CURRENT, OVERRIDE_LOG]);
     const prior = stored[SYNC_META];
@@ -212,8 +241,9 @@ async function evaluateJoin(message: Record<string, unknown>, meter: TransferMet
     if (message.proof !== proof) return rejected();
     if (items.length || stored.laterOnProjects?.length) await saveLocalRecovery(stored);
     const own = heads.find(head => head.deviceId === deviceId);
+    const publishedSnapshots = detached?.endpoint === endpoint ? detached.publishedSnapshots : undefined;
     const binding: SyncBinding = { endpoint, collectionId, bindingId: crypto.randomUUID(), joined: true,
-      state: merged, seen: heads,
+      state: merged, seen: heads, ...(publishedSnapshots ? { publishedSnapshots } : {}),
       ...(own ? { confirmed: asPublication(own) } : {}) };
     const next = { ...incoming.patch, [SYNC_META]: { deviceId, allocatedSeq: Math.max(prior?.allocatedSeq ?? 0, own?.seq ?? 0),
       clock: stateClock(previous, maxClock(clock, prior?.clock ?? zeroClock)), binding } };
@@ -225,11 +255,11 @@ async function prepareSync(binding: SyncBinding, remote: Discovered, own?: SyncH
   return enqueue(async () => {
     const current = await requireCurrentBinding(binding);
     const stored = await chrome.storage.local.get<StoredSync>([...KEYS, CURRENT, OVERRIDE_LOG]);
-    const previous = withLocalAdditions(current.binding.state ?? emptyDiscovery.state, stored, current.deviceId);
+    const previous = withLocalAdditions(current.binding.state ?? emptyState, stored, current.deviceId);
     const state = mergeSyncStates(previous, remote.state);
-    const { pending, paused: _paused, ...rest } = current.binding;
+    const { pending, paused: _paused, ...rest } = own ? confirmHead(current.binding, own) : current.binding;
     const nextBinding: SyncBinding = { ...rest, seen: remote.heads, state,
-      ...(pending && (!own || own.seq < pending.head.seq) ? { pending } : {}), ...(own ? { confirmed: asPublication(own) } : {}) };
+      ...(pending && (!own || own.seq < pending.head.seq) ? { pending } : {}) };
     const meta = { ...current, allocatedSeq: Math.max(current.allocatedSeq, own?.seq ?? 0),
       clock: stateClock(previous, maxClock(remote.clock, current.clock ?? zeroClock)), binding: nextBinding };
     await commit(stored, { ...mergeIntoCollection(stored, previous, state, current.deviceId).patch, [SYNC_META]: meta });
@@ -237,15 +267,26 @@ async function prepareSync(binding: SyncBinding, remote: Discovered, own?: SyncH
   });
 }
 
-async function syncCollection(binding: SyncBinding, meter: TransferMeter, first: boolean): Promise<boolean> {
-  const dav = davFor(binding.endpoint, meter, binding);
+async function canSkipSnapshots(binding: SyncBinding, indexes: readonly SyncHead[], seen: readonly SyncHead[]): Promise<boolean> {
+  const confirmed = binding.confirmed;
+  if (!confirmed || binding.pending || binding.paused || indexes.length !== seen.length
+    || !indexes.every(head => seen.some(previous => sameSyncHead(head, previous)))) return false;
+  return enqueue(async () => {
+    const current = await requireCurrentBinding(binding);
+    const stored = await chrome.storage.local.get<StoredSync>(ITEMS);
+    const latest = withLocalAdditions(current.binding.state ?? emptyState, stored, current.deviceId);
+    return await hashSyncState(latest) === confirmed.baseVersion;
+  });
+}
+
+async function exchange(dav: WebdavClient, binding: SyncBinding, first: boolean): Promise<boolean> {
   if (first || (binding.paused && !binding.joined && !binding.confirmed && !binding.pending)) {
     if (binding.joined || binding.confirmed || binding.pending) return rejected();
     await requireEmpty(dav);
     const prepared = await enqueue(async () => {
       const current = await requireCurrentBinding(binding);
       const stored = await chrome.storage.local.get<StoredSync>(ITEMS);
-      const state = withLocalAdditions(current.binding.state ?? emptyDiscovery.state, stored, current.deviceId);
+      const state = withLocalAdditions(current.binding.state ?? emptyState, stored, current.deviceId);
       const next = { ...current, binding: { ...current.binding, state } };
       await commit(stored, { [SYNC_META]: next });
       return { current: next, state };
@@ -254,7 +295,10 @@ async function syncCollection(binding: SyncBinding, meter: TransferMeter, first:
   }
   if (!binding.joined && !binding.confirmed && !binding.pending) return rejected();
   const current = await requireCurrentBinding(binding);
-  const remote = await discover(dav, binding.collectionId, verifiedHeads(binding), current);
+  const seen = verifiedHeads(binding);
+  const indexes = await discoverIndexes(dav, binding.collectionId, seen, current);
+  if (await canSkipSnapshots(binding, indexes, seen)) return false;
+  const remote = await readDiscovered(dav, indexes);
   const own = remote.heads.find(head => head.deviceId === current.deviceId);
   const pending = binding.pending;
   const publishedPending = !!own && !!pending && own.seq === pending.head.seq;
@@ -270,6 +314,30 @@ async function syncCollection(binding: SyncBinding, meter: TransferMeter, first:
   if (remaining && hash === remaining.baseVersion && await readSnapshot(dav, remaining.head)) return publishIndex(dav, binding, remaining, own);
   if (!remaining && hash === own?.stateHash) return false;
   return publish(dav, prepared.meta, prepared.state);
+}
+
+async function cleanupSnapshots(dav: WebdavClient, binding: SyncBinding): Promise<void> {
+  const { binding: current } = await requireCurrentBinding(binding);
+  const head = current.confirmed?.head;
+  if (!head || current.pending || current.paused) return;
+  const older = (current.publishedSnapshots ?? []).filter(seq => seq < head.seq).sort((left, right) => right - left);
+  for (const seq of older.slice(1)) {
+    const advertised = await readIndex(dav, headName(head.deviceId), head.collectionId);
+    if (!indexMatches(advertised, head)) return;
+    await dav.remove([snapshotName({ deviceId: head.deviceId, seq })]);
+    await enqueue(async () => {
+      const meta = await requireCurrentBinding(binding);
+      const publishedSnapshots = meta.binding.publishedSnapshots?.filter(known => known !== seq);
+      await chrome.storage.local.set({ [SYNC_META]: { ...meta, binding: { ...meta.binding, publishedSnapshots } } });
+    });
+  }
+}
+
+async function syncCollection(binding: SyncBinding, meter: TransferMeter, first: boolean): Promise<boolean> {
+  const dav = davFor(binding.endpoint, meter, binding);
+  const moreChanges = await exchange(dav, binding, first);
+  await cleanupSnapshots(dav, binding).catch(() => {});
+  return moreChanges;
 }
 
 function status(binding?: SyncBinding): SyncAcceptanceStatus {

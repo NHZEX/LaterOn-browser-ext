@@ -60,6 +60,9 @@ async function withDav(run) {
         snapshot.state.members[0].title.value = "Different title";
         response.writeHead(200).end(gzipSync(JSON.stringify(snapshot)));
       } else response.writeHead(bytes ? 200 : 404).end(bytes);
+    } else if (method === "DELETE") {
+      const status = await dav.beforeDelete?.(url);
+      response.writeHead(status ?? (dav.files.delete(url) ? 204 : 404)).end();
     } else response.writeHead(405).end();
   });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -88,6 +91,24 @@ const openSettings = (context, extensionUrl) => context.newPage().then(async pag
 const syncPanel = page => page.getByRole("region", { name: regionName });
 const headPathFor = deviceId => `${folder}head-${deviceId}.json`;
 const putPathsSince = (dav, count = 0) => dav.requests.slice(count).filter(({ method }) => method === "PUT").map(({ url }) => url);
+const requestsSince = (dav, count) => dav.requests.slice(count).map(({ method, url }) => `${method} ${url}`);
+
+async function syncNow(panel, button = "Sync now") {
+  await panel.getByRole("button", { name: button }).click();
+  await expect(panel.getByRole("status")).toHaveText("Snapshot verified. Collection changes synced.");
+}
+
+async function saveSyncItem(page, endpoint, title) {
+  const result = await page.evaluate(item => chrome.runtime.sendMessage({ type: "SAVE_ITEM", item }),
+    { url: new URL(title, endpoint).href, title });
+  expect(result.ok).toBe(true);
+}
+
+async function publishFirst(panel) {
+  await panel.getByRole("button", { name: "Create sync library" }).click();
+  await panel.getByRole("button", { name: "Publish first snapshot" }).click();
+  await expect(panel.getByRole("status")).toHaveText("First snapshot verified.");
+}
 
 async function withRestartableProfile(run) {
   const root = path.resolve(tmpdir());
@@ -549,6 +570,7 @@ test("同库重绑挡住旧下载和未发送索引，清空或覆盖恢复不�
     await expect(panel.getByRole("status")).toHaveText("First snapshot verified.");
     const settings = await openSettings(context, extension.url);
     const first = await readMeta(page);
+    await saveSyncItem(page, endpoint, "pending-before-stalled-download");
     const downloads = Promise.withResolvers();
     const releaseDownload = Promise.withResolvers();
     dav.beforeGet = async url => {
@@ -936,5 +958,160 @@ test("第 7 代晚到覆盖第 8 代，已验证过第 8 代的配置暂停，�
         expect(await urls(peerPage)).toContain(eighthUrl);
       });
     } finally { release.resolve(); }
+  });
+});
+
+test("两套配置收敛后只读取设备索引，不完整清单不能静默短路", async ({ page, extension }) => {
+  test.skip(!acceptance, "Requires sync-acceptance build");
+  await withDav(async (dav, endpoint) => {
+    dav.discover = true;
+    const first = await openPanel(page, extension, endpoint);
+    await publishFirst(first);
+    const owner = await readMeta(page);
+    await withRestartableProfile(async restart => {
+      const peer = await restart();
+      await peer.worker.evaluate(() => chrome.storage.local.set({ laterOnSettings: { language: "en" } }));
+      const peerPage = await openSettings(peer.context, peer.url);
+      const second = syncPanel(peerPage);
+      await previewJoin(second, endpoint, owner.binding.collectionId);
+      await second.getByRole("button", { name: "Confirm join" }).click();
+      await expect(second.getByRole("button", { name: "Sync now" })).toBeEnabled();
+      await saveSyncItem(peerPage, endpoint, "peer-addition");
+      await syncNow(second);
+      await syncNow(first);
+      await syncNow(second);
+      const other = await readMeta(peerPage);
+      const indexes = [headPathFor(owner.deviceId), headPathFor(other.deviceId)].sort();
+      expect((await readMeta(page)).binding.confirmed.head.stateHash).toBe(other.binding.confirmed.head.stateHash);
+
+      for (const panel of [first, second]) {
+        const start = dav.requests.length;
+        await syncNow(panel);
+        expect(requestsSince(dav, start)).toEqual([`PROPFIND ${folder}`, ...indexes.map(url => `GET ${url}`)]);
+      }
+
+      const before = (await readMeta(page)).binding.state;
+      const limit = Array.from({ length: 749 }, (_, index) => [`${folder}filler-${index}`, null]);
+      for (const visible of [new Map([[headPathFor(owner.deviceId), null]]), new Map(limit)]) {
+        dav.discover = false;
+        dav.listing = actualListing(visible);
+        const start = dav.requests.length;
+        await first.getByRole("button", { name: "Sync now" }).click();
+        await expect(first.getByRole("alert")).toBeVisible();
+        expect((await readMeta(page)).binding.state).toEqual(before);
+        expect(dav.requests.slice(start).every(({ method, url }) => method === "PROPFIND" || (method === "GET" && url.endsWith(".json")))).toBe(true);
+        dav.discover = true;
+        await syncNow(first, "Recheck and sync");
+      }
+    });
+  });
+});
+
+test("只在确认索引后清理本设备旧快照，删除失败可跨重启重试", async () => {
+  test.skip(!acceptance, "Requires sync-acceptance build");
+  await withDav(async (dav, endpoint) => {
+    dav.discover = true;
+    await withRestartableProfile(async restart => {
+      const owner = await restart();
+      const settings = await owner.context.newPage();
+      const panel = await openPanel(settings, owner, endpoint);
+      await publishFirst(panel);
+      const origin = await readMeta(settings);
+      const index = headPathFor(origin.deviceId);
+      const first = folder + origin.binding.confirmed.head.snapshotName;
+      const foreign = `${folder}snapshot-00000000-0000-4000-8000-000000000000-1.json.gz`;
+      dav.files.set(foreign, Buffer.from("outside this device's records"));
+      await saveSyncItem(settings, endpoint, "publication-two");
+      await syncNow(panel);
+      const second = folder + (await readMeta(settings)).binding.confirmed.head.snapshotName;
+      const checked = Promise.withResolvers(), release = Promise.withResolvers();
+      dav.beforeGet = async url => {
+        if (url !== index || JSON.parse(dav.files.get(index)).seq !== 3) return;
+        checked.resolve();
+        await release.promise;
+      };
+      dav.beforeDelete = () => 503;
+      const start = dav.requests.length;
+      await saveSyncItem(settings, endpoint, "publication-three");
+      try {
+        await panel.getByRole("button", { name: "Sync now" }).click();
+        await checked.promise;
+        expect(requestsSince(dav, start).filter(request => request.startsWith("DELETE"))).toEqual([]);
+        expect(dav.files.has(first)).toBe(true);
+      } finally {
+        release.resolve();
+      }
+      await expect(panel.getByRole("status")).toHaveText("Snapshot verified. Collection changes synced.");
+      const third = folder + (await readMeta(settings)).binding.confirmed.head.snapshotName;
+      expect(requestsSince(dav, start).filter(request => request.startsWith("DELETE"))).toEqual([`DELETE ${first}`]);
+      expect(dav.requests.slice(start).filter(({ method }) => method === "PROPFIND")).toHaveLength(1);
+      expect(dav.files.has(first)).toBe(true);
+      await expect(panel.getByRole("alert")).toHaveCount(0);
+
+      const reopened = await restart();
+      const reloaded = syncPanel(await openSettings(reopened.context, reopened.url));
+      dav.beforeGet = undefined;
+      dav.beforeDelete = undefined;
+      const retry = dav.requests.length;
+      await syncNow(reloaded);
+      expect(requestsSince(dav, retry).filter(request => request.startsWith("DELETE"))).toEqual([`DELETE ${first}`]);
+      expect(dav.requests.slice(retry).filter(({ method }) => method === "PROPFIND")).toHaveLength(1);
+      expect([...dav.files.keys()].filter(url => url.endsWith(".gz")).sort()).toEqual([second, third, foreign].sort());
+      const steady = dav.requests.length;
+      await syncNow(reloaded);
+      expect(requestsSince(dav, steady)).toEqual([`PROPFIND ${folder}`, `GET ${index}`]);
+    });
+  });
+});
+
+test("读取旧索引遇快照 404 时只追一次新索引，仍缺失则不合并", async ({ page, extension }) => {
+  test.skip(!acceptance, "Requires sync-acceptance build");
+  await withDav(async (dav, endpoint) => {
+    dav.discover = true;
+    const first = await openPanel(page, extension, endpoint);
+    await publishFirst(first);
+    const owner = await readMeta(page);
+    const index = headPathFor(owner.deviceId);
+    const oldBytes = dav.files.get(index);
+    const oldPath = folder + owner.binding.confirmed.head.snapshotName;
+    await saveSyncItem(page, endpoint, "visible-in-new-snapshot");
+    await syncNow(first);
+    const newBytes = dav.files.get(index);
+    const newHead = JSON.parse(newBytes);
+    const newPath = folder + newHead.snapshotName;
+    dav.files.delete(oldPath);
+    dav.files.set(index, oldBytes);
+    dav.beforeGet = url => { if (url === index) dav.files.set(index, newBytes); };
+
+    await withRestartableProfile(async restart => {
+      const peer = await restart();
+      await peer.worker.evaluate(() => chrome.storage.local.set({ laterOnSettings: { language: "en" } }));
+      const settings = await openSettings(peer.context, peer.url);
+      const panel = syncPanel(settings);
+      const start = dav.requests.length;
+      await previewJoin(panel, endpoint, owner.binding.collectionId);
+      await expect(panel.getByRole("button", { name: "Confirm join" })).toBeVisible();
+      expect(requestsSince(dav, start)).toEqual([
+        `PROPFIND ${folder}`, `GET ${index}`, `GET ${oldPath}`, `GET ${index}`, `GET ${newPath}`
+      ]);
+      dav.beforeGet = undefined;
+      await panel.getByRole("button", { name: "Confirm join" }).click();
+      await expect(panel.getByRole("button", { name: "Sync now" })).toBeEnabled();
+      const before = await readMeta(settings);
+      expect(before.binding.state.members.map(member => member.title.value)).toContain("visible-in-new-snapshot");
+
+      const headFor = seq => ({ ...newHead, seq, snapshotName: `snapshot-${newHead.deviceId}-${seq}.json.gz` });
+      const third = headFor(3), fourth = headFor(4);
+      dav.files.set(index, Buffer.from(JSON.stringify(third)));
+      dav.beforeGet = url => { if (url === index) dav.files.set(index, Buffer.from(JSON.stringify(fourth))); };
+      const retry = dav.requests.length;
+      await panel.getByRole("button", { name: "Sync now" }).click();
+      await expect(panel.getByRole("status")).toContainText("Sync paused:");
+      expect(requestsSince(dav, retry)).toEqual([
+        `PROPFIND ${folder}`, `GET ${index}`, `GET ${headPathFor(before.deviceId)}`, `GET ${folder + third.snapshotName}`,
+        `GET ${index}`, `GET ${folder + fourth.snapshotName}`
+      ]);
+      expect(await readMeta(settings)).toEqual({ ...before, binding: { ...before.binding, paused: true } });
+    });
   });
 });
