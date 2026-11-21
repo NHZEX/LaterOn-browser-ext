@@ -580,6 +580,98 @@ test("项目级联删除同步原始成员，同网址成员及本机项目不�
   });
 });
 
+test("首次建库和重绑按实际手写时间逐字段合并", async ({ page, context, extension }) => {
+  test.skip(!acceptance, "Requires sync-acceptance build");
+  test.setTimeout(90_000);
+  await withDav(async (dav, endpoint) => {
+    dav.discover = true;
+    const first = await openPanel(page, extension, endpoint);
+    await makeSeedEditable(page);
+    await page.evaluate(async () => {
+      const { laterOnItems } = await chrome.storage.local.get("laterOnItems");
+      await chrome.storage.local.set({ laterOnItems: laterOnItems.map(item => ({ ...item, descriptionEdited: true })) });
+    });
+    const card = view => view.locator('#cardGrid [data-id="saved-page"]');
+    const edit = async (profile, url, field, value) => {
+      const view = await profile.newPage();
+      try {
+        await view.goto(new URL("library.html?from=sidepanel&project=unfiled&filter=all", url).href);
+        await card(view).locator(".edit").press("Enter");
+        const dialog = view.getByRole("dialog");
+        await dialog.getByRole("textbox", { name: field, exact: true }).fill(value);
+        await dialog.getByRole("button", { name: "Save", exact: true }).click();
+        await expect(dialog).toBeHidden();
+      } finally { await view.close(); }
+    };
+    const join = async (panel, collectionId, status = "Joined. Use Sync now to exchange collection changes.") => {
+      await previewJoin(panel, endpoint, collectionId);
+      await panel.getByRole("button", { name: "Confirm join" }).click();
+      await expect(panel.getByRole("status")).toHaveText(status);
+    };
+    const member = async settings => (await readMeta(settings)).binding.state.members.find(({ id }) => id === "saved-page");
+    const storedText = async settings => (await settings.evaluate(async () => (await chrome.storage.local.get("laterOnItems")).laterOnItems))
+      .find(({ id }) => id === "saved-page");
+
+    const firstEditStarted = Date.now();
+    await edit(context, extension.url, "Title", "Edited before creating");
+    const firstEditDone = Date.now();
+    await publishFirst(first);
+    const { binding: { collectionId } } = await readMeta(page);
+    const initial = await member(page);
+    expect(initial.title.revision.wallTime).toBeGreaterThanOrEqual(firstEditStarted);
+    expect(initial.title.revision.wallTime).toBeLessThanOrEqual(firstEditDone);
+    expect(initial.description).toMatchObject({ manual: true, revision: { wallTime: 0 } });
+
+    await withRestartableProfile(async restart => {
+      const peer = await restart();
+      await peer.worker.evaluate(() => chrome.storage.local.set({ laterOnSettings: { language: "en" }, laterOnOnboardingSeen: true }));
+      const secondPage = await openSettings(peer.context, peer.url);
+      const second = syncPanel(secondPage);
+      await join(second, collectionId);
+      await second.getByRole("button", { name: "Unbind" }).click();
+      await expect(second.getByRole("button", { name: "Preview join" })).toBeVisible();
+
+      await edit(peer.context, peer.url, "Summary", "Earlier local summary");
+      await edit(context, extension.url, "Title", "Older remote title");
+      await edit(context, extension.url, "Summary", "Newer remote summary");
+      await syncNow(first);
+      const remote = await member(page);
+      const detachedEditStarted = Date.now();
+      await edit(peer.context, peer.url, "Title", "Newer detached title");
+      const detachedEditDone = Date.now();
+      expect(await storedText(secondPage)).toMatchObject({ title: "Newer detached title", description: "Earlier local summary" });
+
+      const reopened = await restart();
+      const settings = await openSettings(reopened.context, reopened.url);
+      const panel = syncPanel(settings);
+      await join(panel, collectionId);
+      const merged = await member(settings);
+      expect(merged.title.value).toBe("Newer detached title");
+      expect(merged.title.revision.wallTime).toBeGreaterThanOrEqual(detachedEditStarted);
+      expect(merged.title.revision.wallTime).toBeLessThanOrEqual(detachedEditDone);
+      expect(merged.description).toEqual(remote.description);
+      expect(await storedText(settings)).toMatchObject({ title: "Newer detached title", description: "Newer remote summary" });
+      await settings.getByRole("button", { name: "View local recovery records" }).click();
+      await expect(settings.getByRole("listitem").filter({ hasText: "Overwritten local edit" })).toHaveText(/Earlier local summary/);
+      await syncNow(panel);
+      await syncNow(first);
+      expect(await member(page)).toEqual(merged);
+
+      await panel.getByRole("button", { name: "Unbind" }).click();
+      await expect(panel.getByRole("button", { name: "Preview join" })).toBeVisible();
+      await edit(reopened.context, reopened.url, "Summary", "");
+      await join(panel, collectionId, "First snapshot verified.");
+      const cleared = await member(settings);
+      expect(cleared.title).toEqual(merged.title);
+      expect(cleared.description).toMatchObject({ value: "", manual: true });
+      expect(cleared.description.revision.wallTime).toBeGreaterThan(merged.description.revision.wallTime);
+      await syncNow(panel);
+      await syncNow(first);
+      expect(await member(page)).toEqual(cleared);
+    });
+  });
+});
+
 test("同步按确认时的原始成员删除，乱序收敛且可主动重收", async ({ page, context, extension }) => {
   test.skip(!acceptance, "Requires sync-acceptance build");
   test.setTimeout(60_000);

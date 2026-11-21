@@ -9,7 +9,7 @@ import { OVERRIDE_LOG } from "./contracts";
 import { SYNC_META } from "../sync/acceptance";
 import { groupMembers, groupOrderOwner, syncViewBound } from "../sync/projection";
 import type { SyncViewSnapshot } from "../sync/projection";
-import { editView, planSyncEdit, projectItemText, withItemText, writeSyncEdit } from "../sync/text-edit";
+import { editView, planSyncEdit, projectItemText, writeSyncEdit, writeUnboundHandwrittenEdit } from "../sync/text-edit";
 import { appendEditRecovery, protectItemEdit, readEditRecovery, stampEditRevisions, stripLegacyEditState } from "./edit-recovery";
 import { itemRemovalPatch, pruneProjectPicks, recordSyncDeletions } from "./item-deletion";
 import type {
@@ -258,11 +258,10 @@ function mutateItemsWithRecovery(stored: StoredCollection, command: Operation<"m
   }
   const checked = protectItemEdit(id, item, patch, editBasis, now);
   const mutation = updateItems(stored, { ...command, patch: checked.patch });
-  const items = mutation.patch[ITEMS]?.map(entry => entry.id === id && entry.textAuthors ? ITEM_TEXT_FIELDS.reduce((next, field) => {
-    const value = checked.patch[field];
-    return value === undefined ? next : withItemText(next, field, value, true);
-  }, entry) : entry);
-  return result({ ...mutation.patch, ...(items ? { [ITEMS]: items } : {}),
+  const updated = mutation.patch[ITEMS]?.find(entry => entry.id === id);
+  const edited = updated && writeUnboundHandwrittenEdit(meta, updated, checked.patch, now, () => crypto.randomUUID());
+  const items = edited && mutation.patch[ITEMS]?.map(entry => entry.id === id ? edited.item : entry);
+  return result({ ...mutation.patch, ...(items ? { [ITEMS]: items } : {}), ...(edited ? { [SYNC_META]: edited.meta } : {}),
     ...(checked.conflict ? { [OVERRIDE_LOG]: appendEditRecovery(checked.records, readEditRecovery(stored, now)) } : {}) },
   { ...mutation.response, ...(items ? { items } : {}), ...(checked.conflict ? { editConflict: checked.conflict } : {}) });
 }

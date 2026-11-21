@@ -4,11 +4,10 @@ import type { ItemChanges, ItemEditBasis, ItemTextField, StoredItem } from "../s
 import { captureEditBasis } from "../storage/edit-recovery";
 import type { EditRecoveryEntry } from "../storage/edit-recovery";
 import type { SyncBinding, SyncMeta } from "./binding";
-import { compareText, initialSyncState, mergeSyncStates, seedText, stateClock, tickClock } from "./state";
-import type { SyncMember, SyncState, SyncText } from "./state";
+import { compareText, encodeHandwrittenRevision, initialSyncState, mergeSyncStates, seedItemText, stateClock, textEditFlags, tickClock, zeroClock } from "./state";
+import type { SyncMember, SyncRevision, SyncState, SyncText } from "./state";
 
 type BoundMeta = SyncMeta & { readonly binding: SyncBinding };
-const flags = { title: "titleEdited", description: "descriptionEdited" } as const;
 const indexMembers = (state?: SyncState) => new Map((state?.members ?? []).map(member => [member.id, member]));
 
 export function editView(meta: BoundMeta) {
@@ -20,8 +19,7 @@ export type SyncEditView = ReturnType<typeof editView>;
 export function projectItemText(item: StoredItem, members: readonly StoredItem[], view?: SyncEditView) {
   if (!view) return { item, basis: captureEditBasis(item) };
   const source = (field: ItemTextField) => {
-    const text = (member: StoredItem) => view.members.get(member.id)?.[field]
-      ?? seedText(member[field], member[flags[field]] === true, member.textAuthors?.[field] ?? view.deviceId, field === "description");
+    const text = (member: StoredItem) => view.members.get(member.id)?.[field] ?? seedItemText(member, field, view.deviceId);
     const winner = members.reduce((chosen, candidate) => compareText(text(candidate), text(chosen)) > 0 ? candidate : chosen, item);
     const stamp = text(winner).revision;
     return { sourceId: winner.id, value: winner[field] ?? null,
@@ -32,11 +30,29 @@ export function projectItemText(item: StoredItem, members: readonly StoredItem[]
     basis: { bindingId: view.bindingId, title, description } };
 }
 
-export function withItemText(item: StoredItem, field: ItemTextField, value: string, manual: boolean, remoteAuthor?: string): StoredItem {
+function withItemText(item: StoredItem, field: ItemTextField, value: string, manual: boolean, remoteAuthor?: string): StoredItem {
   const { textAuthors, ...rest } = item;
   const { [field]: _author, ...others } = textAuthors ?? {};
   const authors = remoteAuthor ? { ...others, [field]: remoteAuthor } : others;
-  return { ...rest, [field]: value, [flags[field]]: manual, ...(Object.keys(authors).length ? { textAuthors: authors } : {}) };
+  return { ...rest, [field]: value, [textEditFlags[field]]: manual, ...(Object.keys(authors).length ? { textAuthors: authors } : {}) };
+}
+
+function withHandwrittenText(item: StoredItem, field: ItemTextField, value: string, revision: SyncRevision): StoredItem {
+  return { ...withItemText(item, field, value, true), editRevisions: { ...item.editRevisions, [field]: encodeHandwrittenRevision(revision) } };
+}
+
+export function writeUnboundHandwrittenEdit(meta: SyncMeta | undefined, item: StoredItem, patch: ItemChanges, now: number,
+  newDeviceId: () => string): { readonly item: StoredItem; readonly meta: SyncMeta } | undefined {
+  const changes = ITEM_TEXT_FIELDS.flatMap(field => {
+    const value = patch[field];
+    return value !== undefined && patch[textEditFlags[field]] === true ? [{ field, value }] : [];
+  });
+  if (!changes.length) return;
+  const current = meta ?? { deviceId: newDeviceId(), allocatedSeq: 0 };
+  const clock = tickClock(current.clock ?? zeroClock, now);
+  const revision = { ...clock, deviceId: current.deviceId };
+  return { item: changes.reduce((next, { field, value }) => withHandwrittenText(next, field, value, revision), item),
+    meta: { ...current, clock } };
 }
 
 export function planSyncEdit(id: string, current: ReturnType<typeof projectItemText> | undefined, basis: ItemEditBasis, patch: ItemChanges, now: number) {
@@ -72,7 +88,7 @@ export function writeSyncEdit(meta: BoundMeta, items: readonly StoredItem[], cha
   };
   const edited = items.map(item => ITEM_TEXT_FIELDS.reduce((next, field) => {
     const value = changes.get(item.id)?.[field];
-    return value === undefined ? next : withItemText(next, field, value, true);
+    return value === undefined ? next : withHandwrittenText(next, field, value, revision);
   }, item));
   const members = base.members.map(member => changes.has(member.id)
     ? { ...member, title: update(member, "title"), description: update(member, "description") } : member);
@@ -101,7 +117,8 @@ export function receiveSyncText(items: readonly StoredItem[], previous: SyncStat
       const winner = incoming[field], loser = old[field];
       const author = winner.manual && winner.revision.deviceId !== deviceId ? winner.revision.deviceId : undefined;
       if (compareText(winner, loser) === 0) {
-        return winner.manual && (item[flags[field]] !== true || item[field] !== winner.value || item.textAuthors?.[field] !== author)
+        const sameValue = item[field] === winner.value || (field === "description" && winner.value === "" && isEmptySummary(item[field]));
+        return winner.manual && (item[textEditFlags[field]] !== true || !sameValue || item.textAuthors?.[field] !== author)
           ? withItemText(updated, field, winner.value, true, author)
           : updated;
       }

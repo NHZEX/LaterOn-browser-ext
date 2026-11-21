@@ -1,5 +1,5 @@
 import { isRecord } from "../storage/contracts";
-import type { StoredItem } from "../storage/contracts";
+import type { ItemTextField, StoredItem } from "../storage/contracts";
 import { isEmptySummary } from "../collection/item-edit";
 
 export interface SyncRevision {
@@ -96,9 +96,11 @@ export async function hashSyncState(state: SyncState): Promise<string> {
   return Array.from(digest, byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
+const isSyncRevision = (value: unknown): value is SyncRevision => isRecord(value)
+  && isCount(value.wallTime) && isCount(value.logical) && isDeviceId(value.deviceId);
+
 function isSyncText(value: unknown): value is SyncText {
-  return isRecord(value) && typeof value.value === "string" && typeof value.manual === "boolean" && isRecord(value.revision)
-    && isCount(value.revision.wallTime) && isCount(value.revision.logical) && isDeviceId(value.revision.deviceId);
+  return isRecord(value) && typeof value.value === "string" && typeof value.manual === "boolean" && isSyncRevision(value.revision);
 }
 
 function isSyncMember(value: unknown): value is SyncMember {
@@ -114,25 +116,35 @@ export function parseSyncState(value: unknown): SyncState {
   return canonical;
 }
 
-export function seedText(value: string | undefined, manual: boolean, deviceId: string, summary = false): SyncText {
-  return { value: summary && isEmptySummary(value) ? "" : value ?? "", manual,
-    revision: { wallTime: 0, logical: manual ? 1 : 0, deviceId } };
+export const textEditFlags = { title: "titleEdited", description: "descriptionEdited" } as const;
+export const encodeHandwrittenRevision = ({ wallTime, logical, deviceId }: SyncRevision): string => `hlc:${wallTime}:${logical}:${deviceId}`;
+
+function readHandwrittenRevision(token: string | undefined): SyncRevision | undefined {
+  const match = typeof token === "string" && /^hlc:(\d+):(\d+):([^:]+)$/.exec(token);
+  if (!match) return;
+  const [, wallTime, logical, deviceId] = match;
+  const revision = { wallTime: Number(wallTime), logical: Number(logical), deviceId };
+  if (isSyncRevision(revision)) return revision;
 }
 
-function reusePublishedRevision(seed: SyncText, published?: SyncText): SyncText {
-  return published && seed.value === published.value && seed.manual === published.manual
-    && (!seed.manual || seed.revision.deviceId === published.revision.deviceId) ? published : seed;
+export function seedItemText(item: StoredItem, field: ItemTextField, deviceId: string, published?: SyncText): SyncText {
+  const manual = item[textEditFlags[field]] === true;
+  const stored = item[field];
+  const value = field === "description" && isEmptySummary(stored) ? "" : stored ?? "";
+  const author = item.textAuthors?.[field];
+  const actual = manual && !author ? readHandwrittenRevision(item.editRevisions?.[field]) : undefined;
+  if (actual?.deviceId === deviceId) return { value, manual, revision: actual };
+  const writer = isDeviceId(author) ? author : deviceId;
+  if (published && value === published.value && manual === published.manual && (!manual || writer === published.revision.deviceId)) return published;
+  return { value, manual, revision: { wallTime: 0, logical: manual ? 1 : 0, deviceId: writer } };
 }
 
 export function initialSyncState(items: readonly StoredItem[], deviceId: string, published?: SyncState): SyncState {
   const publishedMembers = new Map(published?.members.map(member => [member.id, member]));
   const members = items.filter(Boolean).map(item => {
     const known = publishedMembers.get(item.id);
-    const title = seedText(item.title, item.titleEdited === true, isDeviceId(item.textAuthors?.title) ? item.textAuthors.title : deviceId);
-    const description = seedText(item.description, item.descriptionEdited === true,
-      isDeviceId(item.textAuthors?.description) ? item.textAuthors.description : deviceId, true);
     return { id: item.id, url: item.url, savedAt: item.savedAt ?? 0,
-      title: reusePublishedRevision(title, known?.title), description: reusePublishedRevision(description, known?.description) };
+      title: seedItemText(item, "title", deviceId, known?.title), description: seedItemText(item, "description", deviceId, known?.description) };
   });
   return parseSyncState({ members, deletedIds: [] });
 }

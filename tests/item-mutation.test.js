@@ -70,5 +70,31 @@ const page = name => ({ url: `https://fixture.test/${name}`, title: name, image:
   await mutateItems({ operation: 'update', ids: ['done'], patch: { status: 'done' } });
   assert.strictEqual(store.laterOnItems[0].doneAt, 123, '已读日期不因重复标记重置');
   await assert.rejects(mutateItems({ operation: 'invalid', ids: [] }), /Invalid/);
-  console.log('PASS 删除原子提交、封面/排序/阅读标记清理、并发添加/修改、失败保留与重试');
+
+  const editBasis = { title: { value: 'done', revision: null }, description: { value: null, revision: null } };
+  const edit = { operation: 'update', ids: ['done'], patch: { title: 'Handwritten title', titleEdited: true }, editBasis };
+  const beforeEdit = clone(store);
+  failWrite = true;
+  await assert.rejects(mutateItems(edit), /fixture write failure/);
+  assert.deepStrictEqual(store, beforeEdit, '编辑失败时不保存字段修订，也不推进本机时钟');
+  await mutateItems(edit);
+  const edited = store.laterOnItems[0];
+  const editedMeta = clone(store.laterOnSyncMeta);
+  assert.strictEqual(edited.title, 'Handwritten title');
+  assert.strictEqual(typeof edited.editRevisions.title, 'string', '仍以字符串形式持久化编辑基线');
+  assert.ok(editedMeta.clock.wallTime > 0);
+  assert.strictEqual(edited.editRevisions.description, undefined, '只记录实际改动的字段');
+  await mutateItems(edit);
+  assert.deepStrictEqual(store.laterOnSyncMeta, editedMeta, '重复提交同一值不推进本机时钟');
+  assert.deepStrictEqual(store.laterOnItems[0], edited);
+
+  const duplicate = await ctx.backgroundTest.saveItem({ url: edited.url, title: 'Fetched title', description: 'Fetched summary' }, { silent: true });
+  assert.strictEqual(duplicate.duplicated, true);
+  assert.strictEqual(duplicate.item.title, edited.title, '自动补全不覆盖手写标题');
+  assert.strictEqual(duplicate.item.editRevisions.title, edited.editRevisions.title);
+  assert.strictEqual(duplicate.item.description, 'Fetched summary');
+  assert.notStrictEqual(duplicate.item.descriptionEdited, true);
+  assert.deepStrictEqual(store.laterOnSyncMeta, editedMeta);
+
+  console.log('PASS 删除原子提交、并发添加/修改、失败保留与重试、未绑定手写修订');
 })().catch(error => { console.error(error); process.exitCode = 1; });
