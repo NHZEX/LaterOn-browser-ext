@@ -1,6 +1,7 @@
 import type { BackgroundSnapshot } from "../background/shared";
 import type { ImportToken } from "./client";
 import { isRecord } from "../storage/contracts";
+import type { StoredItem } from "../storage/contracts";
 
 interface BackupRequest {
   readonly payload?: unknown;
@@ -19,6 +20,14 @@ import { detachSyncPatch } from "../sync/binding";
 const RECOVERY_KEY = "laterOnPreRestoreBackup";
 const RECOVERY_AT = "laterOnPreRestoreBackupAt";
 const snapshot = () => chrome.storage.local.get<BackgroundSnapshot>([...store.KEYS]);
+
+function retainLocalEditMetadata(items: readonly StoredItem[], previous: readonly StoredItem[]): readonly StoredItem[] {
+  const local = new Map(previous.map(item => [item.id, item]));
+  return items.map(item => {
+    const { editRevisions, textAuthors } = local.get(item.id) ?? {};
+    return { ...item, ...(editRevisions ? { editRevisions } : {}), ...(textAuthors ? { textAuthors } : {}) };
+  });
+}
 
 export async function createLocalBackup(includeImages: boolean): Promise<core.BackupDocument> {
   return store.enqueue(async () => core.create(await snapshot(), chrome.runtime.getManifest().version,
@@ -75,8 +84,10 @@ export function registerBackup() {
       const epoch = crypto.randomUUID();
       if (mode === "replace" && keepRecovery === true) await saveLocalRecovery(latest);
       const detached = SYNC_ACCEPTANCE_BUILD && mode === "replace" ? await detachSyncPatch() : {};
+      const restored = core.toStorage(result.data);
+      const items = mode === "merge" ? retainLocalEditMetadata(restored.laterOnItems, latest.laterOnItems ?? []) : restored.laterOnItems;
       // A single storage write commits all references and invalidates old pages.
-      await store.commit(latest, { ...core.toStorage(result.data), ...detached, [store.EPOCH]: epoch,
+      await store.commit(latest, { ...restored, ...detached, laterOnItems: items, [store.EPOCH]: epoch,
         laterOnCurrentItem: null, laterOnActiveProject: "all" });
       return { ok: true, added: result.added, duplicates: result.duplicates, addedProjects: result.addedProjects, total: result.data.items.length };
     });

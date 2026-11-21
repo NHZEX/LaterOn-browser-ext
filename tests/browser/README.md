@@ -24,12 +24,12 @@ pnpm test:browser:smoke
 
 普通构建不开放同步验收入口。隔离构建只连接本机环回 WebDAV。先用一个配置在预先建好的专用空目录创建库并发布首份快照，再用其他配置输入相同地址和设置页显示的库 ID，预览、确认加入并手动同步。不要使用备份目录或真实服务。
 
-专项测试使用两套隔离 Chromium 配置和环回 WebDAV 夹具，覆盖创建、加入、离线新增、本机关联回退、同库解绑重绑与本机恢复隔离。标题和摘要编辑、删除传播、晚到的已发送写入仍由后续工单验收。
+专项测试使用两套隔离 Chromium 配置和环回 WebDAV 夹具，覆盖创建、加入、离线新增、本机关联回退、同库解绑重绑与本机恢复隔离，以及标题与摘要双向编辑、显式清空、旧表单与覆盖找回、旧索引回放和重启。旧候选迁移由本机找回测试验证。删除传播和晚到的已发送写入仍由后续工单验收。
 
 ```powershell
 pnpm exec wxt build --mode sync-acceptance
 $env:STAYSIDE_SYNC_ACCEPTANCE = '1'
-try { pnpm exec playwright test tests/browser/sync-create.spec.cjs }
+try { pnpm exec playwright test tests/browser/sync-create.spec.cjs tests/browser/edit-recovery.spec.cjs }
 finally { Remove-Item Env:STAYSIDE_SYNC_ACCEPTANCE }
 ```
 

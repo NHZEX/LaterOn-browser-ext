@@ -35,12 +35,14 @@ function page() {
   const basis = { title: { value: 'Original', revision: null }, description: { value: 'Original summary', revision: null } };
   const update = (api, patch, editBasis) => api.run('mutateItems', { operation: 'update', ids: ['trip'], patch, editBasis });
   await update(second.api, { title: 'Current' });
+  assert.deepEqual(writes.at(-1).laterOnOverrideLog.map(({ kind, value }) => [kind, value]), [['legacy', 'Legacy text']]);
+  assert.equal('pendingEdits' in writes.at(-1).laterOnItems[0], false, 'Migration commits recovery and removes the candidates together');
   const beforeDraft = writes.length;
   const saved = await update(first.api, { title: 'Stale draft', titleEdited: true, description: 'Saved summary', descriptionEdited: true }, basis);
   assert.equal(saved.editConflict, 'partial');
   assert.equal(store.laterOnItems[0].title, 'Current');
   assert.equal(store.laterOnItems[0].description, 'Saved summary');
-  assert.deepEqual(store.laterOnItems[0].pendingEdits, { title: ['Legacy text'] });
+  assert.equal('pendingEdits' in store.laterOnItems[0], false);
   assert.equal(writes.length, beforeDraft + 1);
   assert.deepEqual(writes.at(-1).laterOnOverrideLog.map(({ kind, value }) => [kind, value]), [['draft', 'Stale draft'], ['legacy', 'Legacy text']]);
   assert.equal(writes.at(-1).laterOnItems[0].description, 'Saved summary');
@@ -59,7 +61,7 @@ function page() {
   assert.equal(bounded.at(-1).value, 'Draft 1');
   await first.api.run('clearEditRecovery', {});
   assert.deepEqual(clone((await list()).editRecovery), []);
-  assert.deepEqual(store.laterOnItems[0].pendingEdits, { title: ['Legacy text'] });
+  assert.equal('pendingEdits' in store.laterOnItems[0], false);
   store.laterOnItems = [];
   assert.equal(first.api.commit, undefined, 'whole collection patch API is removed');
   const one = (await first.api.run('createProject', { name: 'One' })).project;

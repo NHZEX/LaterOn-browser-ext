@@ -7,7 +7,7 @@ import type { LibrarySnapshot } from "./page";
 import { pinnedProjects } from "./shared";
 import type { LibraryView } from "./useLibraryView";
 import { SYNC_META } from "../sync/acceptance";
-import { groupMembers, syncViewBound } from "../sync/projection";
+import { updateMemberGroups } from "../sync/projection";
 
 export function useLibraryStorage(view: LibraryView, applyScope: (snapshot: LibrarySnapshot, initial: boolean) => void, failed: () => void) {
   let alive = true, mounted = false, ready = false;
@@ -15,9 +15,8 @@ export function useLibraryStorage(view: LibraryView, applyScope: (snapshot: Libr
   function apply(snapshot: LibrarySnapshot, initial = false): void {
     const previous = view.collection.value;
     const items = ITEMS in snapshot ? normalizeItems(snapshot[ITEMS]) : previous.items;
-    const grouped = SYNC_META in snapshot ? syncViewBound(snapshot) : previous.groups !== undefined;
     if (ITEMS in snapshot || PROJECTS in snapshot || COVERS in snapshot || ICONS in snapshot || SYNC_META in snapshot) view.collection.value = {
-      items, groups: grouped ? (items === previous.items ? previous.groups ?? groupMembers(items) : groupMembers(items)) : undefined,
+      items, groups: updateMemberGroups(snapshot, items, previous.groups, items === previous.items),
       projects: PROJECTS in snapshot ? pinnedProjects(snapshot[PROJECTS] ?? []) : previous.projects,
       // 用户上传封面体积大，独立于收藏列表存储，避免每次列表写入都搬运图片。
       covers: COVERS in snapshot ? snapshot[COVERS] ?? {} : previous.covers,
@@ -59,6 +58,7 @@ export function useLibraryStorage(view: LibraryView, applyScope: (snapshot: Libr
   function accept(response: CollectionSuccess): void {
     if (!alive) return;
     apply({ ...(response.items ? { [ITEMS]: response.items } : {}), ...(response.projects ? { [PROJECTS]: response.projects } : {}),
+      ...(response.syncMeta ? { [SYNC_META]: response.syncMeta } : {}),
       ...(response.icons ? { [ICONS]: response.icons } : {}),
       ...(response.covers ? { [COVERS]: response.covers } : {}), ...(response.orders ? { [ORDER]: response.orders } : {}) });
     if (response.items && !response.items.some(item => item.id === view.state.currentItemId)) view.state.currentItemId = null;

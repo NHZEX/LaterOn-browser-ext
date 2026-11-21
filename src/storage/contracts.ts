@@ -1,6 +1,7 @@
 import type { BackupItem, BackupProject } from "../backup/core";
 import type { IconMap } from "./icons";
 import type { EditRecoveryEntry } from "./edit-recovery";
+import type { SyncMeta } from "../sync/binding";
 import { ICONS } from "./icons.ts";
 export { ICONS } from "./icons.ts";
 
@@ -8,10 +9,11 @@ export { ICONS } from "./icons.ts";
 // favicon may also hold an internal icon:// reference, resolved before backup validation.
 export const ITEM_TEXT_FIELDS = ["title", "description"] as const;
 export type ItemTextField = typeof ITEM_TEXT_FIELDS[number];
-interface ItemTextVersion { readonly value: string | null; readonly revision: string | null }
-export type ItemEditBasis = Readonly<Record<ItemTextField, ItemTextVersion>>;
+interface ItemTextVersion { readonly value: string | null; readonly revision: string | null; readonly sourceId?: string }
+export type ItemEditBasis = Readonly<Record<ItemTextField, ItemTextVersion>> & { readonly bindingId?: string };
 export type StoredItem = Pick<BackupItem, "id"> & Partial<Omit<BackupItem, "id">> & {
   readonly editRevisions?: Readonly<Partial<Record<ItemTextField, string>>>;
+  readonly textAuthors?: Readonly<Partial<Record<ItemTextField, string>>>;
 };
 export type StoredProject = Pick<BackupProject, "id"> & Partial<Omit<BackupProject, "id">>;
 
@@ -80,6 +82,7 @@ export type CommandFields<A extends CollectionAction> = A extends CollectionActi
 export type CollectionCommand = CollectionOperation & { readonly epoch?: string };
 
 export interface CollectionResponse {
+  readonly syncMeta?: SyncMeta;
   readonly editRecovery?: readonly EditRecoveryEntry[];
   readonly items?: readonly StoredItem[];
   readonly projects?: readonly StoredProject[];
@@ -114,8 +117,10 @@ const isProjectChanges = (value: unknown): value is ProjectChanges => isChanges(
   coverPick: (entry) => Array.isArray(entry) && entry.every(isString)
 });
 
-const isTextVersion = (value: unknown): value is ItemTextVersion => isRecord(value) && isAnchor(value.value) && isAnchor(value.revision);
-const isEditBasis = (value: unknown): value is ItemEditBasis => isRecord(value) && isTextVersion(value.title) && isTextVersion(value.description);
+const isTextVersion = (value: unknown): value is ItemTextVersion => isRecord(value) && isAnchor(value.value) && isAnchor(value.revision)
+  && (value.sourceId === undefined || isString(value.sourceId));
+const isEditBasis = (value: unknown): value is ItemEditBasis => isRecord(value) && isTextVersion(value.title) && isTextVersion(value.description)
+  && (value.bindingId === undefined || isString(value.bindingId));
 
 // Runtime messages remain untrusted even when extension callers use TS types.
 export function isCollectionCommand(value: unknown): value is CollectionCommand {

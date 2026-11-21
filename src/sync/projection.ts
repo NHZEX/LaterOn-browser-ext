@@ -4,9 +4,11 @@ import type { StoredItem } from "../storage/contracts";
 import { isRecord } from "../storage/contracts";
 import { SYNC_ACCEPTANCE_BUILD, SYNC_META } from "./acceptance";
 import type { SyncMeta } from "./binding";
+import { editView, projectItemText } from "./text-edit";
+import type { SyncEditView } from "./text-edit";
 
-export type SyncViewSnapshot = { readonly [SYNC_META]?: Pick<SyncMeta, "binding"> };
-export type MemberGroups = ReadonlyMap<string, readonly StoredItem[]>;
+export type SyncViewSnapshot = { readonly [SYNC_META]?: SyncMeta };
+export type MemberGroups = ReadonlyMap<string, readonly StoredItem[]> & { readonly text?: SyncEditView };
 export const hasSyncBinding = (meta: unknown) => SYNC_ACCEPTANCE_BUILD && isRecord(meta) && isRecord(meta.binding);
 export const syncViewBound = (snapshot: SyncViewSnapshot) => hasSyncBinding(snapshot[SYNC_META]);
 
@@ -14,7 +16,7 @@ function compareMembers(left: StoredItem, right: StoredItem): number {
   return (left.savedAt ?? 0) - (right.savedAt ?? 0) || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
 }
 
-export function groupMembers(items: readonly StoredItem[]): MemberGroups {
+export function groupMembers(items: readonly StoredItem[], text?: SyncEditView): MemberGroups {
   const byUrl = new Map<string, StoredItem[]>();
   const byId = new Map<string, readonly StoredItem[]>();
   for (const item of items) {
@@ -28,7 +30,18 @@ export function groupMembers(items: readonly StoredItem[]): MemberGroups {
     members.sort(compareMembers);
     for (const member of members) byId.set(member.id, members);
   }
-  return byId;
+  return Object.assign(byId, { text });
+}
+
+export function updateMemberGroups(snapshot: SyncViewSnapshot, items: readonly StoredItem[], previous?: MemberGroups, sameItems = false) {
+  if (!(SYNC_META in snapshot)) return previous && (sameItems ? previous : groupMembers(items, previous.text));
+  const meta = snapshot[SYNC_META];
+  return syncViewBound(snapshot) && meta?.binding ? groupMembers(items, editView({ ...meta, binding: meta.binding })) : undefined;
+}
+
+export function editableCard(item: StoredItem, groups?: MemberGroups) {
+  const members = groups?.get(item.id) ?? [item];
+  return projectItemText(members[0] ?? item, members, groups?.text);
 }
 
 export function projectCards(scoped: readonly StoredItem[], groups?: MemberGroups): readonly StoredItem[] {
@@ -36,7 +49,7 @@ export function projectCards(scoped: readonly StoredItem[], groups?: MemberGroup
   const cards = new Map<string, StoredItem>();
   for (const item of scoped) {
     const canonical = groups.get(item.id)?.[0] ?? item;
-    cards.set(canonical.id, canonical);
+    if (!cards.has(canonical.id)) cards.set(canonical.id, editableCard(canonical, groups).item);
   }
   return [...cards.values()];
 }

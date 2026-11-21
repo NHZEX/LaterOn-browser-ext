@@ -143,7 +143,7 @@ test("加入前核对并取消，非空配置确认后备份，并交换原始�
       expect(puts()).toBe(2);
       await join.click();
       await second.getByRole("button", { name: "Confirm join" }).click();
-      await expect(second.getByRole("status")).toHaveText("Joined. Use Sync now to exchange additions.");
+      await expect(second.getByRole("status")).toHaveText("Joined. Use Sync now to exchange collection changes.");
       const joined = await read();
       expect(joined.laterOnItems.map(item => item.id)).toEqual([local.id, neighbor.id, "saved-page"]);
       expect(joined.laterOnReadingPositions).toEqual({ [local.id]: 0 });
@@ -185,13 +185,153 @@ test("加入前核对并取消，非空配置确认后备份，并交换原始�
       expect((await read()).laterOnItems.some(item => item.id === offline.id)).toBe(true);
       dav.offline = false;
       await second.getByRole("button", { name: "Sync now" }).click();
-      await expect(second.getByRole("status")).toHaveText("Snapshot verified. Additions synced.");
+      await expect(second.getByRole("status")).toHaveText("Snapshot verified. Collection changes synced.");
       await first.getByRole("button", { name: "Sync now" }).click();
-      await expect(first.getByRole("status")).toHaveText("Snapshot verified. Additions synced.");
+      await expect(first.getByRole("status")).toHaveText("Snapshot verified. Collection changes synced.");
       const items = await page.evaluate(async () => (await chrome.storage.local.get("laterOnItems")).laterOnItems);
       expect(items.map(item => item.id).sort()).toEqual(["saved-page", local.id, neighbor.id, offline.id].sort());
       expect(items.find(item => item.id === local.id).status).not.toBe("reading");
     } finally { await profile.close(); }
+  });
+});
+
+test("双配置通过编辑框分别改标题和摘要，再同步显式清空", async ({ page, context, extension }) => {
+  test.skip(!acceptance, "Requires sync-acceptance build");
+  await withDav(async (dav, endpoint) => {
+    dav.discover = true;
+    const first = await openPanel(page, extension, endpoint);
+    const duplicateUrl = new URL("offline-addition", endpoint).href;
+    await page.evaluate(async duplicateUrl => {
+      const { laterOnItems } = await chrome.storage.local.get("laterOnItems");
+      await chrome.storage.local.set({ laterOnOnboardingSeen: true, laterOnFilter: "all", laterOnFilterChosen: true,
+        laterOnItems: [...laterOnItems.map(item => ({ ...item, projectId: null })),
+          { id: "zz-auto-page", url: duplicateUrl, savedAt: 124, title: duplicateUrl }] });
+    }, duplicateUrl);
+    await first.getByRole("button", { name: "Create sync library" }).click();
+    await first.getByRole("button", { name: "Publish first snapshot" }).click();
+    await expect(first.getByRole("status")).toHaveText("First snapshot verified.");
+    const root = path.resolve(tmpdir());
+    const profileDir = await mkdtemp(path.join(root, "stayside-sync-text-test-"));
+    const launch = () => chromium.launchPersistentContext(profileDir, { channel: "chromium", headless: true,
+      args: [`--disable-extensions-except=${buildDir}`, `--load-extension=${buildDir}`] });
+    let profile;
+    try {
+      profile = await launch();
+      const worker = profile.serviceWorkers()[0] || await profile.waitForEvent("serviceworker");
+      await worker.evaluate(() => chrome.storage.local.set({ laterOnSettings: { language: "en" }, laterOnOnboardingSeen: true }));
+      const secondPage = await openSettings(profile, worker.url());
+      const second = syncPanel(secondPage);
+      await previewJoin(second, endpoint, (await readMeta(page)).binding.collectionId);
+      await second.getByRole("button", { name: "Confirm join" }).click();
+      const library = async (profile, url) => {
+        const view = await profile.newPage();
+        await view.goto(new URL("library.html?from=sidepanel&project=unfiled&filter=all", url).href);
+        return view;
+      };
+      const left = await library(context, extension.url), right = await library(profile, worker.url());
+      const openEdit = async (view, id = "saved-page") => {
+        await view.locator(`#cardGrid [data-id="${id}"] .edit`).press("Enter");
+        return view.getByRole("dialog").filter({ has: view.getByRole("heading", { name: "Edit page" }) });
+      };
+      const save = dialog => dialog.getByRole("button", { name: "Save", exact: true }).click();
+      const title = dialog => dialog.getByRole("textbox", { name: "Title", exact: true });
+      const summary = dialog => dialog.getByRole("textbox", { name: "Summary", exact: true });
+      const sync = async panel => {
+        await panel.getByRole("button", { name: "Sync now" }).click();
+        await expect(panel.getByRole("status")).toHaveText("Snapshot verified. Collection changes synced.");
+        await expect(panel.getByRole("alert")).toHaveCount(0);
+        await expect(panel.getByRole("button", { name: "Sync now" })).toBeEnabled();
+      };
+      const repeatSave = name => page.evaluate(({ url, title }) => chrome.runtime.sendMessage({ type: "SAVE_ITEM", item: { url, title } }),
+        { url: duplicateUrl, title: name });
+      const autoSeed = (await readMeta(page)).binding.state.members.find(member => member.id === "zz-auto-page");
+      dav.offline = true;
+      expect(await repeatSave("Auto title from duplicate capture")).toMatchObject({ duplicated: true, refreshed: true });
+      expect((await readMeta(page)).binding.state.members.find(member => member.id === "zz-auto-page")).toEqual(autoSeed);
+      const manual = await openEdit(right, "zz-auto-page");
+      await title(manual).fill("Manually named article");
+      await save(manual);
+      await expect.poll(async () => (await readMeta(secondPage)).binding.state.members.find(member => member.id === "zz-auto-page").title.value)
+        .toBe("Manually named article");
+      dav.offline = false;
+      const firstEdit = await openEdit(left), secondEdit = await openEdit(right);
+      await title(firstEdit).fill("Left title");
+      await save(firstEdit);
+      await expect.poll(async () => (await readMeta(page)).binding.state.members[0].title.value).toBe("Left title");
+      await summary(secondEdit).fill("Right notes");
+      await save(secondEdit);
+      await expect.poll(async () => (await readMeta(secondPage)).binding.state.members[0].description.value).toBe("Right notes");
+      await sync(first);
+      await sync(second);
+      await sync(first);
+      await expect(left.locator('#cardGrid [data-id="saved-page"]')).toContainText("Right notes");
+      await expect(right.locator('#cardGrid [data-id="saved-page"]')).toContainText("Left title");
+      await expect(left.locator('#cardGrid [data-id="zz-auto-page"]')).toContainText("Manually named article");
+      expect(await repeatSave("Auto title must not replace the remote hand edit")).toMatchObject({ duplicated: true, refreshed: false });
+      const secondHead = `${folder}head-${(await readMeta(secondPage)).deviceId}.json`;
+      const earlierIndex = dav.files.get(secondHead);
+      const stale = await openEdit(left);
+      await title(stale).fill("Stale title draft");
+      await summary(stale).fill("");
+      const remoteEdit = await openEdit(right);
+      await title(remoteEdit).fill("Replacement title");
+      await save(remoteEdit);
+      await expect.poll(async () => (await readMeta(secondPage)).binding.state.members[0].title.value).toBe("Replacement title");
+      await sync(second);
+      await sync(first);
+      await save(stale);
+      await expect.poll(async () => (await readMeta(page)).binding.state.members[0].description.value).toBe("");
+      await sync(first);
+      await sync(second);
+      const check = await openEdit(right);
+      await expect(summary(check)).toHaveValue("");
+      await expect(title(check)).toHaveValue("Replacement title");
+      const recovery = settings => settings.evaluate(async () =>
+        (await chrome.storage.local.get("laterOnOverrideLog")).laterOnOverrideLog ?? []);
+      expect((await recovery(page)).map(({ kind, value }) => ({ kind, value }))).toEqual([
+        { kind: "draft", value: "Stale title draft" }, { kind: "overwritten", value: "Left title" }
+      ]);
+      expect((await recovery(secondPage)).map(({ kind, value }) => ({ kind, value }))).toEqual([{ kind: "overwritten", value: "Right notes" }]);
+      const beforeReplay = await readMeta(page), beforeRecovery = await recovery(page);
+      const latestIndex = dav.files.get(secondHead);
+      try {
+        dav.files.set(secondHead, earlierIndex);
+        await first.getByRole("button", { name: "Sync now" }).click();
+        await expect(first.getByRole("alert")).toBeVisible();
+        expect(await readMeta(page)).toEqual(beforeReplay);
+        expect(await recovery(page)).toEqual(beforeRecovery);
+      } finally { dav.files.set(secondHead, latestIndex); }
+      await sync(first);
+      await page.getByRole("button", { name: "View local recovery records" }).click();
+      await expect(page.getByText("Stale title draft", { exact: true })).toBeVisible();
+      await expect(page.getByRole("listitem").filter({ hasText: "Overwritten local edit" })).toContainText("Left title");
+      const persisted = await readMeta(secondPage);
+      await profile.close();
+      profile = await launch();
+      const reopened = await openSettings(profile, worker.url());
+      expect(await readMeta(reopened)).toEqual(persisted);
+      await sync(syncPanel(reopened));
+      const restarted = await openEdit(await library(profile, worker.url()));
+      await expect(title(restarted)).toHaveValue("Replacement title");
+      await expect(summary(restarted)).toHaveValue("");
+      await restarted.getByRole("button", { name: "Cancel" }).click();
+      const unpublished = await openEdit(left);
+      await title(unpublished).fill("Unpublished local edit");
+      await save(unpublished);
+      await expect.poll(async () => (await readMeta(page)).binding.state.members[0].title.value).toBe("Unpublished local edit");
+      const afterRestart = await openEdit(await library(profile, worker.url()));
+      await title(afterRestart).fill("Newer edit after restart");
+      await save(afterRestart);
+      await expect.poll(async () => (await readMeta(reopened)).binding.state.members[0].title.value).toBe("Newer edit after restart");
+      await sync(syncPanel(reopened));
+      await sync(first);
+      await expect(left.locator('#cardGrid [data-id="saved-page"]')).toContainText("Newer edit after restart");
+      expect(await recovery(page)).toEqual(expect.arrayContaining([expect.objectContaining({ kind: "overwritten", value: "Unpublished local edit" })]));
+    } finally {
+      await profile?.close();
+      if (path.dirname(profileDir) !== root || !path.basename(profileDir).startsWith("stayside-sync-text-test-")) throw new Error("Unexpected profile path");
+      await rm(profileDir, { recursive: true, force: true });
+    }
   });
 });
 

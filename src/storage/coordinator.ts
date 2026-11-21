@@ -2,14 +2,15 @@ import { browser } from "wxt/browser";
 import { normalizeItemState } from "../collection/item-state";
 import {
   ITEMS, PROJECTS, COVERS, ICONS, ORDER, POSITIONS, CURRENT, ACTIVE, KEYS, EPOCH,
-  isRecord, isCollectionCommand
+  isRecord, isCollectionCommand, ITEM_TEXT_FIELDS
 } from "./contracts";
 import { internIcons } from "./icons";
 import { OVERRIDE_LOG } from "./contracts";
 import { SYNC_META } from "../sync/acceptance";
 import { groupMembers, groupOrderOwner, syncViewBound } from "../sync/projection";
 import type { SyncViewSnapshot } from "../sync/projection";
-import { appendEditRecovery, protectItemEdit, readEditRecovery, stampEditRevisions } from "./edit-recovery";
+import { editView, planSyncEdit, projectItemText, withItemText, writeSyncEdit } from "../sync/text-edit";
+import { appendEditRecovery, protectItemEdit, readEditRecovery, stampEditRevisions, stripLegacyEditState } from "./edit-recovery";
 import type {
   CollectionState, LegacyCollectionState, StoredItem, StoredProject, CollectionAction,
   CollectionCommand, CollectionResponse, CollectionSuccess, Operation
@@ -27,21 +28,29 @@ export function enqueue<T>(task: () => T | Promise<T>): Promise<T> {
   return next;
 }
 
+type StoredCollection = CollectionState & SyncViewSnapshot;
+
 interface Mutation {
-  readonly patch: CollectionState;
+  readonly patch: StoredCollection;
   readonly response: CollectionResponse;
 }
 
 const isEqual = (left: unknown, right: unknown): boolean => JSON.stringify(left) === JSON.stringify(right);
 /** Caller owns the shared queue and supplies the latest items + icon snapshot. */
-export async function commit(stored: CollectionState, patch: CollectionState): Promise<CollectionState> {
+export async function commit(stored: CollectionState, patch: StoredCollection): Promise<StoredCollection> {
   if (!(ITEMS in patch)) {
     if (Object.keys(patch).length) await browser.storage.local.set(patch);
     return patch;
   }
-  const normalized = await internIcons(stampEditRevisions(stored[ITEMS] || [], patch[ITEMS] || [], () => crypto.randomUUID()), stored[ICONS] || {});
+  const items = patch[ITEMS] ?? [];
+  const stripped = stripLegacyEditState(items);
+  const oldItems = stored[ITEMS] ?? [];
+  const hasLegacy = oldItems.some(item => item && ("pendingEdits" in item || "syncText" in item)) || stripped.some((item, index) => item !== items[index]);
+  const log = hasLegacy && !(OVERRIDE_LOG in patch) ? await browser.storage.local.get<CollectionState>([OVERRIDE_LOG]) : undefined;
+  const recovery = log && readEditRecovery({ ...log, [ITEMS]: [...oldItems, ...items] }, Date.now());
+  const normalized = await internIcons(stampEditRevisions(oldItems, stripped, () => crypto.randomUUID()), stored[ICONS] || {});
   const { laterOnItems: _items, laterOnIcons: _icons, ...rest } = patch;
-  const next = { ...rest,
+  const next = { ...(recovery?.length ? { [OVERRIDE_LOG]: recovery } : {}), ...rest,
     ...(!isEqual(stored[ITEMS], normalized.items) ? { [ITEMS]: normalized.items } : {}),
     ...(!isEqual(stored[ICONS] || {}, normalized.icons) ? { [ICONS]: normalized.icons } : {}) };
   if (Object.keys(next).length) await browser.storage.local.set(next);
@@ -58,7 +67,7 @@ export function migrateIcons(): Promise<CollectionState> {
   });
 }
 function fail(code: string): never { throw new Error(code); }
-const result = (patch: CollectionState, response: CollectionResponse = {}): Mutation => ({ patch, response });
+const result = (patch: StoredCollection, response: CollectionResponse = {}): Mutation => ({ patch, response });
 const assertEpoch = (stored: CollectionState, epoch: string | undefined): void => {
   if (epoch !== undefined && (stored[EPOCH] || "") !== epoch) fail("STALE_COLLECTION");
 };
@@ -220,21 +229,44 @@ function mutateItems(stored: CollectionState, { operation, ids, patch = {} }: Op
   return result(write, { items, covers, affected });
 }
 
-function mutateItemsWithRecovery(stored: CollectionState, command: Operation<"mutateItems">): Mutation {
+function mutateItemsWithRecovery(stored: StoredCollection, command: Operation<"mutateItems">): Mutation {
   const { editBasis, patch = {}, ids: [id] } = command;
   if (!editBasis || command.operation !== "update" || id === undefined) return mutateItems(stored, command);
   const item = stored[ITEMS]?.find(entry => entry?.id === id);
   const now = Date.now();
+  const meta = stored[SYNC_META];
+  const bound = meta?.binding && syncViewBound(stored) ? { ...meta, binding: meta.binding } : undefined;
+  if (bound || editBasis.bindingId) {
+    const original = stored[ITEMS] ?? [];
+    const anchor = item ?? original.find(entry => entry && ITEM_TEXT_FIELDS.some(field => editBasis[field].sourceId === entry.id));
+    const members = bound && anchor ? groupMembers(original).get(anchor.id) ?? [anchor] : [];
+    const current = anchor && projectItemText(members[0] ?? anchor, members, bound && editView(bound));
+    const { changes, drafts } = planSyncEdit(id, current, editBasis, patch, now);
+    const { title: _title, description: _description, titleEdited: _titleEdited, descriptionEdited: _descriptionEdited, ...rest } = patch;
+    const local = item && Object.keys(rest).length ? mutateItems(stored, { ...command, patch: rest }) : result({});
+    const edited = bound && changes.size ? writeSyncEdit(bound, local.patch[ITEMS] ?? original, changes, now) : undefined;
+    return result({ ...local.patch, ...(edited ? { [ITEMS]: edited.items, [SYNC_META]: edited.meta } : {}),
+      ...(drafts.length ? { [OVERRIDE_LOG]: appendEditRecovery(drafts, readEditRecovery(stored, now)) } : {}) },
+    { ...local.response, ...(edited ? { items: edited.items, affected: changes.size, syncMeta: edited.meta } : {}),
+      ...(drafts.length ? { editConflict: edited || local.response.affected ? "partial" : "pending" } : {}) });
+  }
   const checked = protectItemEdit(id, item, patch, editBasis, now);
   const mutation = mutateItems(stored, { ...command, patch: checked.patch, editBasis: undefined });
-  if (!checked.conflict) return mutation;
-  return result({ ...mutation.patch, [OVERRIDE_LOG]: appendEditRecovery(checked.records, readEditRecovery(stored, now)) },
-    { ...mutation.response, editConflict: checked.conflict });
+  const items = mutation.patch[ITEMS]?.map(entry => entry.id === id && entry.textAuthors ? ITEM_TEXT_FIELDS.reduce((next, field) => {
+    const value = checked.patch[field];
+    return value === undefined ? next : withItemText(next, field, value, true);
+  }, entry) : entry);
+  return result({ ...mutation.patch, ...(items ? { [ITEMS]: items } : {}),
+    ...(checked.conflict ? { [OVERRIDE_LOG]: appendEditRecovery(checked.records, readEditRecovery(stored, now)) } : {}) },
+  { ...mutation.response, ...(items ? { items } : {}), ...(checked.conflict ? { editConflict: checked.conflict } : {}) });
 }
 
 function listEditRecovery(stored: CollectionState): Mutation {
   const entries = readEditRecovery(stored, Date.now());
-  return result(!stored[OVERRIDE_LOG] && entries.length ? { [OVERRIDE_LOG]: entries } : {}, { editRecovery: entries });
+  const items = stored[ITEMS] ?? [];
+  const stripped = stripLegacyEditState(items);
+  return result({ ...(!isEqual(stored[OVERRIDE_LOG] ?? [], entries) ? { [OVERRIDE_LOG]: entries } : {}),
+    ...(stripped.some((item, index) => item !== items[index]) ? { [ITEMS]: stripped } : {}) }, { editRecovery: entries });
 }
 
 function migrateLegacyData(stored: LegacyCollectionState): Mutation {
@@ -254,11 +286,11 @@ function migrateLegacyData(stored: LegacyCollectionState): Mutation {
 const readKeys = {
   createProject: [PROJECTS], updateProject: [PROJECTS, ITEMS], setProjectPinned: [PROJECTS], moveProject: [PROJECTS],
   deleteProject: [...KEYS, CURRENT, ACTIVE], moveItem: [ITEMS, PROJECTS, ORDER, SYNC_META],
-  mutateItems: [...KEYS, CURRENT, OVERRIDE_LOG], migrateLegacyData: [ITEMS, COVERS, ICONS],
-  listEditRecovery: [ITEMS, OVERRIDE_LOG], clearEditRecovery: []
+  mutateItems: [...KEYS, CURRENT, OVERRIDE_LOG, SYNC_META], migrateLegacyData: [ITEMS, COVERS, ICONS],
+  listEditRecovery: [ITEMS, ICONS, OVERRIDE_LOG], clearEditRecovery: [ITEMS, ICONS]
 } satisfies Record<CollectionAction, readonly (keyof (CollectionState & SyncViewSnapshot))[]>;
 
-function applyOperation(stored: CollectionState, command: CollectionCommand): Mutation {
+function applyOperation(stored: StoredCollection, command: CollectionCommand): Mutation {
   switch (command.action) {
     case "createProject": return createProject(stored, command);
     case "updateProject": return updateProject(stored, command);
@@ -268,7 +300,11 @@ function applyOperation(stored: CollectionState, command: CollectionCommand): Mu
     case "moveItem": return moveItem(stored, command);
     case "mutateItems": return mutateItemsWithRecovery(stored, command);
     case "listEditRecovery": return listEditRecovery(stored);
-    case "clearEditRecovery": return result({ [OVERRIDE_LOG]: [] }, { editRecovery: [] });
+    case "clearEditRecovery": {
+      const items = stored[ITEMS] ?? [];
+      const stripped = stripLegacyEditState(items);
+      return result({ [OVERRIDE_LOG]: [], ...(stripped.some((item, index) => item !== items[index]) ? { [ITEMS]: stripped } : {}) }, { editRecovery: [] });
+    }
     case "migrateLegacyData": return migrateLegacyData(stored);
   }
 }

@@ -1,8 +1,8 @@
 import { buildEditPatch, isEmptySummary } from "../collection/item-edit";
-import { groupCover } from "../sync/projection";
+import { editableCard, groupCover } from "../sync/projection";
 import { nextStatus, normalizeItemState } from "../collection/item-state";
 import type { ItemChanges } from "../storage/contracts";
-import { captureEditBasis, editRecoveryNotice } from "../storage/edit-recovery";
+import { editRecoveryNotice } from "../storage/edit-recovery";
 import type { SidepanelControls } from "./useSidepanelControls";
 import type { PanelCommands } from "./usePanelCommands";
 import { t } from "../shared/i18n";
@@ -19,8 +19,8 @@ export function usePanelItems(controls: SidepanelControls, commands: PanelComman
   }
   function edit(id: string): Promise<void> {
     return commands.perform(`item:${id}`, async () => {
-      const item = commands.find(id); if (!item) return;
-      const editBasis = captureEditBasis(item);
+      const member = commands.find(id); if (!member) return;
+      const { item, basis: editBasis } = editableCard(member, controls.collection.value.groups);
       // 封面可能是远程 URL、local://id 独立本体或旧 data: 数据，共享解析保留三种兼容。
       const { source: cover, id: coverOwner } = groupCover(item, controls.covers.value, controls.collection.value.groups);
       const result = await commands.dialog(api => api.prompt({ title: t("editItem"),

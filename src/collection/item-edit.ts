@@ -29,10 +29,11 @@ export function resolveImage(item: Pick<EditableItem, "image"> | null | undefine
 // titleEdited / descriptionEdited 防止再次收藏时自动抓取覆盖手写内容；cover 为空表示主动移除封面。
 export function buildEditPatch(item: EditableItem, values: ItemEditValues, originalCover: string): ItemEditPatch {
   const title = (values.title ?? item.title ?? "").trim();
-  const description = (values.description ?? item.description ?? "").trim() || NO_SUMMARY;
+  const summary = (value: string | null | undefined) => isEmptySummary(value) ? "" : (value ?? "").trim();
+  const description = summary(values.description ?? item.description);
   return {
-    ...(title && title !== item.title ? { title, titleEdited: true } : {}),
-    ...(description !== item.description ? { description, descriptionEdited: true } : {}),
+    ...(title && title !== item.title?.trim() ? { title, titleEdited: true } : {}),
+    ...(description !== summary(item.description) ? { description: description || NO_SUMMARY, descriptionEdited: true } : {}),
     ...(typeof values.cover === "string" && values.cover !== originalCover ? { cover: values.cover, imageEdited: true } : {})
   };
 }

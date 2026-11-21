@@ -7,7 +7,7 @@ import { FILTER, FILTER_CHOSEN, SETTINGS, type PanelSnapshot } from "./page";
 import { normalizePanelProject } from "./shared";
 import type { SidepanelControls } from "./useSidepanelControls";
 import { SYNC_META } from "../sync/acceptance";
-import { groupMembers, syncViewBound } from "../sync/projection";
+import { updateMemberGroups } from "../sync/projection";
 
 export function usePanelStorage(controls: SidepanelControls, onItems: () => void) {
   let alive = true, ready = false, mounted = false, coverVersion = 0;
@@ -22,9 +22,8 @@ export function usePanelStorage(controls: SidepanelControls, onItems: () => void
     if (initial) controls.state.filter = snapshot[FILTER_CHOSEN] ? normalizeFilter(snapshot[FILTER]) : "unread";
     else if (FILTER in snapshot) controls.state.filter = normalizeFilter(snapshot[FILTER]);
     const items = ITEMS in snapshot ? normalizeItems(snapshot[ITEMS]) : previous.items;
-    const grouped = SYNC_META in snapshot ? syncViewBound(snapshot) : previous.groups !== undefined;
     if (ITEMS in snapshot || ICONS in snapshot || PROJECTS in snapshot || ORDER in snapshot || SETTINGS in snapshot || SYNC_META in snapshot) controls.collection.value = {
-      items, groups: grouped ? (items === previous.items ? previous.groups ?? groupMembers(items) : groupMembers(items)) : undefined, projects,
+      items, groups: updateMemberGroups(snapshot, items, previous.groups, items === previous.items), projects,
       icons: ICONS in snapshot ? snapshot[ICONS] ?? {} : previous.icons,
       archivedProjectIds: PROJECTS in snapshot ? new Set((snapshot[PROJECTS] ?? []).filter(project => project.archived).map(project => project.id)) : previous.archivedProjectIds,
       orders: ORDER in snapshot ? snapshot[ORDER] ?? {} : previous.orders,
@@ -85,6 +84,7 @@ export function usePanelStorage(controls: SidepanelControls, onItems: () => void
   function accept(response: CollectionSuccess): void {
     if (!alive) return;
     apply({ ...(response.items ? { [ITEMS]: response.items } : {}), ...(response.covers ? { [COVERS]: response.covers } : {}),
+      ...(response.syncMeta ? { [SYNC_META]: response.syncMeta } : {}),
       ...(response.icons ? { [ICONS]: response.icons } : {}),
       ...(response.orders ? { [ORDER]: response.orders } : {}) });
     if (response.items && controls.currentId.value && !response.items.some(item => item.id === controls.currentId.value)) controls.locate(null);

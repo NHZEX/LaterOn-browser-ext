@@ -1,8 +1,8 @@
 import { watch } from "vue";
 import { buildEditPatch, isEmptySummary } from "../collection/item-edit";
-import { groupCover } from "../sync/projection";
+import { editableCard, groupCover } from "../sync/projection";
 import type { ItemChanges } from "../storage/contracts";
-import { captureEditBasis, editRecoveryNotice } from "../storage/edit-recovery";
+import { editRecoveryNotice } from "../storage/edit-recovery";
 import type { LibraryCommands } from "./useLibraryCommands";
 import { nextStatus, normalizeItemState } from "../collection/item-state";
 import { copyItemLink, type ItemLinkFormat } from "../collection/item-link";
@@ -24,9 +24,9 @@ export function useLibraryItems(commands: LibraryCommands, createProject: (name:
   }
   function edit(id: string): Promise<void> {
     return commands.perform(`item:${id}`, async () => {
-      const item = find(id); if (!item) return;
-      const editBasis = captureEditBasis(item);
+      const member = find(id); if (!member) return;
       const { covers, groups } = commands.collection.value;
+      const { item, basis: editBasis } = editableCard(member, groups);
       const { source: cover, id: coverOwner } = groupCover(item, covers, groups);
       // 摘要占位显示为空；共享弹窗负责上传压缩及移除，保存后由协调器同时写封面和指针。
       const result = await commands.prompt({ title: t("editItem"), message: isEmptySummary(item.description) ? t("missingSummaryHint") : "",

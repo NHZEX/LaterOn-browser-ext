@@ -40,10 +40,24 @@ function isWebUrl(value: unknown): value is string {
   return /^https?:\/\//i.test(value) && URL.canParse(value);
 }
 
-function preferText(left: SyncText, right: SyncText): SyncText {
-  const order = left.revision.wallTime - right.revision.wallTime || left.revision.logical - right.revision.logical
-    || cmp(left.revision.deviceId, right.revision.deviceId) || Number(left.manual) - Number(right.manual) || cmp(left.value, right.value);
-  return order >= 0 ? left : right;
+export type SyncClock = Pick<SyncRevision, "wallTime" | "logical">;
+export const compareClocks = (left: SyncClock, right: SyncClock): number => left.wallTime - right.wallTime || left.logical - right.logical;
+export const maxClock = (left: SyncClock, right: SyncClock): SyncClock => compareClocks(left, right) >= 0 ? left : right;
+export const zeroClock: SyncClock = { wallTime: 0, logical: 0 };
+export function stateClock(state: SyncState | undefined, floor = zeroClock): SyncClock {
+  const { wallTime, logical } = (state?.members ?? [])
+    .reduce((highest, member) => maxClock(maxClock(highest, member.title.revision), member.description.revision), floor);
+  return { wallTime, logical };
+}
+export const compareText = (left: SyncText, right: SyncText): number => compareClocks(left.revision, right.revision)
+  || cmp(left.revision.deviceId, right.revision.deviceId) || Number(left.manual) - Number(right.manual) || cmp(left.value, right.value);
+const preferText = (left: SyncText, right: SyncText): SyncText => compareText(left, right) >= 0 ? left : right;
+
+export function tickClock(previous: SyncClock, now: number): SyncClock {
+  if (now > previous.wallTime) return { wallTime: now, logical: 0 };
+  if (previous.logical < Number.MAX_SAFE_INTEGER) return { wallTime: previous.wallTime, logical: previous.logical + 1 };
+  if (previous.wallTime < Number.MAX_SAFE_INTEGER) return { wallTime: previous.wallTime + 1, logical: 0 };
+  return invalidState();
 }
 
 function mergeMember(left: SyncMember, right: SyncMember): SyncMember {
@@ -100,12 +114,15 @@ export function parseSyncState(value: unknown): SyncState {
   return canonical;
 }
 
+export function seedText(value: string | undefined, manual: boolean, deviceId: string, summary = false): SyncText {
+  return { value: summary && isEmptySummary(value) ? "" : value ?? "", manual,
+    revision: { wallTime: 0, logical: manual ? 1 : 0, deviceId } };
+}
+
 export function initialSyncState(items: readonly StoredItem[], deviceId: string): SyncState {
-  const field = (value: string, manual: boolean): SyncText => ({
-    value, manual, revision: { wallTime: 0, logical: manual ? 1 : 0, deviceId }
-  });
   const members = items.filter(Boolean).map(item => ({ id: item.id, url: item.url, savedAt: item.savedAt ?? 0,
-    title: field(item.title ?? "", item.titleEdited === true),
-    description: field(isEmptySummary(item.description) ? "" : item.description ?? "", item.descriptionEdited === true) }));
+    title: seedText(item.title, item.titleEdited === true, isDeviceId(item.textAuthors?.title) ? item.textAuthors.title : deviceId),
+    description: seedText(item.description, item.descriptionEdited === true,
+      isDeviceId(item.textAuthors?.description) ? item.textAuthors.description : deviceId, true) }));
   return parseSyncState({ members, deletedIds: [] });
 }

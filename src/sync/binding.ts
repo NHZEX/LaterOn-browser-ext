@@ -1,6 +1,6 @@
 import { SYNC_META } from "./acceptance";
 import type { SyncHead } from "./publication";
-import type { SyncState } from "./state";
+import type { SyncClock, SyncState } from "./state";
 
 export interface PendingPublication {
   readonly head: SyncHead;
@@ -21,6 +21,7 @@ export interface SyncBinding {
 export interface SyncMeta {
   readonly deviceId: string;
   readonly allocatedSeq: number;
+  readonly clock?: SyncClock;
   readonly detachedId?: string;
   readonly binding?: SyncBinding;
 }
@@ -31,6 +32,6 @@ export async function readMeta(): Promise<SyncMeta | undefined> {
 
 export async function detachSyncPatch(): Promise<{ readonly [SYNC_META]?: SyncMeta }> {
   const previous = await readMeta();
-  const { deviceId = crypto.randomUUID(), allocatedSeq = 0 } = previous ?? {};
-  return { [SYNC_META]: { deviceId, allocatedSeq, detachedId: crypto.randomUUID() } };
+  const { deviceId = crypto.randomUUID(), allocatedSeq = 0, clock } = previous ?? {};
+  return { [SYNC_META]: { deviceId, allocatedSeq, ...(clock ? { clock } : {}), detachedId: crypto.randomUUID() } };
 }

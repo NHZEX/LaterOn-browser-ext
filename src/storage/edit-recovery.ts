@@ -47,7 +47,6 @@ export function appendEditRecovery(entries: readonly EditRecoveryEntry[], previo
 }
 
 export function readEditRecovery(stored: CollectionState, now: number): readonly EditRecoveryEntry[] {
-  if (stored[OVERRIDE_LOG]) return stored[OVERRIDE_LOG];
   const legacy = (stored[ITEMS] ?? []).flatMap(item => {
     if (!item || !("pendingEdits" in item) || !isRecord(item.pendingEdits)) return [];
     const candidates = item.pendingEdits;
@@ -58,7 +57,15 @@ export function readEditRecovery(stored: CollectionState, now: number): readonly
         ? [{ itemId: item.id, title: item.title ?? "", field, value, kind: "legacy" as const, createdAt: now }] : []);
     });
   });
-  return appendEditRecovery(legacy, []);
+  return appendEditRecovery(legacy, stored[OVERRIDE_LOG] ?? []);
+}
+
+export function stripLegacyEditState(items: readonly StoredItem[]): readonly StoredItem[] {
+  return items.map(item => {
+    if (!item || (!("pendingEdits" in item) && !("syncText" in item))) return item;
+    const { pendingEdits: _pending, syncText: _syncText, ...current } = item as StoredItem & { pendingEdits?: unknown; syncText?: unknown };
+    return current;
+  });
 }
 
 export function protectItemEdit(itemId: string, item: StoredItem | undefined, patch: ItemChanges, basis: ItemEditBasis, now: number): {

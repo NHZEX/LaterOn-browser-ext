@@ -67,7 +67,7 @@ WebDAV 的两阶段规则和服务验收标准见下文。手机浏览器和其�
 
 ## WebDAV 首期同步方案
 
-这是第二阶段的低频双向同步方案。设备离线时可以继续使用本机收藏。设备恢复同步并处理完冲突后，共享数据收敛。[并发合并与删除决策](../adr/0001-merge-webdav-collection-changes.md)
+首期实施和验收以[手动双向同步规格](../../.scratch/iter-007-webdav-manual-sync/spec.md)及[合并决策](../adr/0001-merge-webdav-collection-changes.md)为准。下文是旧方案的历史讨论，不作为条件写入、自动检查或人工冲突裁决的首期依据。
 
 ### 首次接入与日常使用
 

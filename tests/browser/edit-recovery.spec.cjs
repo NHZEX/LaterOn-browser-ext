@@ -1,6 +1,26 @@
 const { test, expect } = require("./extension.cjs");
 const { readFile } = require("node:fs/promises");
 
+test("旧候选与既有找回记录一起迁入，移除旧状态且清理后不重现", async ({ page, extension }) => {
+  await extension.worker.evaluate(() => chrome.storage.local.set({
+    laterOnItems: [{ id: "preserved", url: "https://example.test/article", title: "现用标题", savedAt: 1,
+      pendingEdits: { title: ["旧待确认标题"] }, syncText: { writerId: "obsolete" } }],
+    laterOnOverrideLog: [{ itemId: "preserved", field: "description", title: "现用标题", value: "已有草稿", kind: "draft", createdAt: 10 }]
+  }));
+  await page.goto(new URL("settings.html#backup", extension.url).href);
+  const recovery = page.getByRole("region", { name: "本机找回" });
+  await recovery.getByRole("button", { name: "查看本机找回记录" }).click();
+  await expect(recovery.getByText("已有草稿", { exact: true })).toBeVisible();
+  await expect(recovery.getByText("旧待确认标题", { exact: true })).toBeVisible();
+  const item = await page.evaluate(async () => (await chrome.storage.local.get("laterOnItems")).laterOnItems[0]);
+  expect(item.title).toBe("现用标题");
+  expect(item).not.toHaveProperty("pendingEdits");
+  expect(item).not.toHaveProperty("syncText");
+  await recovery.getByRole("button", { name: "清理找回记录" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "清理找回记录" }).click();
+  await expect(recovery.getByText("没有可找回的记录。", { exact: true })).toBeVisible();
+});
+
 test("已删除来源的旧草稿可从设置查看、复制和清理，不随备份导出", async ({ page, context, extension }) => {
   await page.goto(new URL("settings.html#backup", extension.url).href);
   const saved = await page.evaluate(() => chrome.runtime.sendMessage({ type: "COLLECTION_COMMAND", action: "mutateItems",
