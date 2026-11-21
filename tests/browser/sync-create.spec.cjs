@@ -1,5 +1,6 @@
 const { createServer } = require("node:http");
-const { mkdtemp, rm } = require("node:fs/promises");
+const { createHash } = require("node:crypto");
+const { mkdtemp, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { gunzipSync, gzipSync } = require("node:zlib");
@@ -38,32 +39,41 @@ async function withDav(run) {
       response.end('<title>Reading</title><main style="height:5000px">Article</main>');
       return;
     }
-    dav.requests.push({ method, url, headers });
+    const entry = { method, url, headers, requestBytes: 0, responseBytes: 0, status: null };
+    dav.requests.push(entry);
     const chunks = [];
     for await (const chunk of request) chunks.push(chunk);
-    if (dav.offline) { response.writeHead(503).end(); return; }
-    if (method === "PROPFIND") response.writeHead(207).end(dav.discover ? actualListing(dav.files) : dav.listing);
-    else if (method === "PUT") {
-      const body = Buffer.concat(chunks);
+    const body = Buffer.concat(chunks);
+    entry.requestBytes = body.length;
+    const reply = (status, data = "") => {
+      entry.status = status;
+      entry.responseBytes = Buffer.byteLength(data);
+      response.writeHead(status).end(data);
+    };
+    if (dav.offline) { reply(503); return; }
+    if (method === "PROPFIND") {
+      if (dav.listStatus) reply(dav.listStatus);
+      else reply(207, dav.discover ? actualListing(dav.files) : dav.listing);
+    } else if (method === "PUT") {
       const status = await dav.beforePut?.(url, body);
-      if (status) { response.writeHead(status).end(); return; }
+      if (status) { reply(status); return; }
       dav.files.set(url, body);
       const failure = await dav.afterPut?.(url);
       if (failure === "disconnect") { response.destroy(); return; }
       if (failure === "timeout") return;
-      response.writeHead(201).end();
+      reply(201);
     } else if (method === "GET") {
       const bytes = dav.files.get(url);
       await dav.beforeGet?.(url);
       if (bytes && dav.corruptSnapshot && url.endsWith(".gz")) {
         const snapshot = JSON.parse(gunzipSync(bytes));
         snapshot.state.members[0].title.value = "Different title";
-        response.writeHead(200).end(gzipSync(JSON.stringify(snapshot)));
-      } else response.writeHead(bytes ? 200 : 404).end(bytes);
+        reply(200, gzipSync(JSON.stringify(snapshot)));
+      } else reply(bytes ? 200 : 404, bytes);
     } else if (method === "DELETE") {
       const status = await dav.beforeDelete?.(url);
-      response.writeHead(status ?? (dav.files.delete(url) ? 204 : 404)).end();
-    } else response.writeHead(405).end();
+      reply(status ?? (dav.files.delete(url) ? 204 : 404));
+    } else reply(405);
   });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   const { address, port } = server.address();
@@ -92,6 +102,38 @@ const syncPanel = page => page.getByRole("region", { name: regionName });
 const headPathFor = deviceId => `${folder}head-${deviceId}.json`;
 const putPathsSince = (dav, count = 0) => dav.requests.slice(count).filter(({ method }) => method === "PUT").map(({ url }) => url);
 const requestsSince = (dav, count) => dav.requests.slice(count).map(({ method, url }) => `${method} ${url}`);
+
+const readTraffic = page => page.evaluate(async () => (await chrome.runtime.sendMessage({ type: "WEBDAV_BACKUP", action: "status" })).status.usage);
+
+async function measureTraffic(page, dav, action, { lostPutResponse = false } = {}) {
+  const before = await readTraffic(page);
+  const start = dav.requests.length;
+  await action();
+  const after = await readTraffic(page);
+  const requests = dav.requests.slice(start);
+  const counted = {
+    requests: after.requests - before.requests,
+    uploaded: after.uploaded - before.uploaded,
+    uncertainUploaded: after.uncertainUploaded - before.uncertainUploaded,
+    downloaded: after.downloaded - before.downloaded
+  };
+  const sumBy = (entries, key) => entries.reduce((sum, request) => sum + request[key], 0);
+  const accepted = requests.filter(({ status }) => status >= 200 && status < 300);
+  const withoutResponse = requests.filter(({ status }) => status === null);
+  if (lostPutResponse) {
+    expect(withoutResponse.length).toBeGreaterThan(0);
+    expect(withoutResponse.every(({ method, url, requestBytes }) =>
+      method === "PUT" && url === withoutResponse[0].url && requestBytes === withoutResponse[0].requestBytes)).toBe(true);
+  } else expect(withoutResponse).toHaveLength(0);
+  const transportRepeats = withoutResponse.slice(1);
+  const receivedUploadBytes = sumBy(requests, "requestBytes");
+  const acceptedUploadBytes = sumBy(accepted, "requestBytes");
+  expect(counted).toEqual({ requests: requests.length - transportRepeats.length,
+    uploaded: acceptedUploadBytes, uncertainUploaded: receivedUploadBytes - acceptedUploadBytes - sumBy(transportRepeats, "requestBytes"),
+    downloaded: sumBy(requests, "responseBytes") });
+  return { ...counted, receivedRequests: requests.length, receivedUploadBytes,
+    responses: requests.map(({ method, status }) => [method, status]) };
+}
 
 async function syncNow(panel, button = "Sync now") {
   await panel.getByRole("button", { name: button }).click();
@@ -161,6 +203,60 @@ async function rejoin(page, endpoint, binding) {
   await expect.poll(async () => (await readMeta(page))?.binding?.bindingId).not.toBe(binding.bindingId);
   await expect(panel.getByRole("button", { name: "Sync now" })).toBeEnabled();
 }
+
+test("记录环回 WebDAV 的千条快照、待确认重试和限流流量", async ({ page, extension }, testInfo) => {
+  test.skip(!acceptance, "Requires sync-acceptance build");
+  await withDav(async (dav, endpoint) => {
+    dav.discover = true;
+    const panel = await openPanel(page, extension, endpoint);
+    const items = Array.from({ length: 999 }, (_, index) => {
+      const digest = createHash("sha512").update(String(index)).digest("hex");
+      return { id: `sample-${index}`, savedAt: 1_000 + index, url: `https://example.test/articles/${digest.slice(0, 24)}`,
+        title: `Article ${index} and its source ${digest.slice(24, 48)}`, description: `Reading notes: ${digest.slice(48)}` };
+    });
+    await page.evaluate(async items => {
+      const { laterOnItems } = await chrome.storage.local.get("laterOnItems");
+      await chrome.storage.local.set({ laterOnItems: [...laterOnItems, ...items] });
+    }, items);
+
+    const firstPublication = await measureTraffic(page, dav, () => publishFirst(panel));
+    const { binding } = await readMeta(page);
+    const snapshot = dav.files.get(folder + binding.confirmed.head.snapshotName);
+    const decoded = gunzipSync(snapshot);
+    expect(JSON.parse(decoded).state.members).toHaveLength(1_000);
+
+    await saveSyncItem(page, endpoint, "next-article");
+    const beforeDisconnect = dav.requests.length;
+    dav.afterPut = url => url.endsWith(".gz") ? "disconnect" : undefined;
+    const disconnected = await measureTraffic(page, dav, async () => {
+      await panel.getByRole("button", { name: "Sync now" }).click();
+      await expect(panel.getByRole("alert")).toBeVisible();
+    }, { lostPutResponse: true });
+    const pending = (await readMeta(page)).binding.pending.head;
+    expect(new Set(putPathsSince(dav, beforeDisconnect))).toEqual(new Set([folder + pending.snapshotName]));
+    expect(disconnected.uncertainUploaded).toBe(dav.files.get(folder + pending.snapshotName).length);
+
+    dav.afterPut = undefined;
+    const beforeRetry = dav.requests.length;
+    const retry = await measureTraffic(page, dav, () => syncNow(panel, "Retry publication"));
+    expect(putPathsSince(dav, beforeRetry)).toEqual([headPathFor(pending.deviceId)]);
+
+    const unchanged = await measureTraffic(page, dav, () => syncNow(panel));
+    expect(unchanged.responses).toEqual([["PROPFIND", 207], ["GET", 200]]);
+
+    dav.listStatus = 429;
+    const rateLimited = await measureTraffic(page, dav, async () => {
+      await panel.getByRole("button", { name: "Sync now" }).click();
+      await expect(panel.getByRole("alert")).toBeVisible();
+    });
+    expect(rateLimited.responses).toEqual([["PROPFIND", 429]]);
+    expect((await readMeta(page)).binding.confirmed.head).toEqual(pending);
+
+    await writeFile(testInfo.outputPath("webdav-traffic.json"), JSON.stringify({ fixture: "loopback", members: 1_000,
+      snapshotJsonBytes: decoded.length, snapshotGzipBytes: snapshot.length, firstPublication, disconnected, retry, unchanged,
+      rateLimited }, null, 2));
+  });
+});
 
 test("加入前核对并取消，非空配置确认后备份，并交换原始新增成员", async ({ page, extension }) => {
   test.skip(!acceptance, "Requires sync-acceptance build");

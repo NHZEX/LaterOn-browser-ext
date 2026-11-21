@@ -37,6 +37,8 @@ try { pnpm exec playwright test tests/browser/sync-create.spec.cjs tests/browser
 finally { Remove-Item Env:STAYSIDE_SYNC_ACCEPTANCE }
 ```
 
+「记录环回 WebDAV 的千条快照」用合成收藏生成 `webdav-traffic.json`，存放在 `.output/browser-results/` 中对应测试的输出目录。报告记录 gzip 大小、夹具收到的 HTTP 请求与请求体、扩展计量的请求与上下行字节，以及断线和模拟 `429`。字节不含 HTTP 头和传输开销；断线时 Chromium 可能在同一次 `fetch` 内重发，夹具实收不能用扩展计量替代。该报告不代表真实服务的流量、限额或安全性。
+
 下列命令用于完整验证，不作为每次提交或打 tag 的固定前置步骤：
 
 ```powershell
