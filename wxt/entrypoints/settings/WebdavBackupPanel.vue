@@ -22,7 +22,6 @@ const form = reactive({ ...DEFAULT_BACKUP_OPTIONS });
 const password = ref("");
 const entries = shallowRef<readonly RemoteBackup[]>([]);
 const loadedList = ref(false);
-const selectedKey = ref("");
 const restoreMode = ref<ImportMode>("merge");
 const manualImages = ref(false);
 const note = ref("");
@@ -49,7 +48,6 @@ const draftAvailable = computed(() => {
   const current = draftOrigin.value ?? (activeSettings.value && selectPreset(activeSettings.value));
   return JSON.stringify(sync.value.preset) !== JSON.stringify(current);
 });
-const selected = computed(() => entries.value.find(entry => entryKey(entry) === selectedKey.value));
 const used = computed(() => status.value ? sizeLabel(status.value.usage.uploaded + status.value.usage.downloaded) : "0");
 const uncertainUpload = computed(() => {
   const bytes = status.value?.usage.uncertainUploaded ?? 0;
@@ -71,10 +69,13 @@ function entryKey(entry: RemoteBackup): string {
 function displayTime(timestamp: number): string {
   return new Date(timestamp).toLocaleString();
 }
-function entryLabel(entry: RemoteBackup): string {
+function entryDetails(entry: RemoteBackup): string {
   const source = entry.device === status.value?.device ? t("webdavThisProfile") : entry.device.slice(0, 8);
   const kind = t(entry.kind === "auto" ? "webdavAuto" : "webdavManual");
-  return `${displayTime(entry.createdAt)} · ${kind} · ${source}${entry.bytes === null ? "" : ` · ${sizeLabel(entry.bytes)} MiB`}`;
+  return `${kind} · ${source}${entry.bytes === null ? "" : ` · ${sizeLabel(entry.bytes)} MiB`}`;
+}
+function entryLabel(entry: RemoteBackup): string {
+  return `${displayTime(entry.createdAt)} · ${entryDetails(entry)}`;
 }
 function errorText(code: string): string {
   if (errors[code]) return t(errors[code]);
@@ -120,7 +121,6 @@ async function save(): Promise<void> {
     draftOrigin.value = undefined;
     entries.value = [];
     loadedList.value = false;
-    selectedKey.value = "";
     note.value = t("webdavSaved");
   });
 }
@@ -173,7 +173,6 @@ async function refresh(): Promise<void> {
     status.value = result.status;
     entries.value = result.entries;
     loadedList.value = true;
-    if (!selected.value) selectedKey.value = result.entries[0] ? entryKey(result.entries[0]) : "";
   });
 }
 async function upload(): Promise<void> {
@@ -184,9 +183,7 @@ async function upload(): Promise<void> {
     note.value = t("webdavUploaded");
   });
 }
-async function download(): Promise<void> {
-  const entry = selected.value;
-  if (!entry) return;
+async function download(entry: RemoteBackup): Promise<void> {
   await perform(async () => {
     const result = await withBudget(override => remote.downloadWebdav(entry, override));
     if (!result) return;
@@ -195,10 +192,8 @@ async function download(): Promise<void> {
     if (result.imageDamage) note.value = t("backupImageDamage", { ...result.imageDamage });
   });
 }
-async function restore(): Promise<void> {
-  const entry = selected.value;
+async function restore(entry: RemoteBackup): Promise<void> {
   const mode = restoreMode.value;
-  if (!entry) return;
   await perform(async () => {
     const result = await withBudget(override => remote.loadWebdavRestore(entry, override));
     if (!result) return;
@@ -207,16 +202,13 @@ async function restore(): Promise<void> {
     if (await restoreBackup(result.payload, mode, props.dialog, options) && mode === "replace") hasRecovery.value = true;
   });
 }
-async function remove(): Promise<void> {
-  const entry = selected.value;
-  if (!entry) return;
+async function remove(entry: RemoteBackup): Promise<void> {
   await perform(async () => {
     if (!await props.dialog.confirm({ tone: "danger", title: t("webdavDeleteTitle"), message: entryLabel(entry), confirmText: t("delete") })) return;
     const result = await withBudget(override => remote.deleteWebdav(entry, override));
     if (!result) return;
     status.value = result.status;
     entries.value = entries.value.filter(candidate => entryKey(candidate) !== entryKey(entry));
-    selectedKey.value = entries.value[0] ? entryKey(entries.value[0]) : "";
   });
 }
 async function downloadRecovery(): Promise<void> {
@@ -306,18 +298,29 @@ onUnmounted(() => stopSync?.());
     <div v-if="loadedList" class="webdav-operations">
       <p v-if="!entries.length" class="setting-note" role="status">{{ t('webdavNoBackups') }}</p>
       <template v-else>
-        <select v-model="selectedKey" class="setting-select webdav-files" :aria-label="t('webdavSelect')" :disabled="busy">
-          <option v-for="entry in entries" :key="entryKey(entry)" :value="entryKey(entry)">{{ entryLabel(entry) }}</option>
-        </select>
-        <div class="import-actions">
-          <select v-model="restoreMode" class="setting-select" :aria-label="t('backupImportMode')" :disabled="busy">
-            <option value="merge">{{ t('backupMergeMode') }}</option>
-            <option value="replace">{{ t('backupReplaceMode') }}</option>
-          </select>
-          <button class="setting-action" type="button" :disabled="!onlineActions || !selected" @click="restore">{{ t('webdavRestore') }}</button>
-          <button class="setting-action" type="button" :disabled="!onlineActions || !selected" @click="download">{{ t('webdavDownload') }}</button>
-          <button class="setting-action danger" type="button" :disabled="!onlineActions || !selected" @click="remove">{{ t('delete') }}</button>
+        <div class="webdav-list-header">
+          <h4 id="webdav-remote-backups-heading">{{ t('webdavBackupList') }}</h4>
+          <label class="webdav-restore-mode">
+            {{ t('webdavRestoreMode') }}
+            <select v-model="restoreMode" class="setting-select" :disabled="busy">
+              <option value="merge">{{ t('backupMergeMode') }}</option>
+              <option value="replace">{{ t('backupReplaceMode') }}</option>
+            </select>
+          </label>
         </div>
+        <ul class="webdav-file-list" aria-labelledby="webdav-remote-backups-heading">
+          <li v-for="entry in entries" :key="entryKey(entry)" class="webdav-file-row">
+            <div class="webdav-file-copy">
+              <span class="webdav-file-time">{{ displayTime(entry.createdAt) }}</span>
+              <span class="webdav-file-details">{{ entryDetails(entry) }}</span>
+            </div>
+            <div class="webdav-file-actions" role="group" :aria-label="entryLabel(entry)">
+              <button class="setting-action" type="button" :disabled="!onlineActions" @click="restore(entry)">{{ t('webdavRestore') }}</button>
+              <button class="setting-action" type="button" :disabled="!onlineActions" @click="download(entry)">{{ t('webdavDownload') }}</button>
+              <button class="setting-action danger" type="button" :disabled="!onlineActions" @click="remove(entry)">{{ t('delete') }}</button>
+            </div>
+          </li>
+        </ul>
       </template>
     </div>
     <button v-if="hasRecovery" class="setting-action webdav-local-action" type="button" :disabled="busy" @click="downloadRecovery">{{ t('webdavRecovery') }}</button>
@@ -341,7 +344,22 @@ onUnmounted(() => stopSync?.());
 .webdav-wide { grid-column: 1 / -1; }
 .webdav-error { color: var(--danger); font-size: 13px; }
 .webdav-operations { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; border-top: 1px solid var(--hairline); padding-top: 12px; }
-.webdav-files { min-width: 0; max-width: 100%; }
+.webdav-list-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.webdav-list-header > h4 { margin: 0; color: var(--ink); font-size: 13px; font-weight: 650; }
+.webdav-restore-mode { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--field-text); font-size: 13px; }
+.webdav-restore-mode > select { max-inline-size: 100%; }
+.webdav-file-list {
+  max-block-size: 24rem; overflow-y: auto; margin: 0; padding: 0; list-style: none;
+  border: 1px solid var(--hairline-2); border-radius: 12px; background: var(--field);
+}
+.webdav-file-list > li + li { border-top: 1px solid var(--hairline); }
+.webdav-file-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 8px 12px; }
+.webdav-file-copy { display: grid; flex: 1 1 12rem; min-width: 0; gap: 2px; overflow-wrap: anywhere; }
+.webdav-file-time { color: var(--ink); font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.webdav-file-details { color: var(--field-text); font-size: 12px; }
+.webdav-file-actions { display: flex; flex-wrap: wrap; gap: 6px; max-inline-size: 100%; }
+.webdav-file-actions > .setting-action { min-block-size: 44px; min-inline-size: 44px; padding: 6px 10px; border-radius: 8px; font-size: 12px; }
+.webdav-file-actions > .danger:not(:hover) { border-color: transparent; background: transparent; }
 .webdav-local-action { justify-self: start; }
 @media (max-width: 550px) { .webdav-form { grid-template-columns: minmax(0, 1fr); } }
 </style>

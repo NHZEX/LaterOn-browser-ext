@@ -11,9 +11,10 @@ const zipDocuments = data => ({
     data: { items: [], projects: [], covers: {}, order: {}, readingPositions: {}, ...data } }))
 });
 
-test("设置页保存原始 WebDAV ZIP，并将上传超时与重试成功分开显示", async ({ page, extension }) => {
+test("WebDAV 备份逐行预览、下载原始 ZIP 与删除，上传超时可重试", async ({ page, extension }) => {
   const sourceId = "edecf258-a38c-44dc-8c56-222f615c2e3c";
   const filename = "2026-11-19T08-30-00.000Z-manual.zip";
+  const newerFilename = "2026-11-20T08-30-00.000Z-auto.zip";
   const endpoint = "https://dav.example.test/dav/";
   const directory = "StaySide";
   const attachmentSize = 49 * 1024 * 1024;
@@ -21,6 +22,7 @@ test("设置页保存原始 WebDAV ZIP，并将上传超时与重试成功分开
     "attachment.bin": [new Uint8Array(attachmentSize), { level: 0 }],
     ...zipDocuments({ items: [{ ...archivedItem, favicon: missingImage }] })
   }));
+  const automaticArchive = Buffer.from(zipSync(zipDocuments({}))).toString("base64");
   // Transfer only the ZIP headers and small JSON to the worker fixture. Recreate the stored zero bytes there.
   const attachmentOffset = 30 + archive.readUInt16LE(26) + archive.readUInt16LE(28);
   const suffixOffset = attachmentOffset + attachmentSize;
@@ -29,7 +31,7 @@ test("设置页保存原始 WebDAV ZIP，并将上传超时与重试成功分开
     suffixOffset, suffix: archive.subarray(suffixOffset).toString("base64")
   };
 
-  await extension.worker.evaluate(async ({ sourceId, filename, endpoint, directory, compressedFixture }) => {
+  await extension.worker.evaluate(async ({ sourceId, filename, newerFilename, endpoint, directory, compressedFixture, automaticArchive }) => {
     await chrome.storage.local.set({
       laterOnCleanupV165: true, laterOnOnboardingSeen: true,
       laterOnSettings: { language: "en", autoCleanEnabled: false },
@@ -42,6 +44,8 @@ test("设置页保存原始 WebDAV ZIP，并将上传超时与重试成功分开
     const decode = text => Uint8Array.from(atob(text), char => char.charCodeAt(0));
     bytes.set(decode(compressedFixture.prefix));
     bytes.set(decode(compressedFixture.suffix), compressedFixture.suffixOffset);
+    const automaticBytes = decode(automaticArchive);
+    let automaticAvailable = true;
     const root = new URL(directory + "/backups/", endpoint).pathname;
     const folder = root + sourceId + "/";
     const response = (href, size) => `<d:response><d:href>${href}</d:href><d:propstat><d:prop>${size === undefined
@@ -66,12 +70,20 @@ test("设置页保存原始 WebDAV ZIP，并将上传超时与重试成功分开
       if (url.origin !== new URL(endpoint).origin) return fetchOriginal(input, options);
       globalThis.fixtureRequests.push(options.method);
       if (options.method === "PROPFIND") {
+        const automaticEntry = automaticAvailable ? response(folder + newerFilename, automaticBytes.length) : "";
         const listing = url.pathname === root ? response(root) + response(folder)
-          : response(folder) + response(folder + filename, bytes.length);
+          : response(folder) + response(folder + filename, bytes.length) + automaticEntry;
         return new Response(`<d:multistatus xmlns:d="DAV:">${listing}</d:multistatus>`, { status: 207 });
       }
       if (options.method === "GET" && url.pathname === folder + filename) {
         return new Response(bytes, { headers: { "Content-Length": String(bytes.length) } });
+      }
+      if (automaticAvailable && url.pathname === folder + newerFilename) {
+        if (options.method === "GET") return new Response(automaticBytes, { headers: { "Content-Length": String(automaticBytes.length) } });
+        if (options.method === "DELETE") {
+          automaticAvailable = false;
+          return new Response(null, { status: 204 });
+        }
       }
       if (options.method === "PUT") {
         globalThis.fixtureUploadTypes.push(new Headers(options.headers).get("content-type"));
@@ -81,7 +93,7 @@ test("设置页保存原始 WebDAV ZIP，并将上传超时与重试成功分开
       if (options.method === "MOVE") return new Response(null, { status: 201 });
       throw new Error("Unexpected fixture request");
     };
-  }, { sourceId, filename, endpoint, directory, compressedFixture });
+  }, { sourceId, filename, newerFilename, endpoint, directory, compressedFixture, automaticArchive });
 
   await page.goto(new URL("settings.html#backup", extension.url).href);
   const backupCard = page.getByRole("region", { name: "Backup & restore" });
@@ -94,7 +106,7 @@ test("设置页保存原始 WebDAV ZIP，并将上传超时与重试成功分开
   await expect(webdav.getByRole("button", { name: "Back up now" })).toBeEnabled();
   await expect(viewBackups).toBeEnabled();
   await expect(address).toBeHidden();
-  await page.setViewportSize({ width: 400, height: 800 });
+  await page.setViewportSize({ width: 375, height: 800 });
   await connection.click();
   await expect(address).toHaveValue(endpoint);
   expect(await backupCard.evaluate(card => card.scrollWidth <= card.clientWidth + 1)).toBe(true);
@@ -103,13 +115,20 @@ test("设置页保存原始 WebDAV ZIP，并将上传超时与重试成功分开
   expect(await extension.worker.evaluate(() => globalThis.fixtureRequests)).toEqual([]);
 
   await viewBackups.click();
-  await expect(webdav.getByRole("button", { name: "Refresh list" })).toBeEnabled();
-  await expect(webdav.getByRole("combobox", { name: "Select remote backup" })).toContainText("This browser profile");
+  const refreshList = webdav.getByRole("button", { name: "Refresh list" });
+  const backups = webdav.getByRole("list", { name: "Remote backups" });
+  const automaticBackup = backups.getByRole("listitem").filter({ hasText: "Automatic · This browser profile" });
+  const manualBackup = backups.getByRole("listitem").filter({ hasText: "Manual · This browser profile · 49.00 MiB" });
+  await expect(refreshList).toBeEnabled();
+  await expect(automaticBackup).toBeVisible();
+  await expect(manualBackup).toBeVisible();
+  expect(await backupCard.evaluate(card => card.scrollWidth <= card.clientWidth + 1)).toBe(true);
+  expect(await backups.evaluate(list => list.scrollWidth <= list.clientWidth + 1)).toBe(true);
   const databases = () => page.evaluate(async () => (await indexedDB.databases()).map(database => database.name).sort());
   const databasesBeforeDownload = await databases();
   const [download] = await Promise.all([
     page.waitForEvent("download"),
-    webdav.getByRole("button", { name: "Download backup", exact: true }).click()
+    manualBackup.getByRole("button", { name: "Download backup", exact: true }).click()
   ]);
   expect(download.suggestedFilename()).toBe(filename);
   expect((await readFile(await download.path())).equals(archive)).toBe(true);
@@ -117,6 +136,31 @@ test("设置页保存原始 WebDAV ZIP，并将上传超时与重试成功分开
   expect(await extension.worker.evaluate(() => ({ requests: globalThis.fixtureRequests, transfers: globalThis.transferredArchives })))
     .toEqual({ requests: ["PROPFIND", "PROPFIND", "GET"], transfers: [{ length: archive.length, remaining: 0 }] });
   expect(await databases()).toEqual(databasesBeforeDownload);
+
+  const dialog = page.getByRole("dialog");
+  const restoreMode = webdav.getByRole("combobox", { name: "Restore mode" });
+  await restoreMode.selectOption("replace");
+  await automaticBackup.getByRole("button", { name: "Preview restore" }).press("Enter");
+  await expect(dialog).toContainText("Replace your collection?");
+  await expect(dialog).toContainText("This backup contains 0 pages");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+
+  const deleteBackup = automaticBackup.getByRole("button", { name: "Delete", exact: true });
+  await deleteBackup.click();
+  await expect(dialog).toContainText("Delete this remote backup?");
+  await expect(dialog).toContainText("Automatic · This browser profile");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(deleteBackup).toBeEnabled();
+  expect(await extension.worker.evaluate(() => globalThis.fixtureRequests)).not.toContain("DELETE");
+  await deleteBackup.click();
+  await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(automaticBackup).toHaveCount(0);
+  await expect(manualBackup).toBeVisible();
+  await refreshList.click();
+  await expect(refreshList).toBeEnabled();
+  await expect(automaticBackup).toHaveCount(0);
+  await expect(manualBackup).toBeVisible();
 
   const backup = webdav.getByRole("button", { name: "Back up now" });
   const uncertain = webdav.getByText("Unconfirmed uploads: up to 0.01 MiB", { exact: false });
