@@ -1,6 +1,7 @@
 import { computed, shallowRef, watch } from "vue";
 import { browser } from "wxt/browser";
 import { normalize, unwrapSuspendedTab } from "../shared/url-utils";
+import { discourseTopicId } from "../shared/discourse-topic";
 import { t } from "../shared/i18n";
 import { ACTIVE, CURRENT } from "../storage/contracts";
 import { normalizePanelProject } from "./shared";
@@ -19,6 +20,12 @@ export function usePanelCurrent(controls: SidepanelControls) {
     return url ? controls.collection.value.items.find(item => normalize(item.url ?? "") === url) : undefined;
   });
   const saved = computed(() => confirmed.value || !!matched.value);
+  const topicSaved = computed(() => {
+    const current = metadata.value;
+    const topic = current?.discourseTopic;
+    if (saved.value || !current || !topic || discourseTopicId(current.url, topic) !== topic.topicId) return false;
+    return controls.collection.value.items.some(item => discourseTopicId(item.url ?? "", topic) === topic.topicId);
+  });
   const disabled = computed(() => !metadata.value || saving.value || saved.value);
   let alive = true, generation = 0, tabId: number | undefined;
   const waits = new Set<() => void>();
@@ -91,6 +98,6 @@ export function usePanelCurrent(controls: SidepanelControls) {
     alive = false; generation++; waits.forEach(cancel => cancel());
     browser.tabs.onActivated.removeListener(activated); browser.tabs.onUpdated.removeListener(updated);
   }
-  return { metadata, error, saving, saved, disabled, load, sync, save, mount, dispose };
+  return { metadata, error, saving, saved, topicSaved, disabled, load, sync, save, mount, dispose };
 }
 export type PanelCurrent = ReturnType<typeof usePanelCurrent>;

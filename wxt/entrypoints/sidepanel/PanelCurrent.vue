@@ -18,6 +18,7 @@ onBeforeUnmount(thumbnail.dispose);
     <div class="current-copy">
       <p id="currentSource">{{ current.error.value || current.metadata.value?.source || translate("currentLoading") }}</p>
       <h1 id="currentTitle">{{ current.metadata.value?.title || translate("currentPage") }}</h1>
+      <p class="current-topic-hint" role="status">{{ current.topicSaved.value ? translate("currentTopicSaved") : "" }}</p>
     </div>
     <button id="saveCurrent" :disabled="current.disabled.value" :class="{ saved: current.saved.value }" :title="label" :aria-label="label" @click="current.save">
       <span>{{ current.saved.value ? "✓" : "＋" }}</span><span class="save-label">{{ label }}</span>

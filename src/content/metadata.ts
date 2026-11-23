@@ -1,5 +1,7 @@
 import { searchTitle } from "../shared/url-utils";
 
+import { identifyDiscourseTopic, type DiscourseTopic } from "../shared/discourse-topic";
+
 export interface PageMetadata {
   readonly title: string;
   readonly titleFrom: string;
@@ -10,6 +12,7 @@ export interface PageMetadata {
   readonly source: string;
   readonly url: string;
   readonly videoId: string;
+  readonly discourseTopic?: DiscourseTopic;
 }
 
 // 在网页里提取标题 / 摘要 / 封面 / 图标（会被注入到页面执行，必须自包含）。
@@ -698,6 +701,10 @@ export function extractPageMetadataForShortcut(): PageMetadata {
     }
   }
 
+  const url = location.href;
+  const setup = document.querySelector<HTMLMetaElement>("head meta#data-discourse-setup[data-base-url][data-base-uri]");
+  const discourseTopic = setup ? identifyDiscourseTopic(url, setup.dataset.baseUrl ?? "", setup.dataset.baseUri ?? "") : undefined;
+
   return {
     title,
     titleFrom,
@@ -709,7 +716,8 @@ export function extractPageMetadataForShortcut(): PageMetadata {
       (douyin?.icon || "") ||
       `${location.origin}/favicon.ico`,
     source,
-    url: location.href,
+    url,
+    ...(discourseTopic ? { discourseTopic } : {}),
     // 只对抖音有意义：这次实际读到的视频 id（面板上的那个）。
     // 调用方用它核对「读到的内容是否属于网址上那条视频」，以免滑动切换时存成上一条。
     videoId: douyin?.readId || ""

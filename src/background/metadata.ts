@@ -250,7 +250,8 @@ async function extractTabMetadata(tab: BackgroundTab, { matchTabUrl = false }: {
       imageFrom: data.imageFrom || "none",
       favicon: data.favicon || fallback.favicon,
       source: data.source || fallback.source,
-      url: tab.url
+      url: tab.url,
+      ...(data.url === tab.url && data.discourseTopic ? { discourseTopic: data.discourseTopic } : {})
     };
     return applyServerMetaRescue(result);
   }

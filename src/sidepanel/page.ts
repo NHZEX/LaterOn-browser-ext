@@ -1,6 +1,7 @@
 import type { LegacyCollectionState } from "../storage/contracts";
 import type { StoredSettings } from "../settings/shared";
 import type { SyncViewSnapshot } from "../sync/projection";
+import type { DiscourseTopic } from "../shared/discourse-topic";
 
 export const SETTINGS = "laterOnSettings", FILTER = "laterOnFilter", FILTER_CHOSEN = "laterOnFilterChosen";
 export interface PanelSnapshot extends LegacyCollectionState, SyncViewSnapshot {
@@ -15,5 +16,6 @@ export interface PageMetadata {
   readonly source: string;
   readonly image: string;
   readonly favicon: string;
+  readonly discourseTopic?: DiscourseTopic;
 }
 export interface BootSegments { page: number; cache: number; paint: number; data: number; migrate: number; other?: number; bytes?: number; error?: string }

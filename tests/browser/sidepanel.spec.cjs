@@ -57,6 +57,86 @@ test("F3d：主页面脚本失败时独立启动，异步样式恢复且十二�
   } finally { await Promise.all(blockedStyles.map(route => route.abort())); }
 });
 
+const discoursePage = async route => {
+  const url = new URL(route.request().url());
+  const basePath = url.pathname.startsWith("/forum/") ? "/forum" : "";
+  const baseOrigin = url.searchParams.has("foreign-setup") ? "https://other.test" : url.origin;
+  const setup = url.hostname === "ordinary.test" || url.searchParams.has("theme-only")
+    ? '<meta name="discourse_theme_id" content="1">'
+    : `<meta id="data-discourse-setup" data-base-url="${baseOrigin}${basePath}" data-base-uri="${basePath}">`;
+  await route.fulfill({ contentType: "text/html", body: `<title>Forum tab</title>${setup}
+    <meta property="og:title" content="Forum: ${url.pathname}"><meta property="og:description" content="Topic summary">
+    <meta property="og:image" content="${url.origin}/topic-cover.jpg"><main>Topic post</main>` });
+};
+
+async function seedTopicSaves(worker, urls, language = "zh-CN") {
+  await worker.evaluate(async ({ urls, language }) => {
+    await chrome.storage.local.set({ laterOnOnboardingSeen: true,
+      laterOnItems: urls.map((url, index) => ({ id: `topic-${index}`, url, title: `Saved post ${index}`, description: "Topic summary",
+        source: new URL(url).hostname, savedAt: index + 1, status: "unread", projectId: null })),
+      laterOnSettings: { language, askFolderOnSingle: false, autoMarkRead: false }, laterOnActiveProject: "unfiled" });
+  }, { urls, language });
+}
+
+test("Discourse：同页切换楼层只提示同主题，仍能独立收藏当前楼层", async ({ context, page, extension }) => {
+  const firstPost = "https://forum.test/t/topic/3217825/14", nextPost = "https://forum.test/t/topic/3217825/15";
+  await context.route("https://forum.test/**", discoursePage);
+  await seedTopicSaves(extension.worker, [firstPost, "https://forum.test/t/3217825/13"]);
+  await page.goto(extension.url);
+  await expect(page.locator("body")).not.toHaveClass(/booting/);
+  const article = await context.newPage(); await article.goto(firstPost);
+  const save = page.locator("#saveCurrent"), hint = page.getByText("此主题已收藏", { exact: true });
+  const currentId = () => extension.worker.evaluate(async () => (await chrome.storage.local.get("laterOnCurrentItem")).laterOnCurrentItem);
+  await expect(save).toBeDisabled();
+  await expect.poll(currentId).toBe("topic-0");
+  await expect(hint).toHaveCount(0);
+
+  await article.evaluate(url => history.replaceState(null, "", url), nextPost);
+  await expect(hint).toBeVisible();
+  await expect(save).toBeEnabled();
+  await expect.poll(currentId).toBeNull();
+  await save.click();
+  const stored = async () => extension.worker.evaluate(async () => (await chrome.storage.local.get("laterOnItems")).laterOnItems.map(({ url }) => url).sort());
+  await expect.poll(stored).toEqual([firstPost, nextPost, "https://forum.test/t/3217825/13"].sort());
+  await expect(save).toBeDisabled();
+  await expect(hint).toHaveCount(0);
+});
+
+test("Discourse：识别子目录安装，不把其他主题、站点或普通网页当成同主题", async ({ context, page, extension }) => {
+  await context.route(/^https:\/\/(?:forum|ordinary)\.test\//, discoursePage);
+  await seedTopicSaves(extension.worker, [
+    "https://forum.test/forum/t/old-title/888/12", "https://other.test/forum/t/topic/999/12",
+    "https://ordinary.test/t/topic/888/12", "https://forum.test/forum/t/topic/75/12"
+  ], "en");
+  await page.goto(extension.url);
+  await expect(page.locator("body")).not.toHaveClass(/booting/);
+  const article = await context.newPage();
+  const hint = page.getByText("This topic is already saved", { exact: true });
+  const save = page.locator("#saveCurrent");
+  const visit = async url => {
+    await article.goto(url);
+    await expect(page.locator("#currentTitle")).toHaveText(`Forum: ${new URL(url).pathname}`);
+    await expect(save).toBeEnabled();
+  };
+
+  await visit("https://forum.test/forum/t/888/13");
+  await expect(hint).toBeVisible();
+
+  for (const url of [
+    "https://forum.test/t/new-title/888/14",
+    "https://forum.test/forum/t/other-topic/999/14",
+    "https://forum.test/forum/t/821/75",
+    "https://forum.test/forum/t/another-title/888/15?theme-only",
+    "https://forum.test/forum/t/another-title/888/17?foreign-setup",
+    "https://forum.test/forum/t/another-title/888/print",
+    "https://forum.test/forum/t/external_id/888",
+    "https://ordinary.test/t/new-title/888/16"
+  ]) {
+    await visit(url);
+    await expect(hint).toHaveCount(0);
+  }
+});
+
 for (const [language, theme] of [["zh-CN", "light"], ["en", "dark"]]) {
   test(`E4：当前页元数据、实际保存、切页与完整界面交接 ${language}/${theme}`, { tag: language === "en" ? ["@smoke"] : [] }, async ({ context, page, extension }, testInfo) => {
     const errors = []; page.on("pageerror", error => errors.push(error.message));
