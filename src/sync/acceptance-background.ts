@@ -24,6 +24,7 @@ interface Discovered {
   readonly heads: readonly SyncHead[];
   readonly state: SyncState;
   readonly clock: ReturnType<typeof stateClock>;
+  readonly receivedSnapshots: boolean;
 }
 
 const rejected = (): never => { throw new Error("SYNC_ACCEPTANCE_REJECTED"); };
@@ -116,14 +117,14 @@ async function publishIndex(dav: WebdavClient, binding: SyncBinding, pending: Pe
   const { head } = pending;
   const current = await requireCurrentBinding(binding);
   const seen = verifiedHeads(current.binding);
-  const observed = (await listLatest(dav, seen, current)).find(key => key.deviceId === head.deviceId);
+  const observed = (await listLatest(dav, seen, current)).keys.find(key => key.deviceId === head.deviceId);
   if (!indexMatches(observed, head) && !indexMatches(observed, baseline)) return safetyPause();
   if (!await readSnapshot(dav, head)) return safetyPause();
   if (!indexMatches(observed, head) && !await readIndex(dav, head, head.collectionId)) {
     await dav.put([recordName(head)], encodeSyncHead(head), "application/json");
   }
   if (!await readIndex(dav, head, head.collectionId)) return safetyPause();
-  const published = (await listLatest(dav, seen, current)).find(key => key.deviceId === head.deviceId);
+  const published = (await listLatest(dav, seen, current)).keys.find(key => key.deviceId === head.deviceId);
   if (!indexMatches(published, head)) return safetyPause();
   return enqueue(async () => {
     const current = await requireCurrentBinding(binding);
@@ -153,13 +154,13 @@ async function publish(dav: WebdavClient, meta: BoundMeta, state: SyncState): Pr
   return publishIndex(dav, binding, pending, baseline);
 }
 
-async function listLatest(dav: WebdavClient, seen: readonly PublicationKey[], owner?: BoundMeta): Promise<readonly PublicationKey[]> {
+async function listLatest(dav: WebdavClient, seen: readonly PublicationKey[], owner?: BoundMeta) {
   const entries = await dav.list([], true).catch((error: unknown) => {
     if (error instanceof Error && /^(?:WEBDAV_LIST(?:_LIMIT)?|WEBDAV_DIRECTORY)$/.test(error.message)) return safetyPause();
     return pauseIfOversized(error);
   });
   if (!entries) return safetyPause();
-  const files = entries.map(entry => (!entry.directory && parsePublicationFile(entry.name)) || safetyPause());
+  const files = entries.map(entry => ({ ...((!entry.directory && parsePublicationFile(entry.name)) || safetyPause()), name: entry.name }));
   const latest = new Map<string, PublicationKey>();
   for (const file of files.filter(entry => entry.kind === "publication").sort((left, right) => right.seq - left.seq)) {
     const top = latest.get(file.deviceId);
@@ -172,7 +173,8 @@ async function listLatest(dav: WebdavClient, seen: readonly PublicationKey[], ow
     const top = latest.get(previous.deviceId);
     if (!top || (top.seq <= previous.seq && !samePublicationKey(top, previous))) return safetyPause();
   }
-  return Array.from(latest.values()).sort((left, right) => left.deviceId < right.deviceId ? -1 : 1);
+  return { keys: Array.from(latest.values()).sort((left, right) => left.deviceId < right.deviceId ? -1 : 1),
+    listedSnapshots: new Set(files.filter(file => file.kind === "snapshot").map(file => file.name)) };
 }
 
 async function readLatestRecords(dav: WebdavClient, keys: readonly PublicationKey[], collectionId: string) {
@@ -185,29 +187,32 @@ async function readLatestRecords(dav: WebdavClient, keys: readonly PublicationKe
   return { heads };
 }
 
-async function readDiscovered(dav: WebdavClient, heads: readonly SyncHead[]): Promise<Discovered | { missing: SyncHead }> {
+async function readDiscovered(dav: WebdavClient, heads: readonly SyncHead[], listedSnapshots: ReadonlySet<string>, mergedHeads: readonly SyncHead[]): Promise<Discovered | { missing: SyncHead }> {
+  const unread = heads.filter(head => !listedSnapshots.has(head.snapshotName) || !mergedHeads.some(previous => sameSyncHead(head, previous)));
   let state = emptyState;
   let clock = zeroClock;
-  for (const head of heads) {
+  for (const head of unread) {
     const bytes = await dav.get([head.snapshotName]).catch(pauseIfOversized);
     if (!bytes) return { missing: head };
+    if (!listedSnapshots.has(head.snapshotName)) return safetyPause();
     const snapshot = await verifySyncSnapshot(bytes, head).catch(safetyPause);
     clock = stateClock(snapshot, clock);
     state = mergeSyncStates(state, snapshot);
   }
-  return { heads, state, clock };
+  return { heads, state, clock, receivedSnapshots: unread.length > 0 };
 }
 
-async function discover(dav: WebdavClient, collectionId: string, seen: readonly SyncHead[], owner?: BoundMeta): Promise<Discovered | undefined> {
+async function discover(dav: WebdavClient, collectionId: string, seen: readonly SyncHead[], owner?: BoundMeta): Promise<Discovered> {
+  const binding = owner?.binding;
+  const mergedHeads = binding?.state && !binding.pending && !binding.paused ? seen : [];
   let known: readonly PublicationKey[] = seen;
   let missing: PublicationKey | undefined;
   for (const attempt of [0, 1]) {
-    const keys = await listLatest(dav, known, owner);
+    const { keys, listedSnapshots } = await listLatest(dav, known, owner);
     const absent = missing;
     if (absent && !keys.some(key => key.deviceId === absent.deviceId && key.seq > absent.seq)) return safetyPause();
     const records = await readLatestRecords(dav, keys, collectionId);
-    if (records.heads && owner && await canSkipSnapshots(owner.binding, records.heads, seen)) return;
-    const result = records.heads ? await readDiscovered(dav, records.heads) : records;
+    const result = records.heads ? await readDiscovered(dav, records.heads, listedSnapshots, mergedHeads) : records;
     if ("state" in result) return result;
     if (attempt === 1) return safetyPause();
     known = keys;
@@ -238,7 +243,7 @@ async function evaluateJoin(message: Record<string, unknown>, meter: TransferMet
   if (initial?.binding) return rejected();
   const detached = initial?.detachedHeads?.collectionId === collectionId ? initial.detachedHeads : undefined;
   const dav = davFor(endpoint, meter);
-  const { heads, state, clock } = await discover(dav, collectionId, detached?.heads ?? []) ?? safetyPause();
+  const { heads, state, clock } = await discover(dav, collectionId, detached?.heads ?? []);
   return enqueue(async () => {
     const stored = await chrome.storage.local.get<StoredSync>([SYNC_META, ...KEYS, CURRENT, OVERRIDE_LOG]);
     const prior = stored[SYNC_META];
@@ -280,19 +285,7 @@ async function prepareSync(binding: SyncBinding, remote: Discovered, own?: SyncH
   });
 }
 
-async function canSkipSnapshots(binding: SyncBinding, indexes: readonly SyncHead[], seen: readonly SyncHead[]): Promise<boolean> {
-  const confirmed = binding.confirmed;
-  if (!confirmed || binding.pending || binding.paused || indexes.length !== seen.length
-    || !indexes.every(head => seen.some(previous => sameSyncHead(head, previous)))) return false;
-  return enqueue(async () => {
-    const current = await requireCurrentBinding(binding);
-    const stored = await chrome.storage.local.get<StoredSync>(ITEMS);
-    const latest = withLocalAdditions(current.binding.state ?? emptyState, stored, current.deviceId);
-    return await hashSyncState(latest) === confirmed.baseVersion;
-  });
-}
-
-async function exchange(dav: WebdavClient, binding: SyncBinding, first: boolean): Promise<boolean> {
+async function exchange(dav: WebdavClient, binding: SyncBinding, first: boolean): Promise<{ moreChanges: boolean; deferCleanup?: boolean }> {
   if (first || (binding.paused && !binding.joined && !binding.confirmed && !binding.pending)) {
     if (binding.joined || binding.confirmed || binding.pending) return rejected();
     await requireEmpty(dav);
@@ -304,24 +297,27 @@ async function exchange(dav: WebdavClient, binding: SyncBinding, first: boolean)
       await commit(stored, { [SYNC_META]: next });
       return { current: next, state };
     });
-    return publish(dav, prepared.current, prepared.state);
+    return { moreChanges: await publish(dav, prepared.current, prepared.state) };
   }
   if (!binding.joined && !binding.confirmed && !binding.pending) return rejected();
   const current = await requireCurrentBinding(binding);
-  const seen = verifiedHeads(binding);
+  const seen = verifiedHeads(current.binding);
   const remote = await discover(dav, binding.collectionId, seen, current);
-  if (!remote) return false;
   const own = remote.heads.find(head => head.deviceId === current.deviceId);
   const pending = binding.pending;
   const publishedPending = !!own && !!pending && own.seq === pending.head.seq;
   if (publishedPending && !sameSyncHead(own, pending.head)) return safetyPause();
   const prepared = await prepareSync(binding, remote, own);
   const hash = await hashSyncState(prepared.state);
-  if (publishedPending) return hash !== own.stateHash;
+  if (publishedPending) return { moreChanges: hash !== own.stateHash };
   const remaining = prepared.meta.binding.pending;
-  if (remaining && hash === remaining.baseVersion && await readSnapshot(dav, remaining.head)) return publishIndex(dav, binding, remaining, own);
-  if (!remaining && hash === own?.stateHash) return false;
-  return publish(dav, prepared.meta, prepared.state);
+  if (remaining && hash === remaining.baseVersion && await readSnapshot(dav, remaining.head)) {
+    return { moreChanges: await publishIndex(dav, binding, remaining, own) };
+  }
+  if (!remaining && remote.heads.some(head => hash === head.stateHash)) {
+    return { moreChanges: false, deferCleanup: remote.receivedSnapshots };
+  }
+  return { moreChanges: await publish(dav, prepared.meta, prepared.state) };
 }
 
 async function cleanupPublications(dav: WebdavClient, binding: SyncBinding): Promise<void> {
@@ -343,8 +339,8 @@ async function cleanupPublications(dav: WebdavClient, binding: SyncBinding): Pro
 
 async function syncCollection(binding: SyncBinding, meter: TransferMeter, first: boolean): Promise<boolean> {
   const dav = davFor(binding.endpoint, meter, binding);
-  const moreChanges = await exchange(dav, binding, first);
-  await cleanupPublications(dav, binding).catch(() => {});
+  const { moreChanges, deferCleanup } = await exchange(dav, binding, first);
+  if (!deferCleanup) await cleanupPublications(dav, binding).catch(() => {});
   return moreChanges;
 }
 

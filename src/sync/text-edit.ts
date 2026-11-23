@@ -1,3 +1,4 @@
+import { safeHostname } from "../background/shared";
 import { isEmptySummary } from "../collection/item-edit";
 import { ITEM_TEXT_FIELDS } from "../storage/contracts";
 import type { ItemChanges, ItemEditBasis, ItemTextField, StoredItem } from "../storage/contracts";
@@ -129,7 +130,8 @@ export function receiveSyncText(items: readonly StoredItem[], previous: SyncStat
   });
   const known = new Set([...items.flatMap(item => item ? [item.id] : []), ...before.keys()]);
   const added = state.members.filter(member => !known.has(member.id)).map(member => {
-    const item: StoredItem = { id: member.id, url: member.url, savedAt: member.savedAt };
+    const item: StoredItem = { id: member.id, url: member.url, savedAt: member.savedAt,
+      source: safeHostname(member.url), status: "unread", projectId: null };
     return ITEM_TEXT_FIELDS.reduce((updated, field) => withItemText(updated, field, member[field].value, member[field].manual,
       member[field].manual && member[field].revision.deviceId !== deviceId ? member[field].revision.deviceId : undefined), item);
   });

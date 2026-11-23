@@ -313,6 +313,7 @@ test("加入前核对并取消，非空配置确认后备份，并交换原始�
       await expect(second.getByRole("status")).toHaveText("Joined. Use Sync now to exchange collection changes.");
       const joined = await read();
       expect(joined.laterOnItems.map(item => item.id)).toEqual([local.id, neighbor.id, "saved-page"]);
+      expect(joined.laterOnItems).toMatchObject([local, neighbor, { id: "saved-page", source: "127.0.0.1", status: "unread", projectId: null }]);
       expect(joined.laterOnReadingPositions).toEqual({ [local.id]: 0 });
       expect(joined.laterOnPreRestoreBackup.data.items.map(item => item.id)).toEqual([local.id, neighbor.id]);
       expect(joined.laterOnPreRestoreBackup.data.covers).toEqual({ [local.id]: coverImage });
@@ -770,7 +771,9 @@ test("同步按确认时的原始成员删除，乱序收敛且可主动重收",
         laterOnOrder: { unfiled: ["right-delayed", "right-article", "right-group"] } });
       expect((await state(page)).members.find(member => member.id === survivor.id)).toEqual(survivor);
       expect(await state(page)).toEqual(await state(secondPage));
-      expect((await readMeta(page)).binding.confirmed.head.stateHash).toBe((await readMeta(secondPage)).binding.confirmed.head.stateHash);
+      const publications = [await readMeta(page), await readMeta(secondPage)].map(meta =>
+        JSON.parse(gunzipSync(dav.files.get(folder + meta.binding.confirmed.head.snapshotName))).state);
+      expect(publications).toContainEqual(await state(page));
       const article = await profile.newPage();
       await article.goto(articleUrl);
       const resume = article.getByRole("button", { name: "Continue from last position" });
@@ -1236,22 +1239,63 @@ test("两套配置收敛后只读取设备索引，不完整清单不能静默�
       await previewJoin(second, endpoint, owner.binding.collectionId);
       await second.getByRole("button", { name: "Confirm join" }).click();
       await expect(second.getByRole("button", { name: "Sync now" })).toBeEnabled();
+      const firstHead = owner.binding.confirmed.head;
+      const firstIndex = recordPathFor(firstHead);
+      const joinedAt = dav.requests.length;
+      await syncNow(second);
+      expect(requestsSince(dav, joinedAt)).toEqual([`PROPFIND ${folder}`, `GET ${firstIndex}`]);
+
       await saveSyncItem(peerPage, endpoint, "peer-addition");
       await syncNow(second);
-      await syncNow(first);
-      await syncNow(second);
       const other = await readMeta(peerPage);
-      const firstHead = (await readMeta(page)).binding.confirmed.head;
-      const indexes = [recordPathFor(firstHead), recordPathFor(other.binding.confirmed.head)].sort();
-      expect((await readMeta(page)).binding.confirmed.head.stateHash).toBe(other.binding.confirmed.head.stateHash);
+      const otherHead = other.binding.confirmed.head;
+      expect(otherHead.stateHash).not.toBe(firstHead.stateHash);
+      expect(putPathsSince(dav, joinedAt)).toEqual([folder + otherHead.snapshotName, recordPathFor(otherHead)]);
+      const indexes = [firstIndex, recordPathFor(otherHead)].sort();
+      const discovery = [`PROPFIND ${folder}`, ...indexes.map(url => `GET ${url}`)];
+      const receivingAt = dav.requests.length;
+      await syncNow(first);
+      expect(requestsSince(dav, receivingAt)).toEqual([...discovery, `GET ${folder}${otherHead.snapshotName}`]);
+      expect((await readMeta(page)).binding.state).toEqual(other.binding.state);
+      const items = await page.evaluate(async () => (await chrome.storage.local.get("laterOnItems")).laterOnItems);
+      expect(items).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: "saved-page", projectId: "local-project" }),
+        expect.objectContaining({ title: "peer-addition", source: "127.0.0.1", status: "unread", projectId: null })
+      ]));
+      const library = await page.context().newPage();
+      await library.goto(new URL("library.html?from=sidepanel&project=unfiled&filter=all", extension.url).href);
+      await expect(library.locator("#cardGrid .card").filter({ hasText: "peer-addition" })).toBeVisible();
 
       for (const panel of [first, second]) {
         const start = dav.requests.length;
         await syncNow(panel);
-        expect(requestsSince(dav, start)).toEqual([`PROPFIND ${folder}`, ...indexes.map(url => `GET ${url}`)]);
+        expect(requestsSince(dav, start)).toEqual(discovery);
       }
 
       const before = (await readMeta(page)).binding.state;
+      const unverified = atGeneration(otherHead, otherHead.seq + 1);
+      dav.files.set(recordPathFor(unverified), Buffer.from(JSON.stringify(unverified)));
+      dav.files.set(folder + unverified.snapshotName, dav.files.get(folder + otherHead.snapshotName));
+      const corruptAt = dav.requests.length;
+      await first.getByRole("button", { name: "Sync now" }).click();
+      await expect(first.getByRole("alert")).toBeVisible();
+      expect(requestsSince(dav, corruptAt)).toContain(`GET ${folder}${unverified.snapshotName}`);
+      expect(putPathsSince(dav, corruptAt)).toEqual([]);
+      expect((await readMeta(page)).binding.state).toEqual(before);
+      dav.files.delete(recordPathFor(unverified));
+      dav.files.delete(folder + unverified.snapshotName);
+      await syncNow(first, "Recheck and sync");
+
+      dav.discover = false;
+      dav.listing = actualListing(new Map([...dav.files].filter(([url]) => url !== folder + otherHead.snapshotName)));
+      const missingAt = dav.requests.length;
+      await first.getByRole("button", { name: "Sync now" }).click();
+      await expect(first.getByRole("alert")).toBeVisible();
+      expect(requestsSince(dav, missingAt)).toEqual([...discovery, `GET ${folder}${otherHead.snapshotName}`]);
+      expect((await readMeta(page)).binding.state).toEqual(before);
+      dav.discover = true;
+      await syncNow(first, "Recheck and sync");
+
       const limit = Array.from({ length: 749 }, (_, index) => [`${folder}filler-${index}`, null]);
       for (const visible of [new Map([[recordPathFor(firstHead), null]]), new Map(limit)]) {
         dav.discover = false;

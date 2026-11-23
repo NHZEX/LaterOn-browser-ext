@@ -22,6 +22,19 @@ function write(meta, items, id, values, now) {
   return writeSyncEdit(meta, items, new Map([[id, values]]), now);
 }
 
+test("接收新收藏时从网址补来源和分类默认值，不重置已有收藏", () => {
+  const local = { ...original, source: "Local source", status: "reading", projectId: "local-project", image: "local://A" };
+  const previous = initialSyncState([local], firstDevice);
+  const other = initialSyncState([{ ...original, id: "B", title: "Received" }], secondDevice);
+  const received = receiveSyncText([local], previous, mergeSyncStates(previous, other), firstDevice, 123);
+  const [existing, added] = received.items;
+  assert.deepEqual(existing, local);
+  assert.equal(added.title, "Received");
+  assert.equal(added.source, "youtube.com");
+  assert.equal(added.status, "unread");
+  assert.equal(added.projectId, null);
+});
+
 test("同字段并发收敛，未发布手写败值只留本人；回放旧版本不会重记", async () => {
   const seed = initialSyncState([original], firstDevice);
   const first = write(binding(firstDevice, seed), [original], "A", { title: "Winning" }, 120);
