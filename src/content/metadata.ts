@@ -1,6 +1,7 @@
 import { searchTitle } from "../shared/url-utils";
 
-import { identifyDiscourseTopic, type DiscourseTopic } from "../shared/discourse-topic";
+import type { DiscourseTopic } from "../shared/discourse-topic";
+import { readDiscourseTopic } from "./discourse-topic";
 
 export interface PageMetadata {
   readonly title: string;
@@ -702,8 +703,7 @@ export function extractPageMetadataForShortcut(): PageMetadata {
   }
 
   const url = location.href;
-  const setup = document.querySelector<HTMLMetaElement>("head meta#data-discourse-setup[data-base-url][data-base-uri]");
-  const discourseTopic = setup ? identifyDiscourseTopic(url, setup.dataset.baseUrl ?? "", setup.dataset.baseUri ?? "") : undefined;
+  const discourseTopic = readDiscourseTopic();
 
   return {
     title,

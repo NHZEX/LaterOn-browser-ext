@@ -3,21 +3,25 @@ interface DiscourseSite {
   readonly basePath: string;
 }
 
-export interface DiscourseTopic extends DiscourseSite {
+interface DiscourseLocation {
   readonly topicId: string;
+  readonly postNumber: string | null;
 }
 
-export function discourseTopicId(url: string, site: DiscourseSite): string | null {
+export interface DiscourseTopic extends DiscourseSite, DiscourseLocation {}
+
+export function discourseLocation(url: string, site: DiscourseSite): DiscourseLocation | null {
   try {
     const { origin, pathname, hash } = new URL(url);
     const prefix = `${site.basePath}/t/`;
     if (origin !== site.origin || !pathname.startsWith(prefix) || /^#!?\//.test(hash)) return null;
 
     const route = pathname.slice(prefix.length);
-    const shortRoute = /^(\d+)(?:\/\d+)?\/?$/.exec(route);
-    const slugRoute = /^(?!(?:id_for|external_id)\/)[^/]+\/(\d+)(?:\/\d+)?\/?$/;
-    const topicId = shortRoute?.[1] ?? slugRoute.exec(route)?.[1];
-    return topicId?.replace(/^0+/, "") || null;
+    const parts = /^(\d+)(?:\/(\d+))?\/?$/.exec(route)
+      ?? /^(?!(?:id_for|external_id)\/)[^/]+\/(\d+)(?:\/(\d+))?\/?$/.exec(route);
+    const topicId = parts?.[1]?.replace(/^0+/, "");
+    const postNumber = parts?.[2]?.replace(/^0+/, "") ?? null;
+    return topicId && postNumber !== "" ? { topicId, postNumber } : null;
   } catch {
     return null;
   }
@@ -30,8 +34,8 @@ export function identifyDiscourseTopic(url: string, baseUrl: string, baseUri: st
     if (!/^https?:$/.test(base.protocol) || base.search || base.hash || base.username || base.password ||
       base.pathname.replace(/\/$/, "") !== basePath) return;
     const site = { origin: base.origin, basePath };
-    const topicId = discourseTopicId(url, site);
-    return topicId ? { ...site, topicId } : undefined;
+    const location = discourseLocation(url, site);
+    return location ? { ...site, ...location } : undefined;
   } catch {
     return undefined;
   }

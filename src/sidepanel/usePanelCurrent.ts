@@ -1,32 +1,47 @@
 import { computed, shallowRef, watch } from "vue";
 import { browser } from "wxt/browser";
 import { normalize, unwrapSuspendedTab } from "../shared/url-utils";
-import { discourseTopicId } from "../shared/discourse-topic";
+import { discourseLocation } from "../shared/discourse-topic";
 import { t } from "../shared/i18n";
 import { ACTIVE, CURRENT } from "../storage/contracts";
 import { normalizePanelProject } from "./shared";
 import type { PageMetadata } from "./page";
 import type { SidepanelControls } from "./useSidepanelControls";
+import type { PanelCommands } from "./usePanelCommands";
 
 interface MetadataResponse { readonly ok?: boolean; readonly metadata?: Partial<PageMetadata> }
 interface SaveResponse { readonly ok?: boolean; readonly pending?: boolean; readonly error?: string }
 
-export function usePanelCurrent(controls: SidepanelControls) {
+export function usePanelCurrent(controls: SidepanelControls, commands: PanelCommands) {
   const metadata = shallowRef<PageMetadata | null>(null);
   const error = shallowRef("");
   const saving = shallowRef(false), confirmed = shallowRef(false);
+  const checkingTopic = shallowRef(false), topicTargetId = shallowRef("");
+  const topic = computed(() => metadata.value?.discourseTopic);
+  const topicItems = computed(() => {
+    const current = metadata.value;
+    const activeTopic = topic.value;
+    if (!current || !activeTopic) return [];
+    const location = discourseLocation(current.url, activeTopic);
+    if (location?.topicId !== activeTopic.topicId || location.postNumber !== activeTopic.postNumber) return [];
+    return controls.collection.value.items.flatMap(item => {
+      const savedLocation = discourseLocation(item.url ?? "", activeTopic);
+      return savedLocation?.topicId === activeTopic.topicId ? [{ item, postNumber: savedLocation.postNumber }] : [];
+    });
+  });
   const matched = computed(() => {
     const url = metadata.value && normalize(metadata.value.url);
-    return url ? controls.collection.value.items.find(item => normalize(item.url ?? "") === url) : undefined;
+    return url ? controls.collection.value.items.find(item => normalize(item.url ?? "") === url)
+      ?? topicItems.value.find(candidate => candidate.postNumber === topic.value?.postNumber)?.item : undefined;
   });
   const saved = computed(() => confirmed.value || !!matched.value);
-  const topicSaved = computed(() => {
-    const current = metadata.value;
-    const topic = current?.discourseTopic;
-    if (saved.value || !current || !topic || discourseTopicId(current.url, topic) !== topic.topicId) return false;
-    return controls.collection.value.items.some(item => discourseTopicId(item.url ?? "", topic) === topic.topicId);
-  });
-  const disabled = computed(() => !metadata.value || saving.value || saved.value);
+  const topicSaved = computed(() => !saved.value && topicItems.value.length > 0);
+  const topicUpdateBlocked = computed(() => topicSaved.value && !!controls.collection.value.groups);
+  const topicTarget = computed(() => topicTargetId.value
+    ? topicItems.value.find(candidate => candidate.item.id === topicTargetId.value)?.item
+    : topicItems.value.length === 1 ? topicItems.value[0]?.item : undefined);
+  const disabled = computed(() => !metadata.value || checkingTopic.value || saving.value || saved.value
+    || (topicSaved.value && (topicUpdateBlocked.value || !topic.value?.postNumber || !topicTarget.value)));
   let alive = true, generation = 0, tabId: number | undefined;
   const waits = new Set<() => void>();
 
@@ -58,6 +73,7 @@ export function usePanelCurrent(controls: SidepanelControls) {
   async function load(): Promise<void> {
     const token = ++generation;
     metadata.value = null; error.value = ""; confirmed.value = false; saving.value = false;
+    checkingTopic.value = false; topicTargetId.value = "";
     tabId = undefined; controls.message.value = "";
     try {
       const [active] = await browser.tabs.query({ active: true, currentWindow: true });
@@ -66,6 +82,7 @@ export function usePanelCurrent(controls: SidepanelControls) {
       if (!tab?.id) throw new Error(t("noCurrentPage"));
       if (!/^https?:/i.test(tab.url ?? "")) throw new Error(t(tab.url?.startsWith("file:") ? "localFileUnsupported" : "browserPageUnsupported"));
       const url = tab.url ?? "";
+      checkingTopic.value = new URL(url).pathname.includes("/t/");
       const fallback: PageMetadata = { url, title: tab.title || url, description: t("noDescription"),
         source: new URL(url).hostname.replace(/^www\./, ""), image: "", favicon: tab.favIconUrl ?? "" };
       tabId = tab.id; metadata.value = fallback; sync(true);
@@ -74,11 +91,24 @@ export function usePanelCurrent(controls: SidepanelControls) {
       metadata.value = { ...fallback, ...response.metadata, title: response.metadata.title || fallback.title, url };
       sync();
     } catch (cause) { if (alive && token === generation) error.value = cause instanceof Error ? cause.message : t("noCurrentPage"); }
+    finally { if (alive && token === generation) checkingTopic.value = false; }
   }
   async function save(): Promise<void> {
     if (!alive || disabled.value || tabId === undefined) return;
     const token = generation;
     saving.value = true;
+    if (topicSaved.value) {
+      const item = topicTarget.value, current = metadata.value;
+      const tab = await browser.tabs.get(tabId).catch(() => null);
+      if (!alive || token !== generation) return;
+      if (!tab || tab.url !== current?.url) { void load(); return; }
+      const updated = item?.url && current?.discourseTopic
+        ? await commands.execute("updateDiscoursePosition", { id: item.id, expectedUrl: item.url, url: current.url, topic: current.discourseTopic }) : null;
+      if (!alive || token !== generation) return;
+      saving.value = false;
+      if (updated) controls.message.value = t("discoursePositionUpdated");
+      return;
+    }
     // 与快捷键共用后台链路，尊重「收藏前先选项目」；固定标签页，避免查询期间切页收藏错对象。
     const response: SaveResponse | null = await browser.runtime.sendMessage({ type: "QUICK_SAVE_TAB", source: "panel", tabId }).catch(() => null);
     if (!alive || token !== generation) return;
@@ -98,6 +128,6 @@ export function usePanelCurrent(controls: SidepanelControls) {
     alive = false; generation++; waits.forEach(cancel => cancel());
     browser.tabs.onActivated.removeListener(activated); browser.tabs.onUpdated.removeListener(updated);
   }
-  return { metadata, error, saving, saved, topicSaved, disabled, load, sync, save, mount, dispose };
+  return { metadata, error, saving, saved, topic, topicSaved, topicItems, topicTargetId, topicUpdateBlocked, disabled, load, sync, save, mount, dispose };
 }
 export type PanelCurrent = ReturnType<typeof usePanelCurrent>;

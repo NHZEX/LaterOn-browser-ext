@@ -14,7 +14,7 @@ import type { PanelCommands } from "./usePanelCommands";
 export function usePanelPage(controls: SidepanelControls, commands: PanelCommands) {
   const cache = usePanelCache(() => controls.collection.value);
   const diagnostics = usePanelDiagnostics(cache, () => controls.collection.value.items.length);
-  const current = usePanelCurrent(controls);
+  const current = usePanelCurrent(controls, commands);
   const storage = usePanelStorage(controls, () => current.sync());
   const navigation = usePanelBrowser(controls);
   let alive = true;

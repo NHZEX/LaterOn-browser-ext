@@ -2,6 +2,7 @@ import type { BackupItem, BackupProject } from "../backup/core";
 import type { IconMap } from "./icons";
 import type { EditRecoveryEntry } from "./edit-recovery";
 import type { SyncMeta } from "../sync/binding";
+import type { DiscourseTopic } from "../shared/discourse-topic";
 import { ICONS } from "./icons.ts";
 export { ICONS } from "./icons.ts";
 
@@ -70,6 +71,7 @@ export type CollectionOperation =
   | { readonly action: "moveProject"; readonly id: string; readonly beforeId: string | null }
   | { readonly action: "deleteProject"; readonly id: string }
   | { readonly action: "moveItem"; readonly id: string; readonly scope: string; readonly beforeId: string | null }
+  | { readonly action: "updateDiscoursePosition"; readonly id: string; readonly expectedUrl: string; readonly url: string; readonly topic: DiscourseTopic }
   | { readonly action: "mutateItems"; readonly operation: "update" | "delete"; readonly ids: readonly string[]; readonly patch?: ItemChanges;
       readonly editBasis?: ItemEditBasis; readonly deleteBindingId?: string | null }
   | { readonly action: "listEditRecovery" }
@@ -132,6 +134,9 @@ export function isCollectionCommand(value: unknown): value is CollectionCommand 
     case "moveProject": return isString(value.id) && isAnchor(value.beforeId);
     case "deleteProject": return isString(value.id);
     case "moveItem": return isString(value.id) && isString(value.scope) && isAnchor(value.beforeId);
+    case "updateDiscoursePosition": return isString(value.id) && isString(value.expectedUrl) && isString(value.url)
+      && isRecord(value.topic) && isString(value.topic.origin) && isString(value.topic.basePath)
+      && isString(value.topic.topicId) && isAnchor(value.topic.postNumber);
     case "mutateItems": return (value.operation === "update" || value.operation === "delete")
       && Array.isArray(value.ids) && value.ids.every(isString) && (value.patch === undefined || isItemChanges(value.patch))
       && (value.editBasis === undefined || (value.operation === "update" && value.ids.length === 1 && isEditBasis(value.editBasis)))

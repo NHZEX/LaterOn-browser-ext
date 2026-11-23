@@ -66,7 +66,7 @@ const discoursePage = async route => {
     : `<meta id="data-discourse-setup" data-base-url="${baseOrigin}${basePath}" data-base-uri="${basePath}">`;
   await route.fulfill({ contentType: "text/html", body: `<title>Forum tab</title>${setup}
     <meta property="og:title" content="Forum: ${url.pathname}"><meta property="og:description" content="Topic summary">
-    <meta property="og:image" content="${url.origin}/topic-cover.jpg"><main>Topic post</main>` });
+    <meta property="og:image" content="${url.origin}/topic-cover.jpg"><main style="min-height:4000px">Topic post</main>` });
 };
 
 async function seedTopicSaves(worker, urls, language = "zh-CN") {
@@ -78,10 +78,11 @@ async function seedTopicSaves(worker, urls, language = "zh-CN") {
   }, { urls, language });
 }
 
-test("Discourse：同页切换楼层只提示同主题，仍能独立收藏当前楼层", async ({ context, page, extension }) => {
+test("Discourse：手动更新同一收藏的楼层，重开时不恢复旧像素位置", async ({ context, page, extension }) => {
   const firstPost = "https://forum.test/t/topic/3217825/14", nextPost = "https://forum.test/t/topic/3217825/15";
   await context.route("https://forum.test/**", discoursePage);
-  await seedTopicSaves(extension.worker, [firstPost, "https://forum.test/t/3217825/13"]);
+  await seedTopicSaves(extension.worker, [firstPost]);
+  await extension.worker.evaluate(() => chrome.storage.local.set({ laterOnReadingPositions: { "topic-0": 850 } }));
   await page.goto(extension.url);
   await expect(page.locator("body")).not.toHaveClass(/booting/);
   const article = await context.newPage(); await article.goto(firstPost);
@@ -90,16 +91,29 @@ test("Discourse：同页切换楼层只提示同主题，仍能独立收藏当�
   await expect(save).toBeDisabled();
   await expect.poll(currentId).toBe("topic-0");
   await expect(hint).toHaveCount(0);
+  await expect(article.locator("#lateron-reading-position")).toHaveCount(0);
 
   await article.evaluate(url => history.replaceState(null, "", url), nextPost);
   await expect(hint).toBeVisible();
+  await expect(save).toHaveAccessibleName("更新到第 15 楼");
   await expect(save).toBeEnabled();
   await expect.poll(currentId).toBeNull();
+  const stored = async () => extension.worker.evaluate(async () => (await chrome.storage.local.get("laterOnItems")).laterOnItems);
+  expect(await stored()).toEqual([expect.objectContaining({ id: "topic-0", url: firstPost })]);
   await save.click();
-  const stored = async () => extension.worker.evaluate(async () => (await chrome.storage.local.get("laterOnItems")).laterOnItems.map(({ url }) => url).sort());
-  await expect.poll(stored).toEqual([firstPost, nextPost, "https://forum.test/t/3217825/13"].sort());
+  await expect.poll(stored).toEqual([expect.objectContaining({ id: "topic-0", url: nextPost, title: "Saved post 0", savedAt: 1 })]);
   await expect(save).toBeDisabled();
   await expect(hint).toHaveCount(0);
+  await article.close();
+  const opened = context.waitForEvent("page");
+  await page.locator('[data-id="topic-0"] .open-item').click();
+  const reopened = await opened;
+  await reopened.waitForURL(nextPost);
+  await expect(reopened.locator("#lateron-reading-position")).toHaveCount(0);
+  await reopened.mouse.wheel(0, 1200);
+  await expect.poll(() => reopened.evaluate(() => window.scrollY)).toBeGreaterThan(900);
+  await reopened.goto(firstPost);
+  expect(await extension.worker.evaluate(async () => (await chrome.storage.local.get("laterOnReadingPositions")).laterOnReadingPositions?.["topic-0"])).toBeUndefined();
 });
 
 test("Discourse：识别子目录安装，不把其他主题、站点或普通网页当成同主题", async ({ context, page, extension }) => {
@@ -135,6 +149,27 @@ test("Discourse：识别子目录安装，不把其他主题、站点或普通�
     await visit(url);
     await expect(hint).toHaveCount(0);
   }
+});
+
+test("Discourse：已有多条同主题收藏时必须先选目标，只有选中的记录改楼层", async ({ context, page, extension }) => {
+  const topic = "https://forum.test/t/topic/3217825", nextPost = `${topic}/15`;
+  await context.route("https://forum.test/**", discoursePage);
+  await seedTopicSaves(extension.worker, [`${topic}/14`, `${topic}/10`]);
+  await page.goto(extension.url);
+  await expect(page.locator("body")).not.toHaveClass(/booting/);
+  const article = await context.newPage(); await article.goto(topic);
+  const save = page.locator("#saveCurrent"), select = page.getByRole("combobox", { name: "选择要更新的收藏" });
+  await expect(page.getByText("此主题已收藏", { exact: true })).toBeVisible();
+  await expect(save).toBeDisabled();
+  await expect(select).toHaveCount(0);
+
+  await article.evaluate(url => history.replaceState(null, "", url), nextPost);
+  await expect(save).toHaveAccessibleName("更新到第 15 楼");
+  await expect(save).toBeDisabled();
+  await select.selectOption({ label: "第 10 楼 · Saved post 1" });
+  await save.click();
+  await expect.poll(() => extension.worker.evaluate(async () => (await chrome.storage.local.get("laterOnItems")).laterOnItems
+    .map(({ id, url }) => ({ id, url })))).toEqual([{ id: "topic-0", url: `${topic}/14` }, { id: "topic-1", url: nextPost }]);
 });
 
 for (const [language, theme] of [["zh-CN", "light"], ["en", "dark"]]) {

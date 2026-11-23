@@ -12,7 +12,7 @@ const local = {
 };
 const chrome = { storage: { local, onChanged: { addListener(fn) { changed.push(fn); } } },
   runtime: { onMessage: { addListener(fn) { listeners.push(fn); } }, getURL: name => `chrome-extension://fixture/${name}` } };
-const backend = vm.createContext({ chrome, crypto: webcrypto });
+const backend = vm.createContext({ chrome, crypto: webcrypto, URL });
 vm.runInContext(read('collection-backend.js'), backend);
 chrome.runtime.sendMessage = message => new Promise((resolve, reject) => {
   if (!listeners.some(fn => fn(message, {}, resolve) === true)) reject(Error('No handler'));
@@ -132,6 +132,25 @@ function page() {
   failWrite = false;
   await fresh.api.run('updateProject', { id: one.id, changes: { name: 'Retry' } });
   assert.equal(store.laterOnProjects.find(p => p.id === one.id).name, 'Retry');
+  const topicLink = 'https://forum.test/t/topic/42';
+  const bookmark = { id: 'bookmark', url: `${topicLink}/14`, title: 'Handwritten title', projectId: one.id, savedAt: 7, status: 'done' };
+  const otherBookmark = { id: 'other-post', url: 'https://forum.test/t/42/16' };
+  store.laterOnItems = [...store.laterOnItems, bookmark, otherBookmark];
+  store.laterOnReadingPositions = { bookmark: 850, 'other-post': 500 };
+  const moveTo = (postNumber, expectedUrl = bookmark.url) => fresh.api.run('updateDiscoursePosition', {
+    id: bookmark.id, expectedUrl, url: `${topicLink}/${postNumber}`,
+    topic: { origin: 'https://forum.test', basePath: '', topicId: '42', postNumber }
+  });
+  const beforeMove = clone(store);
+  await assert.rejects(moveTo('16'), /DISCOURSE_POSITION_ALREADY_SAVED/);
+  store.laterOnSyncMeta = { trialEnabled: true, binding: {} };
+  await assert.rejects(moveTo('15'), /DISCOURSE_POSITION_SYNC_BOUND/);
+  store.laterOnSyncMeta = beforeMove.laterOnSyncMeta;
+  assert.deepEqual(store, beforeMove);
+  await moveTo('15');
+  await assert.rejects(moveTo('17'), /STALE_ITEM/);
+  assert.deepEqual(store.laterOnItems.find(item => item.id === bookmark.id), { ...bookmark, url: `${topicLink}/15` });
+  assert.deepEqual(store.laterOnReadingPositions, { 'other-post': 500 });
   await assert.rejects(backend.collectionBackend.execute({ action: 'commit', patch: { laterOnItems: [] } }), /INVALID_OPERATION/);
   const invalid = await chrome.runtime.sendMessage({ type: 'COLLECTION_COMMAND', action: 'deleteProject', id: one.id });
   assert.equal(invalid.ok, false, 'page commands must carry an epoch');

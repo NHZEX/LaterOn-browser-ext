@@ -1,4 +1,5 @@
 import { errorText } from "../shared/errors";
+import { readDiscourseTopic } from "./discourse-topic";
 interface ReadingState {
   itemId: string | null;
   savedY: number;
@@ -85,7 +86,7 @@ export function registerReadingPosition(): void {
   }
 
   function sendPosition() {
-    if (state.disposed || !state.armed || !state.itemId) return;
+    if (state.disposed || !state.armed || !state.itemId || readDiscourseTopic()) return;
     const y = Math.max(0, Math.round(window.scrollY || window.pageYOffset || 0));
     safeSendMessage({ type: "SAVE_READING_POSITION", itemId: state.itemId, y });
   }
@@ -110,6 +111,7 @@ export function registerReadingPosition(): void {
 
   function continueFromSavedPosition() {
     if (state.disposed) return;
+    if (readDiscourseTopic()) { removePrompt(); return; }
     const target = state.savedY;
     const generation = state.generation;
     const itemId = state.itemId;
@@ -117,10 +119,10 @@ export function registerReadingPosition(): void {
     window.scrollTo({ top: target, behavior: "smooth" });
     // 图片和异步正文可能继续撑高页面；短暂复查两次，仍只恢复同一个 scrollY。
     setTimeout(() => {
-      if (state.generation === generation && state.itemId === itemId) window.scrollTo({ top: target, behavior: "auto" });
+      if (state.generation === generation && state.itemId === itemId && !readDiscourseTopic()) window.scrollTo({ top: target, behavior: "auto" });
     }, 450);
     setTimeout(() => {
-      if (state.generation !== generation || state.itemId !== itemId) return;
+      if (state.generation !== generation || state.itemId !== itemId || readDiscourseTopic()) return;
       window.scrollTo({ top: target, behavior: "auto" });
       state.armed = true;
       sendPosition();
@@ -169,7 +171,7 @@ export function registerReadingPosition(): void {
     clearTimeout(state.saveTimer);
     removePrompt();
     state.generation += 1;
-    state.itemId = message.itemId || null;
+    state.itemId = message.itemId && !readDiscourseTopic() ? message.itemId : null;
     state.savedY = Math.max(0, Number(message.y) || 0);
     state.armed = false;
     if (!state.itemId) return;

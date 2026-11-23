@@ -1,5 +1,6 @@
 import { browser } from "wxt/browser";
 import { normalizeItemState } from "../collection/item-state";
+import { discourseLocation, identifyDiscourseTopic } from "../shared/discourse-topic";
 import {
   ITEMS, PROJECTS, COVERS, ICONS, ORDER, POSITIONS, CURRENT, ACTIVE, KEYS, EPOCH,
   isRecord, isCollectionCommand, ITEM_TEXT_FIELDS
@@ -288,11 +289,32 @@ function migrateLegacyData(stored: LegacyCollectionState): Mutation {
   return result(patch, { items, covers });
 }
 
+function updateDiscoursePosition(stored: StoredCollection, { id, expectedUrl, url, topic }: Operation<"updateDiscoursePosition">): Mutation {
+  if (syncViewBound(stored)) fail("DISCOURSE_POSITION_SYNC_BOUND");
+  const items = stored[ITEMS] ?? [];
+  const item = items.find(entry => entry.id === id);
+  if (!item || item.url !== expectedUrl) fail("STALE_ITEM");
+  const current = identifyDiscourseTopic(url, `${topic.origin}${topic.basePath}`, topic.basePath);
+  const before = discourseLocation(expectedUrl, topic);
+  if (!current?.postNumber || current.origin !== topic.origin || current.topicId !== topic.topicId || current.postNumber !== topic.postNumber
+    || before?.topicId !== topic.topicId) fail("INVALID_OPERATION");
+  if (before.postNumber === current.postNumber) return result({}, { items });
+  if (items.some(entry => {
+    const position = discourseLocation(entry.url ?? "", topic);
+    return position?.topicId === current.topicId && position.postNumber === current.postNumber;
+  })) fail("DISCOURSE_POSITION_ALREADY_SAVED");
+  const next = items.map(entry => entry.id === id ? { ...entry, url } : entry);
+  const positions = stored[POSITIONS] ?? {};
+  const remaining = Object.fromEntries(Object.entries(positions).filter(([itemId]) => itemId !== id));
+  return result({ [ITEMS]: next, ...(Object.hasOwn(positions, id) ? { [POSITIONS]: remaining } : {}) }, { items: next });
+}
+
 const readKeys = {
   createProject: [PROJECTS], updateProject: [PROJECTS, ITEMS], setProjectPinned: [PROJECTS], moveProject: [PROJECTS],
   deleteProject: [...KEYS, CURRENT, ACTIVE, SYNC_META], moveItem: [ITEMS, PROJECTS, ORDER, SYNC_META],
   mutateItems: [...KEYS, CURRENT, OVERRIDE_LOG, SYNC_META], migrateLegacyData: [ITEMS, COVERS, ICONS],
-  listEditRecovery: [ITEMS, ICONS, OVERRIDE_LOG], clearEditRecovery: [ITEMS, ICONS]
+  listEditRecovery: [ITEMS, ICONS, OVERRIDE_LOG], clearEditRecovery: [ITEMS, ICONS],
+  updateDiscoursePosition: [ITEMS, ICONS, POSITIONS, SYNC_META]
 } satisfies Record<CollectionAction, readonly (keyof (CollectionState & SyncViewSnapshot))[]>;
 
 function applyOperation(stored: StoredCollection, command: CollectionCommand): Mutation {
@@ -303,6 +325,7 @@ function applyOperation(stored: StoredCollection, command: CollectionCommand): M
     case "moveProject": return moveProject(stored, command);
     case "deleteProject": return deleteProject(stored, command);
     case "moveItem": return moveItem(stored, command);
+    case "updateDiscoursePosition": return updateDiscoursePosition(stored, command);
     case "mutateItems": return mutateItemsWithRecovery(stored, command);
     case "listEditRecovery": return listEditRecovery(stored);
     case "clearEditRecovery": {
