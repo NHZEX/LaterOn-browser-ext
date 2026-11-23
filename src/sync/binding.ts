@@ -1,4 +1,4 @@
-import { SYNC_META } from "./acceptance";
+import { SYNC_META, syncEnabled } from "./acceptance";
 import type { SyncHead } from "./publication";
 import type { SyncClock, SyncState } from "./state";
 
@@ -9,6 +9,7 @@ export interface PendingPublication {
 
 export interface SyncBinding {
   readonly endpoint: string;
+  readonly credentials?: { readonly username: string; readonly password: string };
   readonly collectionId: string;
   readonly bindingId: string;
   readonly joined?: boolean;
@@ -23,6 +24,7 @@ export interface SyncBinding {
 export interface SyncMeta {
   readonly deviceId: string;
   readonly allocatedSeq: number;
+  readonly trialEnabled?: true;
   readonly clock?: SyncClock;
   readonly detachedId?: string;
   readonly detachedHeads?: { readonly collectionId: string; readonly heads: readonly SyncHead[];
@@ -40,11 +42,13 @@ export async function readMeta(): Promise<SyncMeta | undefined> {
   return (await chrome.storage.local.get<{ readonly [SYNC_META]?: SyncMeta }>(SYNC_META))[SYNC_META];
 }
 
-export async function detachSyncPatch({ preserveVerifiedHeads = false } = {}): Promise<{ readonly [SYNC_META]?: SyncMeta }> {
+export async function detachSyncPatch({ preserveVerifiedHeads = false, disableTrial = false, collectionReset = false } = {}): Promise<{ readonly [SYNC_META]?: SyncMeta }> {
   const previous = await readMeta();
+  if (collectionReset && !syncEnabled(previous) && !previous?.binding) return {};
   const { deviceId = crypto.randomUUID(), allocatedSeq = 0, clock, binding } = previous ?? {};
   const detachedHeads = binding ? { collectionId: binding.collectionId, heads: verifiedHeads(binding), endpoint: binding.endpoint,
     ...(binding.localPublications ? { localPublications: binding.localPublications } : {}) } : previous?.detachedHeads;
   return { [SYNC_META]: { deviceId, allocatedSeq, ...(clock ? { clock } : {}), detachedId: crypto.randomUUID(),
+    ...(!disableTrial && previous?.trialEnabled ? { trialEnabled: true } : {}),
     ...(preserveVerifiedHeads && detachedHeads?.heads.length ? { detachedHeads } : {}) } };
 }

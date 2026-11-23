@@ -1,5 +1,7 @@
 import { createWebdav } from "../backup/webdav-transport";
 import { saveLocalRecovery } from "../backup/background";
+import { BACKUP_STATE } from "../backup/webdav-shared";
+import type { BackupSettings } from "../backup/webdav-shared";
 import type { RunWebdavTransfer } from "../backup/webdav-background";
 import type { TransferMeter } from "../backup/webdav-meter";
 import type { WebdavClient } from "../backup/webdav-transport";
@@ -8,7 +10,7 @@ import type { CollectionState } from "../storage/contracts";
 import { commit, enqueue } from "../storage/coordinator";
 import { appendEditRecovery, readEditRecovery } from "../storage/edit-recovery";
 import { itemRemovalPatch } from "../storage/item-deletion";
-import { SYNC_ACCEPTANCE_BUILD, SYNC_ACCEPTANCE_MESSAGE, SYNC_META } from "./acceptance";
+import { normalizeSyncDirectory, QUALIFIED_SYNC_DIRECTORY, SYNC_ACCEPTANCE_BUILD, SYNC_ACCEPTANCE_MESSAGE, SYNC_META, syncEnabled } from "./acceptance";
 import type { SyncAcceptanceReply, SyncAcceptanceStatus, SyncJoinPreview } from "./acceptance";
 import { detachSyncPatch, readMeta, verifiedHeads } from "./binding";
 import type { PendingPublication, SyncBinding, SyncMeta } from "./binding";
@@ -20,6 +22,7 @@ import { receiveSyncText } from "./text-edit";
 
 type StoredSync = CollectionState & { readonly [SYNC_META]?: SyncMeta };
 type BoundMeta = SyncMeta & { readonly binding: SyncBinding };
+type SyncConnection = Pick<SyncBinding, "endpoint" | "credentials">;
 interface Discovered {
   readonly heads: readonly SyncHead[];
   readonly state: SyncState;
@@ -31,25 +34,48 @@ const rejected = (): never => { throw new Error("SYNC_ACCEPTANCE_REJECTED"); };
 const safetyPause = (): never => { throw new Error("SYNC_SAFETY_PAUSE"); };
 const emptyState: SyncState = { members: [], deletedIds: [] };
 
-function acceptanceEndpoint(value: unknown): string {
-  if (typeof value !== "string") return rejected();
-  const url = new URL(value.trim());
-  if (url.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
-    || url.username || url.password || url.search || url.hash || url.pathname === "/") return rejected();
-  return url.href.endsWith("/") ? url.href : `${url.href}/`;
+function syncConnection(message: Record<string, unknown>): SyncConnection {
+  const endpoint = normalizeSyncDirectory(message.endpoint);
+  if (!endpoint) return rejected();
+  if (SYNC_ACCEPTANCE_BUILD) return endpoint.startsWith("http://") ? { endpoint } : rejected();
+  const { username, password } = message;
+  if (endpoint !== QUALIFIED_SYNC_DIRECTORY || typeof username !== "string" || !username.trim()
+    || username.includes(":") || typeof password !== "string" || !password) return rejected();
+  return { endpoint, credentials: { username: username.trim(), password } };
+}
+
+async function requireDedicatedDirectory(endpoint: string): Promise<void> {
+  if (SYNC_ACCEPTANCE_BUILD) return;
+  if (endpoint !== QUALIFIED_SYNC_DIRECTORY) return rejected();
+  const stored = await chrome.storage.local.get<{ [BACKUP_STATE]?: { settings?: BackupSettings } }>(BACKUP_STATE);
+  const backup = stored[BACKUP_STATE]?.settings;
+  if (!backup) return;
+  const base = new URL(backup.endpoint), target = new URL(endpoint);
+  if (base.origin !== target.origin) return;
+  const basePath = decodeURIComponent(base.pathname).replace(/\/+$/, "") + "/";
+  const targetPath = decodeURIComponent(target.pathname).replace(/\/+$/, "") + "/";
+  const backupPath = `${basePath}${backup.directory}/`;
+  if (targetPath === basePath || targetPath.startsWith(backupPath) || backupPath.startsWith(targetPath)) return rejected();
+}
+
+async function requireUnbound(detachedId?: string): Promise<SyncMeta | undefined> {
+  const current = await readMeta();
+  if (!syncEnabled(current) || current?.binding || current?.detachedId !== detachedId) return rejected();
+  return current;
 }
 
 async function requireCurrentBinding(expected: SyncBinding): Promise<BoundMeta> {
   const meta = await readMeta();
-  if (!meta?.binding || meta.binding.bindingId !== expected.bindingId || meta.binding.collectionId !== expected.collectionId) return rejected();
+  if (!syncEnabled(meta) || !meta?.binding || meta.binding.bindingId !== expected.bindingId || meta.binding.collectionId !== expected.collectionId) return rejected();
   return { ...meta, binding: meta.binding };
 }
 
-function davFor(endpoint: string, meter: TransferMeter, binding?: SyncBinding): WebdavClient {
-  return createWebdav({ endpoint: acceptanceEndpoint(endpoint), username: "", password: "" }, meter, async (input, options) => {
-    if (!binding || (options?.method !== "PUT" && options?.method !== "DELETE")) return fetch(input, options);
+function davFor(connection: SyncConnection, meter: TransferMeter, check: () => Promise<unknown>): WebdavClient {
+  const { endpoint, credentials = { username: "", password: "" } } = connection;
+  return createWebdav({ endpoint, ...credentials }, meter, async (input, options) => {
     const dispatched = await enqueue(async () => {
-      await requireCurrentBinding(binding);
+      await requireDedicatedDirectory(endpoint);
+      await check();
       return { response: fetch(input, options) };
     });
     return dispatched.response;
@@ -61,16 +87,15 @@ async function requireEmpty(dav: WebdavClient): Promise<void> {
   if (!entries || entries.length !== 0) rejected();
 }
 
-async function createLibrary(value: unknown, meter: TransferMeter): Promise<void> {
-  const endpoint = acceptanceEndpoint(value);
-  const initial = await readMeta();
-  if (initial?.binding) return rejected();
-  await requireEmpty(davFor(endpoint, meter));
+async function createLibrary(message: Record<string, unknown>, meter: TransferMeter): Promise<void> {
+  const connection = syncConnection(message);
+  const { detachedId } = await readMeta() ?? {};
+  const check = () => requireUnbound(detachedId);
+  await requireEmpty(davFor(connection, meter, check));
   await enqueue(async () => {
-    const previous = await readMeta();
-    if (previous?.binding || previous?.detachedId !== initial?.detachedId) return rejected();
-    const binding: SyncBinding = { endpoint, collectionId: crypto.randomUUID(), bindingId: crypto.randomUUID() };
-    await chrome.storage.local.set({ [SYNC_META]: { ...(previous?.clock ? { clock: previous.clock } : {}), deviceId: previous?.deviceId ?? crypto.randomUUID(),
+    const previous = await check();
+    const binding: SyncBinding = { ...connection, collectionId: crypto.randomUUID(), bindingId: crypto.randomUUID() };
+    await chrome.storage.local.set({ [SYNC_META]: { ...(previous?.clock ? { clock: previous.clock } : {}), trialEnabled: previous?.trialEnabled, deviceId: previous?.deviceId ?? crypto.randomUUID(),
       allocatedSeq: previous?.allocatedSeq ?? 0, binding } satisfies SyncMeta });
   });
 }
@@ -237,17 +262,17 @@ function mergeIntoCollection(stored: CollectionState, previous: SyncState, state
 }
 
 async function evaluateJoin(message: Record<string, unknown>, meter: TransferMeter, confirm: boolean): Promise<SyncJoinPreview | undefined> {
-  const endpoint = acceptanceEndpoint(message.endpoint), collectionId = message.collectionId;
+  const connection = syncConnection(message), { endpoint } = connection, collectionId = message.collectionId;
   if (!isDeviceId(collectionId)) return rejected();
   const initial = await readMeta();
   if (initial?.binding) return rejected();
   const detached = initial?.detachedHeads?.collectionId === collectionId ? initial.detachedHeads : undefined;
-  const dav = davFor(endpoint, meter);
+  const check = () => requireUnbound(initial?.detachedId);
+  const dav = davFor(connection, meter, check);
   const { heads, state, clock } = await discover(dav, collectionId, detached?.heads ?? []);
   return enqueue(async () => {
     const stored = await chrome.storage.local.get<StoredSync>([SYNC_META, ...KEYS, CURRENT, OVERRIDE_LOG]);
-    const prior = stored[SYNC_META];
-    if (prior?.binding || prior?.detachedId !== initial?.detachedId) return rejected();
+    const prior = await check();
     const items = stored[ITEMS] ?? [];
     const proofData = JSON.stringify([endpoint, collectionId, prior?.detachedId, heads, items.map(item => item.id)]);
     const proof = JSON.stringify(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(proofData)))));
@@ -260,10 +285,10 @@ async function evaluateJoin(message: Record<string, unknown>, meter: TransferMet
     if (items.length || stored.laterOnProjects?.length) await saveLocalRecovery(stored);
     const own = heads.find(head => head.deviceId === deviceId);
     const localPublications = detached?.endpoint === endpoint ? detached.localPublications : undefined;
-    const binding: SyncBinding = { endpoint, collectionId, bindingId: crypto.randomUUID(), joined: true,
+    const binding: SyncBinding = { ...connection, collectionId, bindingId: crypto.randomUUID(), joined: true,
       state: merged, seen: heads, ...(localPublications ? { localPublications } : {}),
       ...(own ? { confirmed: asPublication(own) } : {}) };
-    const next = { ...incoming.patch, [SYNC_META]: { deviceId, allocatedSeq: Math.max(prior?.allocatedSeq ?? 0, own?.seq ?? 0),
+    const next = { ...incoming.patch, [SYNC_META]: { deviceId, trialEnabled: prior?.trialEnabled, allocatedSeq: Math.max(prior?.allocatedSeq ?? 0, own?.seq ?? 0),
       clock: stateClock(previous, maxClock(clock, prior?.clock ?? zeroClock)), binding } };
     await commit(stored, next);
   });
@@ -338,7 +363,7 @@ async function cleanupPublications(dav: WebdavClient, binding: SyncBinding): Pro
 }
 
 async function syncCollection(binding: SyncBinding, meter: TransferMeter, first: boolean): Promise<boolean> {
-  const dav = davFor(binding.endpoint, meter, binding);
+  const dav = davFor(binding, meter, () => requireCurrentBinding(binding));
   const { moreChanges, deferCleanup } = await exchange(dav, binding, first);
   if (!deferCleanup) await cleanupPublications(dav, binding).catch(() => {});
   return moreChanges;
@@ -349,15 +374,27 @@ function status(binding?: SyncBinding): SyncAcceptanceStatus {
   return binding.paused ? "paused" : binding.pending ? "pending" : binding.confirmed ? "verified" : binding.joined ? "joined" : "ready";
 }
 
+async function setTrial(enabled: boolean): Promise<void> {
+  if (SYNC_ACCEPTANCE_BUILD) return rejected();
+  await enqueue(async () => {
+    if (syncEnabled(await readMeta()) === enabled) return;
+    const next = (await detachSyncPatch({ preserveVerifiedHeads: true, disableTrial: !enabled }))[SYNC_META];
+    if (!next) return rejected();
+    await chrome.storage.local.set({ [SYNC_META]: enabled ? { ...next, trialEnabled: true } : next });
+  });
+}
+
 export function registerSyncAcceptance(runTransfer: RunWebdavTransfer): void {
-  if (!SYNC_ACCEPTANCE_BUILD) return;
   const running = new Set<string>();
   chrome.runtime.onMessage.addListener((message: unknown, sender, respond) => {
-    if (!isRecord(message) || message.type !== SYNC_ACCEPTANCE_MESSAGE || !sender.url?.startsWith(chrome.runtime.getURL("settings.html"))) return;
+    if (!isRecord(message) || message.type !== SYNC_ACCEPTANCE_MESSAGE || !sender.url
+      || sender.url.split(/[?#]/, 1)[0] !== chrome.runtime.getURL("settings.html")) return;
     const run = async (): Promise<SyncAcceptanceReply> => {
       let preview: SyncJoinPreview | undefined;
       let moreChanges: boolean | undefined;
-      if (message.action === "create") await runTransfer(meter => createLibrary(message.endpoint, meter));
+      if (message.action === "enable" || message.action === "disable") await setTrial(message.action === "enable");
+      else if (message.action !== "status" && !syncEnabled(await readMeta())) return rejected();
+      else if (message.action === "create") await runTransfer(meter => createLibrary(message, meter));
       else if (message.action === "preview" || message.action === "join") {
         preview = await runTransfer(meter => evaluateJoin(message, meter, message.action === "join"));
       } else if (message.action === "unbind") {
@@ -374,8 +411,8 @@ export function registerSyncAcceptance(runTransfer: RunWebdavTransfer): void {
         finally { running.delete(binding.bindingId); }
       }
       else if (message.action !== "status") return rejected();
-      const binding = (await readMeta())?.binding;
-      return { ok: true, status: status(binding), collectionId: binding?.collectionId, preview, moreChanges };
+      const meta = await readMeta();
+      return { ok: true, status: syncEnabled(meta) ? status(meta?.binding) : "disabled", collectionId: meta?.binding?.collectionId, preview, moreChanges };
     };
     void run().then(respond, () => respond({ ok: false }));
     return true;

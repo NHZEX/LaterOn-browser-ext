@@ -22,7 +22,7 @@ pnpm test:browser:smoke
 
 ### 首份 WebDAV 同步快照
 
-普通构建不开放同步验收入口。隔离构建只连接本机环回 WebDAV。先用一个配置在预先建好的专用空目录创建库并发布首份快照，再用其他配置输入相同地址和设置页显示的库 ID，预览、确认加入并手动同步。不要使用备份目录、旧同步验收目录或真实服务。
+隔离验收构建只连接本机环回 WebDAV。先用一个配置在预先建好的专用空目录创建库并发布首份快照，再用其他配置输入相同地址和设置页显示的库 ID，预览、确认加入并手动同步。不要使用备份目录或旧同步目录。
 
 专项测试使用隔离 Chromium 配置和环回 WebDAV 夹具，覆盖创建、加入、离线新增、本机关联回退、同库解绑重绑与本机恢复隔离，以及标题与摘要双向编辑、显式清空、旧表单与覆盖找回。删除验收覆盖确认期间收到的成员、乱序与回放、保留成员的本机关联、主动重收及删除传播后的本机找回。旧候选迁移由本机找回测试验证。
 
@@ -35,6 +35,20 @@ pnpm exec wxt build --mode sync-acceptance
 $env:STAYSIDE_SYNC_ACCEPTANCE = '1'
 try { pnpm exec playwright test tests/browser/sync-create.spec.cjs tests/browser/edit-recovery.spec.cjs }
 finally { Remove-Item Env:STAYSIDE_SYNC_ACCEPTANCE }
+```
+
+普通构建另有带认证的双配置冒烟：验证默认关闭、目录准入、发布与全新接入、关闭后不再发请求，以及实际 `PROPFIND` / `GET` 的缓存请求头。以下变量仅用于这个环回夹具；最后重建不含测试地址的普通构建：
+
+```powershell
+$env:VITE_LATERON_SYNC_TRIAL_DIRECTORY = 'http://127.0.0.1:47638/fixture-sync/'
+$env:STAYSIDE_SYNC_TRIAL_TEST = '1'
+try {
+  pnpm build
+  if ($LASTEXITCODE -eq 0) { pnpm exec playwright test tests/browser/sync-create.spec.cjs --grep '普通构建' }
+} finally {
+  Remove-Item Env:VITE_LATERON_SYNC_TRIAL_DIRECTORY, Env:STAYSIDE_SYNC_TRIAL_TEST
+  pnpm build
+}
 ```
 
 「记录环回 WebDAV 的千条快照」用合成收藏生成 `webdav-traffic.json`，存放在 `.output/browser-results/` 中对应测试的输出目录。报告记录 gzip 大小、夹具收到的 HTTP 请求与请求体、扩展计量的请求与上下行字节，以及断线和模拟 `429`。字节不含 HTTP 头和传输开销；断线时 Chromium 可能在同一次 `fetch` 内重发，夹具实收不能用扩展计量替代。该报告不代表真实服务的流量、限额或安全性。

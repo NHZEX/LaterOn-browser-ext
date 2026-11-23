@@ -14,7 +14,6 @@ interface BackupRequest {
 import * as core from "./core";
 import * as store from "../storage/coordinator";
 import { normalize } from "../shared/url-utils";
-import { SYNC_ACCEPTANCE_BUILD } from "../sync/acceptance";
 import { detachSyncPatch } from "../sync/binding";
 
 const RECOVERY_KEY = "laterOnPreRestoreBackup";
@@ -83,7 +82,7 @@ export function registerBackup() {
       const result = plan(current, incoming, mode);
       const epoch = crypto.randomUUID();
       if (mode === "replace" && keepRecovery === true) await saveLocalRecovery(latest);
-      const detached = SYNC_ACCEPTANCE_BUILD && mode === "replace" ? await detachSyncPatch() : {};
+      const detached = mode === "replace" ? await detachSyncPatch({ collectionReset: true }) : {};
       const restored = core.toStorage(result.data);
       const items = mode === "merge" ? retainLocalEditMetadata(restored.laterOnItems, latest.laterOnItems ?? []) : restored.laterOnItems;
       // A single storage write commits all references and invalidates old pages.
@@ -97,7 +96,7 @@ export function registerBackup() {
     return store.enqueue(async () => {
       const stored = await snapshot();
       const projects = (stored.laterOnProjects || []).map(({ coverPick, ...project }) => project);
-      const detached = SYNC_ACCEPTANCE_BUILD ? await detachSyncPatch() : {};
+      const detached = await detachSyncPatch({ collectionReset: true });
       await store.commit(stored, { ...detached, laterOnItems: [], laterOnCovers: {}, laterOnOrder: {}, laterOnReadingPositions: {},
         laterOnProjects: projects, laterOnCurrentItem: null, [store.EPOCH]: crypto.randomUUID() });
       return { ok: true };

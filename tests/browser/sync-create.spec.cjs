@@ -9,6 +9,8 @@ const { chromium } = require("@playwright/test");
 const { test, expect, buildDir } = require("./extension.cjs");
 
 const acceptance = process.env.STAYSIDE_SYNC_ACCEPTANCE === "1";
+const trialSmoke = process.env.STAYSIDE_SYNC_TRIAL_TEST === "1";
+const trialPort = 47638;
 const folder = "/fixture-sync/";
 const regionName = "WebDAV sync acceptance";
 const coverImage = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
@@ -19,18 +21,28 @@ const listing = `<d:multistatus xmlns:d="DAV:"><d:response><d:href>${folder}</d:
 const actualListing = files => listing.replace('</d:multistatus>', Array.from(files.keys(), url =>
   `<d:response><d:href>${url}</d:href><d:propstat><d:prop><d:resourcetype/></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>`).join('') + '</d:multistatus>');
 
-test("普通构建不开放同步验收入口", async ({ page, extension }) => {
+test("普通构建默认关闭手动试用，仍可使用独立备份", async ({ page, extension }) => {
   test.skip(acceptance, "Default build only");
   await extension.worker.evaluate(() => chrome.storage.local.set({ laterOnSettings: { language: "en" } }));
   await page.goto(new URL("settings.html#backup", extension.url).href);
   await expect(page.getByRole("region", { name: "Backup & restore" })).toBeVisible();
   await expect(page.getByRole("region", { name: "WebDAV sync acceptance" })).toHaveCount(0);
-  const status = await page.evaluate(() => chrome.runtime.sendMessage({ type: "LATERON_SYNC_ACCEPTANCE", action: "status" })
-    .catch(() => null));
-  expect(status ?? null).toBeNull();
+  const trial = page.getByRole("region", { name: "Manual WebDAV sync trial" });
+  await expect(trial.getByRole("button", { name: "Enable manual sync trial" })).toBeVisible();
+  await expect(trial.getByRole("button", { name: "Create sync library" })).toHaveCount(0);
+  await withDav(async (dav, endpoint) => {
+    const blocked = await page.evaluate(endpoint => chrome.runtime.sendMessage({ type: "LATERON_SYNC_ACCEPTANCE", action: "create", endpoint }), endpoint);
+    expect(blocked).toEqual({ ok: false });
+    expect(dav.requests).toEqual([]);
+  });
+  if (!trialSmoke) {
+    await trial.getByRole("button", { name: "Enable manual sync trial" }).click();
+    await expect(trial.getByText("This build has no qualified sync directory. You cannot create or join a library yet.")).toBeVisible();
+    await expect(trial.getByRole("button", { name: "Create sync library" })).toHaveCount(0);
+  }
 });
 
-async function withDav(run) {
+async function withDav(run, listenPort = 0) {
   const dav = { requests: [], files: new Map(), listing: '<d:multistatus xmlns:d="DAV:"/>' };
   const server = createServer(async (request, response) => {
     const { method, url, headers } = request;
@@ -50,6 +62,7 @@ async function withDav(run) {
       entry.responseBytes = Buffer.byteLength(data);
       response.writeHead(status, responseHeaders).end(data);
     };
+    if (dav.authorization && headers.authorization !== dav.authorization) { reply(401); return; }
     if (dav.offline) { reply(503); return; }
     if (method === "PROPFIND") {
       if (dav.listStatus) reply(dav.listStatus);
@@ -76,7 +89,10 @@ async function withDav(run) {
       reply(status ?? (dav.files.delete(url) ? 204 : 404));
     } else reply(405);
   });
-  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(listenPort, "127.0.0.1", resolve);
+  });
   const { address, port } = server.address();
   const endpoint = format({ protocol: "http", hostname: address, port, pathname: folder });
   try { await run(dav, endpoint); }
@@ -209,6 +225,101 @@ async function rejoin(page, endpoint, binding) {
   await expect.poll(async () => (await readMeta(page))?.binding?.bindingId).not.toBe(binding.bindingId);
   await expect(panel.getByRole("button", { name: "Sync now" })).toBeEnabled();
 }
+
+test("普通构建按目录准入，两套配置认证同步并可关闭", async ({ page, extension }) => {
+  test.skip(acceptance || !trialSmoke, "Requires a normal build with the qualified loopback trial directory");
+  test.setTimeout(60_000);
+  await withDav(async (dav, endpoint) => {
+    dav.discover = true;
+    dav.authorization = "Basic " + Buffer.from("fixture-user:fixture-password").toString("base64");
+    const url = new URL("settings.html#backup", extension.url).href;
+    const panelFor = view => view.getByRole("region", { name: "Manual WebDAV sync trial" });
+    const enable = async panel => {
+      await panel.getByRole("button", { name: "Enable manual sync trial" }).click();
+      await panel.getByRole("textbox", { name: "Sync username" }).fill("fixture-user");
+      await panel.getByLabel("Sync app password").fill("fixture-password");
+    };
+    const setBackupDirectory = directory => page.evaluate(({ endpoint, directory }) => chrome.storage.local.set({
+      laterOnWebdavBackup: { device: "fixture-backup", settings: {
+        endpoint: new URL("/", endpoint).href, directory, username: "backup", password: "backup-only",
+        automatic: false, intervalHours: 24, includeImages: false, budgetMiB: 192
+      } }
+    }), { endpoint, directory });
+    await extension.worker.evaluate(() => chrome.storage.local.set({ laterOnSettings: { language: "en" } }));
+    await page.goto(url);
+    const panel = panelFor(page);
+    await enable(panel);
+    const directory = panel.getByRole("textbox", { name: "Dedicated empty sync directory" });
+    const create = panel.getByRole("button", { name: "Create sync library" });
+    await directory.fill(new URL("unqualified/", endpoint).href);
+    await create.click();
+    await expect(panel.getByRole("alert")).toBeVisible();
+    expect(dav.requests).toEqual([]);
+
+    await setBackupDirectory("fixture-sync");
+    await directory.fill(endpoint);
+    await create.click();
+    await expect(panel.getByRole("alert")).toBeVisible();
+    expect(dav.requests).toEqual([]);
+    await setBackupDirectory("separate-zip-backup");
+    dav.files.set(`${folder}old.zip`, Buffer.from("fixture"));
+    await create.click();
+    await expect.poll(() => dav.requests.length).toBe(1);
+    await expect(panel.getByRole("alert")).toBeVisible();
+    expect(putPathsSince(dav)).toEqual([]);
+    dav.files.delete(`${folder}old.zip`);
+
+    await saveSyncItem(page, endpoint, "Trial article");
+    await publishFirst(panel);
+    const owner = await readMeta(page);
+    const head = owner.binding.confirmed.head;
+    await withRestartableProfile(async restart => {
+      const peer = await restart();
+      await peer.worker.evaluate(() => chrome.storage.local.set({ laterOnSettings: { language: "en" }, laterOnOnboardingSeen: true }));
+      const settings = await openSettings(peer.context, peer.url);
+      const join = panelFor(settings);
+      await enable(join);
+      await join.getByRole("textbox", { name: "Dedicated directory for an existing sync library" }).fill(endpoint);
+      await join.getByRole("textbox", { name: "Expected library ID" }).fill(head.collectionId);
+      await join.getByRole("button", { name: "Preview join" }).click();
+      await join.getByRole("button", { name: "Confirm join" }).click();
+      await expect(join.getByRole("status")).toHaveText("Joined. Use Sync now to exchange collection changes.");
+      expect((await readMeta(settings)).binding.seen).toContainEqual(head);
+      const view = await peer.context.newPage();
+      await view.goto(new URL("library.html?from=sidepanel&project=unfiled&filter=all", peer.url).href);
+      await expect(view.locator("#cardGrid .card").filter({ hasText: "Trial article" })).toBeVisible();
+      const before = dav.requests.length;
+      await syncNow(join);
+      expect(requestsSince(dav, before)).toEqual([`PROPFIND ${folder}`, `GET ${recordPathFor(head)}`]);
+    });
+
+    await saveSyncItem(page, endpoint, "Local after publishing");
+    const control = await openSettings(page.context(), url);
+    const readStarted = Promise.withResolvers(), releaseRead = Promise.withResolvers();
+    dav.beforeGet = async path => {
+      if (path !== recordPathFor(head)) return;
+      readStarted.resolve();
+      await releaseRead.promise;
+    };
+    await panel.getByRole("button", { name: "Sync now" }).click();
+    let disabledAt;
+    try {
+      await readStarted.promise;
+      await panelFor(control).getByRole("button", { name: "Disable trial and unbind" }).click();
+      await expect(panelFor(control).getByRole("button", { name: "Enable manual sync trial" })).toBeVisible();
+      disabledAt = dav.requests.length;
+    } finally { releaseRead.resolve(); }
+    await expect(panel.getByRole("button", { name: "Enable manual sync trial" })).toBeVisible();
+    await control.reload();
+    await expect(panelFor(control).getByRole("button", { name: "Enable manual sync trial" })).toBeVisible();
+    expect((await readMeta(control)).binding).toBeUndefined();
+    expect(dav.requests).toHaveLength(disabledAt);
+    expect(putPathsSince(dav)).toEqual([folder + head.snapshotName, recordPathFor(head)]);
+    const requests = dav.requests.filter(({ method }) => method === "PROPFIND" || method === "GET");
+    expect([...new Set(requests.map(({ method }) => method))].sort()).toEqual(["GET", "PROPFIND"]);
+    expect(requests.every(({ headers }) => headers["cache-control"]?.includes("no-cache"))).toBe(true);
+  }, trialPort);
+});
 
 test("记录环回 WebDAV 的千条快照、待确认重试和限流流量", async ({ page, extension }, testInfo) => {
   test.skip(!acceptance, "Requires sync-acceptance build");

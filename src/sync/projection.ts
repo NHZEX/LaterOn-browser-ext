@@ -9,7 +9,8 @@ import type { SyncEditView } from "./text-edit";
 
 export type SyncViewSnapshot = { readonly [SYNC_META]?: SyncMeta };
 export type MemberGroups = ReadonlyMap<string, readonly StoredItem[]> & { readonly text?: SyncEditView };
-export const hasSyncBinding = (meta: unknown) => SYNC_ACCEPTANCE_BUILD && isRecord(meta) && isRecord(meta.binding);
+export const hasSyncBinding = (meta: unknown) => isRecord(meta) && isRecord(meta.binding)
+  && (SYNC_ACCEPTANCE_BUILD || meta.trialEnabled === true);
 export const syncViewBound = (snapshot: SyncViewSnapshot) => hasSyncBinding(snapshot[SYNC_META]);
 
 function compareMembers(left: StoredItem, right: StoredItem): number {
