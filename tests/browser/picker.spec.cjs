@@ -50,30 +50,34 @@ for (const [theme, language] of [["light", "zh-CN"], ["dark", "en"]]) {
     expect(errors).toEqual([]);
   });
 
-  test(`F3 原生独立选择页：批次确认、过期关闭与主题（${theme}/${language}）`, async ({ page, context, extension }) => {
+  test(`F3 原生独立选择页：选中数量、批次确认、过期关闭与主题（${theme}/${language}）`, async ({ page, context, extension }) => {
     const errors = [];
     page.on("pageerror", error => errors.push(error.message));
     await context.route("https://picker-page.test/**", route => route.fulfill({ contentType: "text/html",
       body: "<!doctype html><title>Standalone picker save</title><p>Article</p>" }));
     const article = await context.newPage();
     await article.goto("https://picker-page.test/article");
+    const second = await context.newPage();
+    await second.goto("https://picker-page.test/second");
     // Supply a pending request at the session-storage boundary; saving and messages use the actual worker.
     await extension.worker.evaluate(async ({ theme, language }) => {
       await chrome.storage.local.set({ laterOnCleanupV165: true, laterOnItems: [],
         laterOnProjects: [{ id: "work", name: "F3 Work", createdAt: 1 }],
         laterOnSettings: { theme, language, autoCleanEnabled: false } });
-      const tab = (await chrome.tabs.query({})).find(tab => tab.url === "https://picker-page.test/article");
+      const tabs = (await chrome.tabs.query({})).filter(tab => tab.url?.startsWith("https://picker-page.test/"));
       await chrome.storage.session.set({ laterOnPendingBatch: { batchId: "standalone", createdAt: Date.now(),
-        projectId: "work", tabs: [{ id: tab.id, windowId: tab.windowId, url: tab.url, title: tab.title }] } });
+        selectedTabs: true, projectId: "work", tabs: tabs.map(({ id, windowId, url, title }) => ({ id, windowId, url, title })) } });
     }, { theme, language });
     await page.goto(new URL("save-project-picker.html?batch=standalone", extension.url).href);
     await expect(page.locator("#lateron-folder-picker .lon-primary")).toContainText("F3 Work");
+    await expect(page.getByRole("heading", { name: language === "en" ? "Add 2 selected tabs to which project?" : "将选中的 2 个标签页添加到哪个项目？" })).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
     expect(await page.evaluate(() => typeof window.openFolderPicker)).toBe("undefined");
     const closed = page.waitForEvent("close");
     await page.keyboard.press("Enter");
     await closed;
-    await expect.poll(() => extension.worker.evaluate(async () => (await chrome.storage.local.get("laterOnItems")).laterOnItems?.[0]?.projectId)).toBe("work");
+    await expect.poll(() => extension.worker.evaluate(async () => (await chrome.storage.local.get("laterOnItems")).laterOnItems
+      ?.filter(item => item.projectId === "work").map(item => item.url).sort())).toEqual(["https://picker-page.test/article", "https://picker-page.test/second"]);
     const expired = await context.newPage();
     expired.on("pageerror", error => errors.push(error.message));
     await expired.goto(new URL("save-project-picker.html?batch=standalone", extension.url).href);

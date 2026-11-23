@@ -8,6 +8,7 @@ const read = require("./helpers/read-runtime.cjs");
 
 const URL_A = "https://save-close.test/article";
 const MENU = "lateron-save-and-close";
+const SELECTED_MENU = "lateron-save-selected-tabs";
 const clone = structuredClone;
 
 async function worker(t, { picker = false, frozen = false, language = "zh-CN" } = {}) {
@@ -18,11 +19,11 @@ async function worker(t, { picker = false, frozen = false, language = "zh-CN" } 
   });
   const state = { laterOnCleanupV165: true, laterOnItems: [], laterOnProjects: [{ id: "work", name: "Work" }],
     laterOnSettings: { language, autoCleanEnabled: false, askFolderOnSingle: picker, askFolderOnSingleOptIn: picker } };
-  const session = {}, notices = [], removed = [], menus = [], created = [];
-  const tabs = [{ id: 1, windowId: 1, active: true, title: "Article", url: frozen
+  const session = {}, notices = [], removed = [], menus = [], created = [], overlays = [];
+  const tabs = [{ id: 1, windowId: 1, active: true, highlighted: true, title: "Article", url: frozen
     ? `chrome-extension://suspender/suspended.html#ttl=Article&uri=${URL_A}` : URL_A },
     { id: 2, windowId: 1, active: false, url: "https://save-close.test/other" }];
-  const controls = { failWrite: false, failClose: false, pickerAvailable: true };
+  const controls = { failWrite: false, failClose: false, pickerAvailable: true, currentWindowId: 1 };
   const storage = data => ({
     async get(keys) { const names = keys == null ? Object.keys(data) : Array.isArray(keys) ? keys : [keys];
       return clone(Object.fromEntries(names.filter(key => key in data).map(key => [key, data[key]]))); },
@@ -33,7 +34,11 @@ async function worker(t, { picker = false, frozen = false, language = "zh-CN" } 
     storage: { local: storage(state), session: storage(session), onChanged: event("storage") },
     runtime: { getURL: name => `chrome-extension://stayside/${name}`, onMessage: event("messages"), onInstalled: event("installed"), onStartup: event("startup") },
     tabs: {
-      async query(filter) { return clone(filter.active ? tabs.filter(tab => tab.active) : tabs); },
+      async query(filter) {
+        const windowId = filter.windowId ?? (filter.currentWindow ? controls.currentWindowId : undefined);
+        return clone(tabs.filter(tab => (windowId === undefined || tab.windowId === windowId)
+          && (!filter.active || tab.active) && (!filter.highlighted || tab.highlighted)));
+      },
       async get(id) { const tab = tabs.find(tab => tab.id === id); if (!tab) throw Error("NO_TAB"); return clone(tab); },
       async remove(id) { if (controls.failClose) throw Error("CLOSE_FAILED"); removed.push({ id, at: clock.now }); tabs.splice(tabs.findIndex(tab => tab.id === id), 1); },
       async create(options) { created.push(clone(options)); return { id: 99 }; },
@@ -47,8 +52,13 @@ async function worker(t, { picker = false, frozen = false, language = "zh-CN" } 
       notices.push({ ...clone(options), system: true, at: clock.now, items: state.laterOnItems.length }); return id;
     } },
     scripting: { async executeScript(options) {
-      if (options.files?.includes("content-metadata.js")) return [{ result: { title: "Article", description: "Full description", image: "https://save-close.test/cover.png", favicon: "https://save-close.test/icon.png", url: URL_A } }];
+      if (options.files?.includes("content-metadata.js")) {
+        const tab = tabs.find(entry => entry.id === options.target.tabId);
+        if (!tab) throw Error("NO_TAB");
+        return [{ result: { title: tab.title, description: "Full description", image: "https://save-close.test/cover.png", favicon: "https://save-close.test/icon.png", url: tab.url } }];
+      }
       if (Array.isArray(options.args?.[0])) notices.push({ ...clone(options.args[0][0]), at: clock.now, items: state.laterOnItems.length });
+      if (options.args?.[0]?.batchId && Array.isArray(options.args[0].pages)) overlays.push({ tabId: options.target.tabId, payload: clone(options.args[0]) });
       return [{ result: controls.pickerAvailable }];
     } }
   };
@@ -63,14 +73,16 @@ async function worker(t, { picker = false, frozen = false, language = "zh-CN" } 
     for (const listener of events.messages) if (listener(message, {}, resolve) === true) return;
     reject(Error("UNHANDLED_MESSAGE"));
   });
-  return { state, session, tabs, notices, removed, menus, created, controls, clock, events, click, send };
+  return { state, session, tabs, notices, removed, menus, created, overlays, controls, clock, events, click, send };
 }
 
 for (const language of ["zh-CN", "en"]) {
   test(`菜单注册与直接收藏：${language} 提示后固定 800ms 关闭原标签，保留其他标签`, async t => {
     const e = await worker(t, { language });
-    assert.deepEqual(e.menus.map(menu => menu.id), ["lateron-save-page", MENU, "lateron-save-all-tabs"]);
+    assert.deepEqual(e.menus.map(menu => menu.id), ["lateron-save-page", MENU, "lateron-save-all-tabs", SELECTED_MENU]);
     assert.equal(e.menus[1].title, language === "en" ? "Add this page to StaySide and close" : "添加此页面到 StaySide 并关闭");
+    assert.deepEqual(e.menus[3].contexts, ["action"]);
+    assert.equal(e.menus[3].title, language === "en" ? "Add selected tabs to StaySide" : "添加选中的标签页到 StaySide");
     const initialListeners = e.events.updated.size;
     const completion = e.click(); await e.clock.tickAsync(0);
     assert.equal(e.state.laterOnItems[0].url, URL_A);
@@ -84,6 +96,53 @@ for (const language of ["zh-CN", "en"]) {
     assert.equal(e.events.updated.size, initialListeners, "关闭后释放临时导航监听");
   });
 }
+
+test("收藏选中标签页：锁定菜单来源窗口和触发时的网址，确认后不关闭标签", async t => {
+  const e = await worker(t);
+  const selectedUrl = "https://save-close.test/selected";
+  e.state.laterOnSettings.askFolderOnBatch = false;
+  e.controls.currentWindowId = 2;
+  const selected = { id: 3, windowId: 1, highlighted: true, title: "Original selection", url: selectedUrl };
+  e.tabs.push(selected,
+    { id: 4, windowId: 2, active: true, highlighted: true, url: "https://save-close.test/another-window" },
+    { id: 5, windowId: 1, highlighted: true, url: "chrome://settings/" });
+
+  const opened = e.click(SELECTED_MENU); await e.clock.tickAsync(200); await opened;
+  assert.equal(e.state.laterOnItems.length, 0);
+  assert.equal(e.overlays.at(-1).tabId, 1);
+  assert.equal(e.overlays.at(-1).payload.titleText, "将选中的 2 个标签页添加到哪个项目？");
+  const { batchId } = e.overlays.at(-1).payload;
+  e.tabs[1].highlighted = true;
+  Object.assign(selected, { highlighted: false, url: "https://save-close.test/navigated", title: "New page" });
+
+  const confirmed = await e.send({ type: "CONFIRM_BATCH_SAVE", batchId, projectId: "work" });
+  assert.equal(confirmed.ok, true);
+  assert.equal(confirmed.tabCount, 2);
+  await e.clock.tickAsync(0);
+  assert.deepEqual(e.state.laterOnItems.map(item => item.url).sort(), [URL_A, selectedUrl].sort());
+  assert.equal(e.state.laterOnItems.find(item => item.url === selectedUrl).title, "Original selection");
+  assert.ok(e.state.laterOnItems.every(item => item.projectId === "work"));
+  assert.deepEqual(e.removed, []);
+});
+
+test("收藏选中标签页：无可收藏网页时不回退整窗，受限页面可打开独立选择器", async t => {
+  const e = await worker(t, { language: "en" });
+  e.tabs[0].url = "chrome://settings/";
+  assert.equal((await e.click(SELECTED_MENU)).ok, false);
+  assert.equal(e.session.laterOnPendingBatch, undefined);
+  assert.equal(e.created.length, 0);
+  e.tabs[1].highlighted = true;
+
+  assert.equal((await e.click(SELECTED_MENU)).pending, true);
+  const [pickerTab] = e.created;
+  assert.equal(pickerTab.windowId, 1);
+  const batchId = new URL(pickerTab.url).searchParams.get("batch");
+  const picker = await e.send({ type: "GET_PENDING_PICKER", batchId });
+  assert.equal(picker.payload.titleText, "Add 1 selected tab to which project?");
+  await e.send({ type: "CANCEL_BATCH_SAVE", batchId });
+  assert.equal(e.session.laterOnPendingBatch, undefined);
+  assert.equal(e.state.laterOnItems.length, 0);
+});
 
 test("普通添加不关闭；重复添加并关闭不重复入库", async t => {
   const e = await worker(t);

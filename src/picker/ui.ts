@@ -187,9 +187,8 @@ export function openFolderPicker(options: FolderPickerOptions): { readonly close
     $(".lon-pages").hidden = true;
   } else {
     const single = pages.length <= 1;
-    $(".lon-title").textContent = copy.saveTitle;
+    $(".lon-title").textContent = data.titleText || (single ? copy.saveSingleTitle : copy.saveTitle);
     if (single) {
-      $(".lon-title").textContent = copy.saveSingleTitle;
       summaryEl.textContent = savedCount > 0 ? copy.singleSaved : copy.singleNew;
       $(".lon-pages").hidden = true;
     } else {

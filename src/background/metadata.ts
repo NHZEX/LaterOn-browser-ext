@@ -207,7 +207,7 @@ async function applyServerMetaRescue(result: Metadata): Promise<Metadata> {
   return result;
 }
 
-async function extractTabMetadata(tab: BackgroundTab): Promise<Metadata> {
+async function extractTabMetadata(tab: BackgroundTab, { matchTabUrl = false }: { readonly matchTabUrl?: boolean } = {}): Promise<Metadata> {
   tab = unwrapSuspendedTab(tab);
   const fallback = {
     title: tab.title || tab.url,
@@ -233,7 +233,7 @@ async function extractTabMetadata(tab: BackgroundTab): Promise<Metadata> {
 
   for (;;) {
     const data = await readTabMetadata(tab);
-    if (!data) return applyServerMetaRescue(fallback);
+    if (!data || (matchTabUrl && data.url !== tab.url)) return applyServerMetaRescue(fallback);
 
     // 复核：提取脚本会回报它实际读到的视频 id（面板上的那个）。
     // 跟网址一对，就知道读到的标题/封面是不是这条视频的。对不上就趁剩下的时间再读一次。

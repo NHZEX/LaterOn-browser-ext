@@ -1,10 +1,10 @@
 import type { BackgroundTab, SaveInput } from "./shared";
 import { errorMessage } from "./shared";
-import { saveAllTabsInWindow, quickSave, confirmBatchSave } from "./save-workflow";
+import { saveAllTabsInWindow, saveSelectedTabsInWindow, quickSave, confirmBatchSave } from "./save-workflow";
 import { unwrapSuspendedTab } from "../shared/url-utils";
 import { isWebUrl, usesEnglish } from "./shared";
 import { registerFeedback, showLibraryCommandNotice, showActionError, toggleTranslation, reportFailure, testSystemNotice } from "./feedback";
-import { MENU_SAVE_ALL, MENU_SAVE_PAGE, MENU_SAVE_AND_CLOSE } from "./browser-setup";
+import { MENU_SAVE_ALL, MENU_SAVE_SELECTED, MENU_SAVE_PAGE, MENU_SAVE_AND_CLOSE } from "./browser-setup";
 import { saveItem } from "./collection";
 import { openLibrary, type LibraryContext } from "./navigation";
 import { cancelPendingBatch, getPendingPickerPayload, createProject } from "./project-picker";
@@ -73,6 +73,9 @@ export function registerBackground() {
   // 现已下线：新标签恢复浏览器默认行为，不再有任何劫持。
 
   chrome.contextMenus.onClicked.addListener((info, tab) => {
+    if (info.menuItemId === MENU_SAVE_SELECTED) {
+      return saveSelectedTabsInWindow(tab?.windowId).catch((error) => reportFailure(error, tab));
+    }
     if (info.menuItemId === MENU_SAVE_ALL) {
       return saveAllTabsInWindow("menu").catch((error) => reportFailure(error, tab));
     } else if ((info.menuItemId === MENU_SAVE_PAGE || info.menuItemId === MENU_SAVE_AND_CLOSE) && tab?.id) {

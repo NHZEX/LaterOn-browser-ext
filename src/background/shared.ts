@@ -12,6 +12,7 @@ export type SaveInput = Partial<PageMetadata> & { readonly url: string };
 export interface SavedTabTarget { readonly id: number; readonly url: string; }
 export interface BatchOptions {
   readonly tabs: readonly BackgroundTab[];
+  readonly selectedTabs?: boolean;
   readonly source?: string;
   readonly notifyTabId?: number | null;
   readonly notifySuspended?: boolean;

@@ -26,6 +26,7 @@ export interface PickerRequest {
   readonly projectId?: string;
   readonly batchId?: string;
   readonly savedCount?: number;
+  readonly selectedTabs?: boolean;
   readonly tabs?: readonly { readonly url: string; readonly title?: string }[];
 }
 
@@ -53,6 +54,7 @@ export interface PickerPayload {
   readonly selected: string;
   readonly batchId?: string;
   readonly savedCount: number;
+  readonly titleText?: string;
   readonly saveContext?: PickerSaveContext;
   readonly folders: readonly PickerFolder[];
   readonly pages: readonly PickerPage[];
@@ -108,6 +110,9 @@ export function buildPayload(stored: PickerSnapshot, payload: PickerRequest): Pi
     selected,
     batchId: payload.batchId,
     savedCount: payload.tabs ? context.saveContext.savedCount : (payload.savedCount || 0),
+    ...(payload.selectedTabs && payload.tabs?.length ? { titleText: english
+      ? `Add ${payload.tabs.length} selected ${payload.tabs.length === 1 ? "tab" : "tabs"} to which project?`
+      : `将选中的 ${payload.tabs.length} 个标签页添加到哪个项目？` } : {}),
     ...(payload.tabs ? { saveContext: context.saveContext } : {}),
     folders,
     pages: payload.tabs ? context.pages : []

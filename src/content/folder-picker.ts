@@ -27,6 +27,7 @@ export function showFolderPickerOverlay(payload: FolderPickerOptions & { readonl
   openFolderPicker({
     theme,
     language: data.language || "zh-CN",
+    titleText: data.titleText,
     folders,
     selected,
     pages,

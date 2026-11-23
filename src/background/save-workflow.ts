@@ -75,18 +75,27 @@ async function quickSave(tab: BackgroundTab, source = "shortcut", close = false)
 // 默认先在当前网页里弹出「选择项目」浮层，选好项目后再真正开始收藏，
 // 这样收进来的文章直接归到对应项目，不用事后手动整理。
 // 若在设置里关掉了「先选项目」，则直接用上次用过的项目开始收藏。
-async function saveAllTabsInWindow(source = "shortcut") {
+function saveAllTabsInWindow(source = "shortcut") {
+  return saveTabsInWindow(source);
+}
+
+function saveSelectedTabsInWindow(windowId?: number) {
+  return saveTabsInWindow("menu", { windowId });
+}
+
+async function saveTabsInWindow(source: string, selection?: { readonly windowId?: number }) {
   // 每一步都记一笔：万一中途卡住或失败，去设置页就能看出停在哪一步。
   const stage = (patch: Parameters<typeof recordDiag>[0]) => recordDiag({ lastTrigger: source, lastStageAt: Date.now(), ...patch });
   let activeTab: BackgroundTab | null | undefined = null;
 
   try {
-    await stage({ lastStage: "开始", lastRunAt: Date.now() });
-
-    const tabs = (await chrome.tabs.query({ currentWindow: true })).map(unwrapSuspendedTab);
+    const startedAt = Date.now();
+    if (!selection) await stage({ lastStage: "开始", lastRunAt: startedAt });
+    const windowQuery = selection?.windowId === undefined ? { currentWindow: true } : { windowId: selection.windowId };
+    const tabs = (await chrome.tabs.query(selection ? { ...windowQuery, highlighted: true } : windowQuery)).map(unwrapSuspendedTab);
     activeTab = tabs.find((tab) => tab.active) || null;
     const targets = tabs.filter((tab) => isWebUrl(tab.url));
-    await stage({ lastStage: "读取标签页", lastTabCount: targets.length });
+    await stage({ lastStage: "读取标签页", lastTabCount: targets.length, ...(selection ? { lastRunAt: startedAt } : {}) });
 
     if (!targets.length) {
       await recordDiag({
@@ -95,7 +104,7 @@ async function saveAllTabsInWindow(source = "shortcut") {
         lastDuplicated: 0,
         lastEnriched: 0,
         lastDegraded: 0,
-        lastError: "当前窗口没有可添加的网页",
+        lastError: selection ? "选中的标签页里没有可添加的网页" : "当前窗口没有可添加的网页",
         lastErrorAt: Date.now(),
         lastResultAt: Date.now()
       });
@@ -103,7 +112,7 @@ async function saveAllTabsInWindow(source = "shortcut") {
       return { ok: false, added: 0, duplicated: 0 };
     }
 
-    activeTab = activeTab || targets[0];
+    if (!selection && !activeTab) activeTab = targets[0];
     const settings = (await chrome.storage.local.get<BackgroundSnapshot>(SETTINGS_KEY))[SETTINGS_KEY] || {};
     const savedProject = (await chrome.storage.local.get<BackgroundSnapshot>(LAST_PROJECT_KEY))[LAST_PROJECT_KEY] || "";
     // 上次用过的项目可能已经被删掉了：先校验一次，
@@ -120,7 +129,7 @@ async function saveAllTabsInWindow(source = "shortcut") {
     for (const url of batchUrls) if (knownUrls.has(url)) savedCount += 1;
 
     // 用户关掉了「先选项目」：直接用上次用过的项目开始。
-    if (settings.askFolderOnBatch === false) {
+    if (!selection && settings.askFolderOnBatch === false) {
       await stage({ lastStage: "开始添加（未启用项目选择）" });
       return runBatchSave({
         tabs: targets,
@@ -133,7 +142,7 @@ async function saveAllTabsInWindow(source = "shortcut") {
     }
 
     await stage({ lastStage: "等待选择项目", lastTabCount: targets.length });
-    return askFolderThenSave({ tabs: targets, source, activeTab, savedCount, remembered });
+    return askFolderThenSave({ tabs: targets, source, activeTab, savedCount, remembered, selectedTabs: !!selection });
   } catch (error) {
     await recordDiag({
       lastStage: "失败",
@@ -155,7 +164,7 @@ async function shouldAskFolderForSingle() {
 // 把这一批标签页暂存起来，弹出「选项目」浮层，等用户选好再真正收藏。
 // 单篇收藏和整窗收藏共用这一段，所以两条路径的体验完全一致：
 // 都是先选项目 → 再抓取收藏 → 已收藏过的会被搬进所选项目。
-async function askFolderThenSave({ tabs, source = "shortcut", activeTab = null, savedCount = 0, remembered = null, closeAfterSave }: { readonly tabs: readonly BackgroundTab[]; readonly source?: string; readonly activeTab?: BackgroundTab | null; readonly savedCount?: number; readonly remembered?: ResolvedProject | null; readonly closeAfterSave?: SavedTabTarget }) {
+async function askFolderThenSave({ tabs, source = "shortcut", activeTab = null, savedCount = 0, remembered = null, closeAfterSave, selectedTabs = false }: { readonly tabs: readonly BackgroundTab[]; readonly source?: string; readonly activeTab?: BackgroundTab | null; readonly savedCount?: number; readonly remembered?: ResolvedProject | null; readonly closeAfterSave?: SavedTabTarget; readonly selectedTabs?: boolean }) {
   const targets = tabs || [];
   const batchId = crypto.randomUUID();
   const last = remembered || (await resolveProject((await chrome.storage.local.get<BackgroundSnapshot>(LAST_PROJECT_KEY))[LAST_PROJECT_KEY] || ""));
@@ -169,6 +178,7 @@ async function askFolderThenSave({ tabs, source = "shortcut", activeTab = null, 
       notifyTabId: activeTab?.id ?? null,
       notifySuspended: !!activeTab?.suspended,
       ...(closeAfterSave ? { closeAfterSave } : {}),
+      ...(selectedTabs ? { selectedTabs } : {}),
       projectId: last.id || "",
       savedCount,
       tabs: targets.map((tab) => ({
@@ -185,9 +195,11 @@ async function askFolderThenSave({ tabs, source = "shortcut", activeTab = null, 
   }));
 
   // 其他扩展的冻结页不允许注入；在 StaySide 自己的页面复用同一个选择器。
-  if (activeTab?.suspended) {
+  if (activeTab?.suspended || (selectedTabs && !isWebUrl(activeTab?.url))) {
     try {
-      await chrome.tabs.create({ url: chrome.runtime.getURL(`save-project-picker.html?batch=${encodeURIComponent(batchId)}`) });
+      const windowId = selectedTabs ? targets[0]?.windowId : undefined;
+      await chrome.tabs.create({ url: chrome.runtime.getURL(`save-project-picker.html?batch=${encodeURIComponent(batchId)}`),
+        ...(windowId !== undefined ? { windowId } : {}) });
       return { ok: true, pending: true, tabCount: targets.length };
     } catch {
       await cancelPendingBatch(batchId);
@@ -200,13 +212,14 @@ async function askFolderThenSave({ tabs, source = "shortcut", activeTab = null, 
   // 普通网页继续使用页内浮层，不创建独立窗口。
   // 首次注入可能正撞上页面跳转，短暂等一下再重试一次；共享 UI 会先移除旧宿主，
   // 因此即使第一次稍后恢复，页面上最终也只会保留一个浮层。
-  const pickerPayload = { tabs: targets.map(tab => ({ ...tab, url: tab.url! })), projectId: last.id ?? undefined, savedCount, batchId };
+  const pickerPayload = { tabs: targets.map(tab => ({ ...tab, url: tab.url! })), projectId: last.id ?? undefined, savedCount, batchId, selectedTabs };
   let shown = await showPickerOverlay(activeTab, pickerPayload);
   if (!shown && activeTab?.id && isWebUrl(activeTab.url)) {
     await new Promise((resolve) => setTimeout(resolve, 180));
     shown = await showPickerOverlay(activeTab, pickerPayload);
   }
   if (!shown) {
+    if (selectedTabs) await cancelPendingBatch(batchId);
     const en = await usesEnglish();
     const message = isWebUrl(activeTab?.url)
       ? (en ? "Couldn’t open the project picker. Wait for the page to finish loading and try again." : "没能打开项目选择框，请等页面加载完成后再试")
@@ -237,7 +250,7 @@ async function askFolderThenSave({ tabs, source = "shortcut", activeTab = null, 
 //  2. 顺序处理可以「完成一篇就立刻通知一篇」，进度马上看得见，感知上快得多；
 //  3. 某一篇卡住（未加载完、被冻结）只影响它自己，不会拖住后面的标签。
 // 与单篇收藏一样抓取标题 / 摘要 / 封面 / 图标；不抓取正文；已收藏过的网址自动去重。
-export async function runBatchSave({ tabs, source = "shortcut", notifyTabId = null, notifySuspended = false, projectId = null, projectName = "", closeAfterSave }: BatchOptions) {
+export async function runBatchSave({ tabs, source = "shortcut", notifyTabId = null, notifySuspended = false, projectId = null, projectName = "", closeAfterSave, selectedTabs = false }: BatchOptions) {
   const en = await usesEnglish();
   // 每一步都记一笔：万一中途卡住或失败，去设置页就能看出停在哪一步。
   const stage = (patch: Parameters<typeof recordDiag>[0]) => recordDiag({ lastTrigger: source, lastStageAt: Date.now(), ...patch });
@@ -289,7 +302,7 @@ export async function runBatchSave({ tabs, source = "shortcut", notifyTabId = nu
       });
 
       // ① 抓取这一篇的标题 / 摘要 / 封面 / 图标（最多等 3 秒）。
-      const meta = await extractTabMetadata(tab);
+      const meta = await extractTabMetadata(tab, { matchTabUrl: selectedTabs });
 
       // 单篇收藏时记一笔封面来源，设置页的「最近一次抓取来源」才不会断更。
       if (single) {
@@ -420,4 +433,4 @@ async function confirmBatchSave(projectId: string | null | undefined, onAccepted
   return runBatchSave(claimed);
 }
 
-export { saveAllTabsInWindow, quickSave, confirmBatchSave };
+export { saveAllTabsInWindow, saveSelectedTabsInWindow, quickSave, confirmBatchSave };
