@@ -7,6 +7,7 @@ const paths = {
   pencil: "M4 20h4L20 8l-4-4L4 16zM14 6l4 4",
   note: "M6 3h8l4 4v14H6zM14 3v4h4M9 12h6M9 16h4",
   archive: "M3 4h18v4H3zM5 8v12h14V8M9 12h6",
+  shield: "M12 3 5 6v5c0 4 2.5 7 7 10 4.5-3 7-6 7-10V6zM9 12l2 2 4-4",
   trash: "M4 7h16m-10 4v6m4-6v6M9 7l1-3h4l1 3m3 0-1 13H7L6 7",
   open: "M14 5h5v5M19 5l-8 8M17 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h5",
   multi: "M3.5 6.5h7v7h-7zM13.5 6.5h7v7h-7zM5 10l1.6 1.6L9 8",

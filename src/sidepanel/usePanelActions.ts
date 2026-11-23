@@ -7,7 +7,7 @@ import { usePanelDrag } from "./usePanelDrag";
 import type { SidepanelControls } from "./useSidepanelControls";
 
 export interface PanelMenuRequest { readonly id: string; readonly x: number; readonly y: number; readonly trigger: HTMLElement }
-export type PanelMenuAction = "open" | "edit" | "delete";
+export type PanelMenuAction = "open" | "edit" | "delete" | "toggleAutoClean";
 
 export function usePanelActions(controls: SidepanelControls) {
   const commands = usePanelCommands(controls);
@@ -44,6 +44,7 @@ export function usePanelActions(controls: SidepanelControls) {
   function pick(action: PanelMenuAction, id: string): void {
     if (action === "open") void reader.newTab(id);
     else if (action === "edit") void items.edit(id);
+    else if (action === "toggleAutoClean") void items.toggleAutoClean(id);
     else void items.remove(id);
   }
   function dispose(): void { closeMenu(); drag.dispose(); reader.dispose(); commands.dispose(); }

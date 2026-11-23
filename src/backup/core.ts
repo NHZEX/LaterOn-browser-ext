@@ -8,6 +8,7 @@ export interface BackupItem {
   readonly status: "unread" | "reading" | "done";
   readonly read: boolean;
   readonly doneAt: number | null;
+  readonly skipAutoClean?: boolean;
   readonly title?: string;
   readonly description?: string;
   readonly image?: string;
@@ -142,7 +143,7 @@ function normalizeItem(entry: unknown, path: string, isEmbeddedImage = isInlineI
     projectId: (value): value is string | null => value === null || isValidId(value), savedAt: isTimestamp,
     status: (value): value is BackupItem["status"] => value === "unread" || value === "reading" || value === "done", read: isBoolean,
     doneAt: (value): value is number | null => value === null || isTimestamp(value),
-    titleEdited: isBoolean, descriptionEdited: isBoolean, imageEdited: isBoolean
+    skipAutoClean: isBoolean, titleEdited: isBoolean, descriptionEdited: isBoolean, imageEdited: isBoolean
   }, path);
   const status = item.status || (item.read ? "done" : "unread");
   return { ...item, id: entry.id, url: entry.url, savedAt: entry.savedAt, projectId: item.projectId ?? null,

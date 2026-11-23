@@ -108,13 +108,13 @@ test("Vue 侧栏菜单支持键盘、焦点移交、外部更新/删除及关闭
   const env = createPanelPage(t, { store: store() }); await ready(env);
   const link = env.item("a").querySelector(".open-item"); link.focus(); key(env, link, "F10", { shiftKey: true });
   await env.until(() => env.document.querySelector('[role="menu"]'), "键盘菜单"); await env.flush();
-  const entries = () => [...env.document.querySelectorAll('[role="menuitem"]')];
-  assert.equal(env.document.activeElement, entries()[0]);
-  key(env, entries()[0], "ArrowUp"); assert.equal(env.document.activeElement, entries()[2]);
-  key(env, entries()[2], "Home"); assert.equal(env.document.activeElement, entries()[0]);
-  key(env, entries()[0], "End"); assert.equal(env.document.activeElement, entries()[2]);
-  key(env, entries()[2], "Escape"); await env.flush(); assert.equal(env.document.activeElement, link);
-  key(env, link, "ContextMenu"); await env.flush(); env.click(entries()[1]);
+  const entry = action => env.document.querySelector(`[role="menuitem"][data-action="${action}"]`);
+  assert.equal(env.document.activeElement, entry("open"));
+  key(env, entry("open"), "ArrowUp"); assert.equal(env.document.activeElement, entry("delete"));
+  key(env, entry("delete"), "Home"); assert.equal(env.document.activeElement, entry("open"));
+  key(env, entry("open"), "End"); assert.equal(env.document.activeElement, entry("delete"));
+  key(env, entry("delete"), "Escape"); await env.flush(); assert.equal(env.document.activeElement, link);
+  key(env, link, "ContextMenu"); await env.flush(); env.click(entry("edit"));
   await env.until(() => dialog(env), "菜单移交编辑焦点"); await env.frame(); assert.equal(env.document.activeElement, field(env, "title"));
   await submit(env, false); assert.equal(env.document.activeElement, link);
   for (const event of [new env.window.Event("resize"), new env.window.Event("blur"), new env.window.Event("scroll")]) {

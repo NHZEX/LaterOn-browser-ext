@@ -26,7 +26,7 @@ test("菜单模型从不可变集合派生最新状态，缺失目标不产生�
   const project = libraryMenuContent(collection, { kind: "project", id: "p" }, new Set(), false, key => key);
   assert.equal(project.entries[0].label, "unpinProject");
   assert.equal(project.entries[3].label, "restoreProject");
-  assert.equal(libraryMenuContent(collection, { kind: "item", id: "a" }, new Set(["a"]), true, key => key).entries[2].label, "itemDeselect");
+  assert.equal(libraryMenuContent(collection, { kind: "item", id: "a" }, new Set(["a"]), true, key => key).entries.find(entry => entry.action === "select").label, "itemDeselect");
   assert.equal(libraryMenuContent(collection, { kind: "item", id: "missing" }, new Set(), false, key => key), null);
   assert.deepEqual(menuPosition(-10, -10, 180, 200, 375, 700), { left: 8, top: 8 });
   assert.deepEqual(menuPosition(1000, 1000, 180, 200, 375, 700), { left: 187, top: 492 });

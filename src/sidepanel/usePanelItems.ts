@@ -17,6 +17,12 @@ export function usePanelItems(controls: SidepanelControls, commands: PanelComman
       if (item) await update(id, { status: nextStatus(normalizeItemState(item).status) });
     });
   }
+  function toggleAutoClean(id: string): Promise<void> {
+    return commands.perform(`item:${id}`, async () => {
+      const item = commands.find(id);
+      if (item && (await update(id, { skipAutoClean: item.skipAutoClean !== true }))?.affected) commands.notify("changesSaved", "toast");
+    });
+  }
   function edit(id: string): Promise<void> {
     return commands.perform(`item:${id}`, async () => {
       const member = commands.find(id); if (!member) return;
@@ -64,6 +70,6 @@ export function usePanelItems(controls: SidepanelControls, commands: PanelComman
     const copied = await copyItemLink(item, format);
     if (commands.current()) commands.notify(copied ? "linkCopied" : "linkCopyFailed", "toast");
   }
-  return { update, read, edit, remove, copy };
+  return { update, read, toggleAutoClean, edit, remove, copy };
 }
 export type PanelItems = ReturnType<typeof usePanelItems>;

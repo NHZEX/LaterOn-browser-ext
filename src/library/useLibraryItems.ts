@@ -19,6 +19,12 @@ export function useLibraryItems(commands: LibraryCommands, createProject: (name:
   function read(id: string): Promise<void> {
     return commands.perform(`item:${id}`, async () => { const item = find(id); if (item) await update(id, { status: nextStatus(normalizeItemState(item).status) }); });
   }
+  function toggleAutoClean(id: string): Promise<void> {
+    return commands.perform(`item:${id}`, async () => {
+      const item = find(id);
+      if (item && (await update(id, { skipAutoClean: item.skipAutoClean !== true }))?.affected) toast("changesSaved");
+    });
+  }
   async function moveTo(id: string, projectId: string | null): Promise<void> {
     if (await update(id, { projectId })) clearSearch();
   }
@@ -86,7 +92,7 @@ export function useLibraryItems(commands: LibraryCommands, createProject: (name:
   }
   const stopCollection = watch(commands.collection, () => { if (picker && pickerId && !find(pickerId)) closePicker(); }, { flush: "sync" });
   function dispose(): void { stopCollection(); closePicker(); }
-  return { update, read, edit, remove, copy, move, moveTo, dispose };
+  return { update, read, toggleAutoClean, edit, remove, copy, move, moveTo, dispose };
 }
 
 export type LibraryItems = ReturnType<typeof useLibraryItems>;

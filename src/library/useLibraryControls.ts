@@ -68,6 +68,7 @@ export function useLibraryControls() {
       } else {
         if (action === "open") await reader.newTab(target.id);
         else if (action === "edit") await items.edit(target.id);
+        else if (action === "toggleAutoClean") await items.toggleAutoClean(target.id);
         else if (action === "delete") await items.remove(target.id);
         else if (action === "select") selection.item(target.id, !selectedIds.value.has(target.id));
       }

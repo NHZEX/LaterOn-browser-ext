@@ -164,7 +164,7 @@ module.exports = async function verifyLibraryPage(directory) {
       await until(() => document.querySelector('.card .title-link'), "Built cards appear for keyboard menu");
       const cardTrigger = document.querySelector('.card .title-link'); cardTrigger.focus();
       key(cardTrigger, "ContextMenu");
-      await until(() => document.querySelectorAll('[role="menuitem"]').length === 4, "Built card keyboard menu uses its own actions");
+      await until(() => document.querySelector('[role="menuitem"][data-action="toggleAutoClean"]'), "Built card keyboard menu offers the cleanup exemption");
       key(document.activeElement, "Escape");
       await until(() => !document.querySelector('[role="menu"]'), "Built card menu closes");
       assert.equal(document.activeElement, cardTrigger);

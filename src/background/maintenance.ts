@@ -46,7 +46,7 @@ async function purgeExpiredItemsNow() {
     const cutoff = Date.now() - days * DAY_MS;
     // 没有 doneAt 的（本版本之前就标成已读的老收藏）一律不动，避免升级后误删一片。
     const expiredIds = new Set(
-      items.filter((item) => isDoneItem(item) && Number(item.doneAt) > 0 && Number(item.doneAt) < cutoff)
+      items.filter((item) => isDoneItem(item) && item.skipAutoClean !== true && Number(item.doneAt) > 0 && Number(item.doneAt) < cutoff)
         .map((item) => item.id)
     );
     if (!expiredIds.size) return 0;

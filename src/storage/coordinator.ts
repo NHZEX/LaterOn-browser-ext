@@ -200,7 +200,7 @@ function deleteItems(stored: StoredCollection, { ids, deleteBindingId }: Operati
 }
 
 function updateItems(stored: CollectionState, { ids, patch = {} }: Operation<"mutateItems">): Mutation {
-  const allowed = ["title", "description", "titleEdited", "descriptionEdited", "imageEdited", "status", "projectId", "cover"];
+  const allowed = ["title", "description", "titleEdited", "descriptionEdited", "imageEdited", "status", "skipAutoClean", "projectId", "cover"];
   if (!patch || Object.keys(patch).some((key) => !allowed.includes(key))) fail("Invalid item mutation");
   if (patch.status && !["unread", "reading", "done"].includes(patch.status)) fail("Invalid item mutation");
   if (patch.projectId) {

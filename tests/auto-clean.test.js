@@ -105,6 +105,24 @@ async function run() {
     check("未读的不会被清掉", ids.includes("unread"), ids);
   }
 
+  {
+    const doneAt = ago(31);
+    store.laterOnSettings = { autoCleanEnabled: true, autoCleanDays: 30 };
+    store.laterOnItems = [item("kept", { status: "done", doneAt, projectId: "archive" }), item("expired", { status: "done", doneAt, projectId: "archive" })];
+    store.laterOnProjects = [{ id: "archive", name: "Archive", archived: true }];
+    store.laterOnOrder = { archive: ["kept", "expired"] };
+    const setProtection = (skipAutoClean) => workerApi.execute({ action: "mutateItems", operation: "update", ids: ["kept"], patch: { skipAutoClean } });
+    check("成功设置单条清理例外", (await setProtection(true)).affected === 1);
+    await purge();
+    const [kept] = store.laterOnItems;
+    check("同一归档项目、同一已读时间，只有设置例外的保留", store.laterOnItems.length === 1 && kept?.id === "kept");
+    check("清理例外不改变阅读状态、完成时间或项目", kept?.status === "done" && kept?.doneAt === doneAt && kept?.projectId === "archive");
+    check("排序保留受保护的网页", JSON.stringify(store.laterOnOrder.archive) === JSON.stringify(["kept"]));
+    check("取消例外不立即删除网页", (await setProtection(false)).affected === 1 && store.laterOnItems.length === 1);
+    await purge();
+    check("下一次清理仍按原已读时间删除到期网页", store.laterOnItems.length === 0);
+  }
+
   console.log("\n── ③ 自定义顺序里的 id 也要跟着去掉 ──");
   {
     store.laterOnSettings = { autoCleanDays: 30 };

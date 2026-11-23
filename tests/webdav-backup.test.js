@@ -134,7 +134,7 @@ const save = (browser, options = settings) => browser.request("save", { options,
 
 (async () => {
   const { TextWriter, Uint8ArrayReader, Uint8ArrayWriter, ZipReader } = await import("@zip.js/zip.js/lib/zip-core-custom.js");
-  const first = profile(item("first"));
+  const first = profile({ ...item("first"), skipAutoClean: true });
   const second = profile(item("second"));
   const source = await save(first, { ...settings, automatic: false });
   const target = await save(second);
@@ -193,6 +193,7 @@ const save = (browser, options = settings) => browser.request("save", { options,
   assert.equal(cloud.entries[0].bytes, originalArchive.byteLength);
   const { payload } = await second.request("restore", cloud.entries[0]);
   assert.equal(payload.data.items[0].title, "Updated without advancing the clock");
+  assert.equal(payload.data.items[0].skipAutoClean, true);
   assert.equal(payload.data.items[0].image, "local://first");
   assert.equal(payload.data.items[0].favicon, inline);
   assert.equal(payload.data.covers.first, inline);
@@ -275,6 +276,7 @@ const save = (browser, options = settings) => browser.request("save", { options,
   const restored = await second.send({ type: "BACKUP_APPLY", payload, mode: "replace", token: preview.token, keepRecovery: true });
   assert(restored.ok);
   assert.equal(second.storage.laterOnItems[0].id, "first");
+  assert.equal(second.storage.laterOnItems[0].skipAutoClean, true);
   assert.equal(second.storage.laterOnCovers.first, inline);
   assert.equal(second.storage.laterOnIcons[second.storage.laterOnItems[0].favicon.slice("icon://".length)], inline);
   assert.equal(second.storage.laterOnProjects[0].cover, projectInline);

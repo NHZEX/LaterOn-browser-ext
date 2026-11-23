@@ -1,6 +1,6 @@
 const sourcePath = require("./helpers/source-path.cjs");
 // 单篇收藏的右键菜单（把实际编译的 Vue 收藏库页面 放进假 DOM 跑）：
-//  1) 卡片上右键 → 弹出菜单（新标签页打开 / 编辑 / 多选 / 删除）
+//  1) 卡片上右键 → 弹出菜单（新标签页打开 / 编辑 / 不自动清理 / 多选 / 删除）
 //  2) 点「多选」→ 进入多选模式（顶部按钮激活、底部批量条展开、这一篇已勾上）
 //  3) 多选状态下再右键 → 那一项变成「取消选择」，点了就取消勾选
 //  4) 点「标为已读」→ 这一篇真的变成已读
@@ -121,8 +121,8 @@ const stored = (id) => store.laterOnItems.find((item) => item.id === id);
   check("菜单标题是这一篇的标题", menu()?.querySelector(".folder-menu-title")?.textContent === "文章一", menu()?.querySelector(".folder-menu-title")?.textContent);
   const labels = menuLabels();
   // 「标为已读」和「移动到项目」刻意不放进来：卡片上本来就有这两个按钮。
-  check("四项：新标签页打开 / 编辑 / 多选 / 删除",
-    labels.join(" · ") === "在新标签页打开 · 编辑标题与摘要 · 多选 · 删除", labels.join(" · "));
+  check("菜单包含打开、编辑、清理例外、多选和删除",
+    labels.join(" · ") === "在新标签页打开 · 编辑标题与摘要 · 不自动清理 · 多选 · 删除", labels.join(" · "));
 
   console.log("\n── 第 2 步：点「多选」→ 进入多选模式并勾上这一篇 ──");
   const pickByLabel = (text) => [...document.querySelectorAll(".folder-menu-item")].find((item) => item.textContent === text);

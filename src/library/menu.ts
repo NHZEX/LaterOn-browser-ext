@@ -1,8 +1,8 @@
 import type { LibraryCollection } from "./shared";
 import type { Translate } from "../shared/i18n";
 
-export type LibraryMenuAction = "pin" | "rename" | "edit" | "archive" | "delete" | "open" | "select";
-export type MenuIcon = "pin" | "unpin" | "pencil" | "archive" | "trash" | "open" | "multi" | "deselect" | "note";
+export type LibraryMenuAction = "pin" | "rename" | "edit" | "archive" | "delete" | "open" | "select" | "toggleAutoClean";
+export type MenuIcon = "pin" | "unpin" | "pencil" | "archive" | "trash" | "open" | "multi" | "deselect" | "note" | "shield";
 export interface LibraryMenuTarget {
   readonly kind: "project" | "item";
   readonly id: string;
@@ -47,6 +47,7 @@ export function libraryMenuContent(collection: LibraryCollection, target: Librar
   return { title, heading: title.length > 20 ? `${title.slice(0, 20)}…` : title, entries: [
     { action: "open", label: translate("itemOpen"), icon: "open" },
     { action: "edit", label: translate("itemEdit"), icon: "pencil" },
+    { action: "toggleAutoClean", label: translate(item.skipAutoClean === true ? "resumeItemAutoClean" : "skipItemAutoClean"), icon: "shield" },
     { action: "select", label: translate(picked ? "itemDeselect" : "itemSelect"), icon: picked ? "deselect" : "multi" },
     { action: "delete", label: translate("delete"), icon: "trash", danger: true }
   ] };

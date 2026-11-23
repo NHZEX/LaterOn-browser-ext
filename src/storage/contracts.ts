@@ -52,6 +52,7 @@ export interface ItemChanges {
   readonly descriptionEdited?: boolean;
   readonly imageEdited?: boolean;
   readonly status?: BackupItem["status"];
+  readonly skipAutoClean?: boolean;
   readonly projectId?: string | null;
   readonly cover?: string;
 }
@@ -110,6 +111,7 @@ const isChanges = (value: unknown, checks: Readonly<Record<string, (entry: unkno
 
 const isItemChanges = (value: unknown): value is ItemChanges => isChanges(value, {
   title: isString, description: isString, cover: isString, status: isStatus, projectId: isAnchor,
+  skipAutoClean: (entry) => typeof entry === "boolean",
   titleEdited: (entry) => typeof entry === "boolean", descriptionEdited: (entry) => typeof entry === "boolean",
   imageEdited: (entry) => typeof entry === "boolean"
 });

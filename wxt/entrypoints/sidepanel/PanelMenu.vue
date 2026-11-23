@@ -14,6 +14,7 @@ const item = computed(() => props.controls.collection.value.items.find(item => i
 const entries = computed(() => [
   { action: "open", label: props.translate("openInNewTab"), icon: "open", danger: false },
   { action: "edit", label: props.translate("itemEdit"), icon: "pencil", danger: false },
+  { action: "toggleAutoClean", label: props.translate(item.value?.skipAutoClean === true ? "resumeItemAutoClean" : "skipItemAutoClean"), icon: "shield", danger: false },
   { action: "delete", label: props.translate("delete"), icon: "trash", danger: true }
 ] as const);
 const position = shallowRef({ left: 8, top: 8 });

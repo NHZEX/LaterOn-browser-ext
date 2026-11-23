@@ -18,6 +18,7 @@ assert.equal(parsed.items[0].doneAt, null);
 assert(!Object.hasOwn(parsed.items[0], "ignored"));
 assert(!Object.hasOwn(parsed.projects[0], "ignored"));
 assert(!Object.hasOwn(parsed.items[0], "image"), "Absent optional fields stay absent");
+assert(!Object.hasOwn(parsed.items[0], "skipAutoClean"), "Older backups do not add an exemption");
 assert(!Object.hasOwn(parsed.projects[0], "cover"));
 assert.deepEqual(original, before, "Validation does not mutate the imported file");
 assert.deepEqual(core.counts(parsed), { items: 1, projects: 1, covers: 0, positions: 1 });
@@ -34,6 +35,7 @@ const invalidCases = [
   [data => { data.items[0].read = undefined; }, "items[0].read"],
   [data => { data.items[0].status = "invalid"; }, "items[0].status"],
   [data => { data.items[0].doneAt = "1"; }, "items[0].doneAt"],
+  [data => { data.items[0].skipAutoClean = "true"; }, "items[0].skipAutoClean"],
   [data => { data.items[0].projectId = "missing"; delete data.order.project; }, "items.projectId"],
   [data => { data.items.push(data.items[0]); }, "items.duplicateId"],
   [data => { data.projects[0].coverPick = [1]; }, "projects[0].coverPick"],

@@ -36,7 +36,7 @@ const send = message => new Promise((resolve, reject) => {
 const item = (id, projectId = null, extra = {}) => ({ id, url: `https://example.com/${id}`, title: id, description: 'Summary', image: '', savedAt: 1, status: 'unread', projectId, ...extra });
 const image = 'data:image/jpeg;base64,AAAA';
 const data = () => ({
-  items: [item('a', 'p', { image: 'local://a', status: 'reading', titleEdited: true, descriptionEdited: true, imageEdited: true }), item('b', null, { status: 'done', doneAt: 42 })],
+  items: [item('a', 'p', { image: 'local://a', status: 'reading', titleEdited: true, descriptionEdited: true, imageEdited: true, skipAutoClean: true }), item('b', null, { status: 'done', doneAt: 42 })],
   projects: [{ id: 'p', name: 'Project', createdAt: 1, archived: true, pinned: true, pinFrom: 2, note: 'Notes', cover: image, coverPick: ['a'] }],
   covers: { a: image }, order: { all: ['b', 'a'], p: ['a'], unfiled: ['b'] }, readingPositions: { a: 321 }
 });
@@ -68,6 +68,7 @@ const apply = token => send({ type: 'BACKUP_APPLY', token, ...previews.get(token
   assert.deepEqual(slim.covers, {});
   assert.equal(slim.items[0].image, '');
   assert.equal(slim.items[0].favicon, '');
+  assert.equal(slim.items[0].skipAutoClean, true);
   assert.equal(slim.projects[0].cover, '');
   assert.equal(slim.items[1].image, 'https://example.com/remote.jpg');
   assert.equal(slim.items[1].favicon, 'https://example.com/favicon.ico');
@@ -95,6 +96,7 @@ const apply = token => send({ type: 'BACKUP_APPLY', token, ...previews.get(token
   assert.equal(response.ok, true);
   assert.equal((await apply(response.token)).ok, true);
   assert.deepEqual(clone(core.fromStorage(store)), slim, 'image-free export restores without missing references');
+  assert.equal(store.laterOnItems[0].skipAutoClean, true);
   const missingImageFields = clone(slim);
   delete missingImageFields.items[0].image;
   delete missingImageFields.items[0].favicon;
@@ -147,7 +149,7 @@ const apply = token => send({ type: 'BACKUP_APPLY', token, ...previews.get(token
   Object.assign(store, core.toStorage(existing));
   const incoming = data();
   incoming.items[0].url = 'https://new.example/article';
-  incoming.items.push(item('duplicate', 'p', { url: existing.items[0].url, title: 'Remote' }));
+  incoming.items.push(item('duplicate', 'p', { url: existing.items[0].url, title: 'Remote', skipAutoClean: true }));
   response = await preview(incoming);
   assert.equal(response.duplicates, 1);
   response = await apply(response.token);
@@ -155,12 +157,14 @@ const apply = token => send({ type: 'BACKUP_APPLY', token, ...previews.get(token
   const imported = store.laterOnItems.find(entry => entry.url === incoming.items[0].url);
   assert.notEqual(imported.id, 'a');
   assert.notEqual(imported.projectId, 'p');
+  assert.equal(imported.skipAutoClean, true);
   assert.equal(imported.image, `local://${imported.id}`);
   assert.equal(store.laterOnCovers[imported.id], image);
   assert.equal(store.laterOnReadingPositions[imported.id], 321);
   assert.deepEqual(store.laterOnProjects.find(entry => entry.id === imported.projectId).coverPick, [imported.id]);
   assert.deepEqual(store.laterOnOrder[imported.projectId], [imported.id]);
   assert.equal(store.laterOnItems.find(entry => entry.id === 'a').title, 'Local');
+  assert.equal(store.laterOnItems.find(entry => entry.id === 'a').skipAutoClean, undefined, 'Merge preserves the local setting on URL matches');
   assert.equal(store.laterOnReadingPositions.a, 123);
   response = await preview(incoming);
   response = await apply(response.token);

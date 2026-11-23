@@ -172,6 +172,39 @@ test("Discourse：已有多条同主题收藏时必须先选目标，只有选�
     .map(({ id, url }) => ({ id, url })))).toEqual([{ id: "topic-0", url: `${topic}/14` }, { id: "topic-1", url: nextPost }]);
 });
 
+test("卡片菜单可在侧栏保留单条收藏，并在收藏库恢复自动清理", async ({ context, page, extension }) => {
+  const saved = { id: "keep", title: "Keep this page", url: "https://example.test/keep", savedAt: Date.now(), status: "done", doneAt: Date.now(), projectId: null };
+  await extension.worker.evaluate(async item => {
+    await chrome.storage.local.clear();
+    await chrome.storage.local.set({ laterOnItems: [item], laterOnProjects: [], laterOnOnboardingSeen: true, laterOnActiveProject: "unfiled",
+      laterOnFilterChosen: true, laterOnFilter: "all", laterOnSettings: { language: "en", autoCleanEnabled: true } });
+  }, saved);
+  const readItem = () => extension.worker.evaluate(async () => (await chrome.storage.local.get("laterOnItems")).laterOnItems[0]);
+  await context.addInitScript(() => { if (globalThis.chrome?.storage) chrome.storage.onChanged.addListener = () => {}; });
+  await page.goto(extension.url);
+  const sidebarLink = page.locator('[data-id="keep"] .open-item');
+  const sidebarMenu = page.getByRole("menu");
+  await sidebarLink.focus();
+  await page.keyboard.press("Shift+F10");
+  await sidebarMenu.getByRole("menuitem", { name: "Keep from auto-cleanup" }).click();
+  await expect.poll(readItem).toMatchObject({ ...saved, skipAutoClean: true });
+  await page.keyboard.press("Shift+F10");
+  await expect(sidebarMenu.getByRole("menuitem", { name: "Resume auto-cleanup" })).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  const library = await context.newPage();
+  await library.setViewportSize({ width: 1200, height: 800 });
+  await library.goto(extension.url.replace("sidepanel.html", "library.html?from=sidepanel&project=unfiled&filter=all"));
+  const libraryLink = library.locator('#cardGrid [data-id="keep"] .title-link');
+  const libraryMenu = library.getByRole("menu");
+  await libraryLink.focus();
+  await library.keyboard.press("Shift+F10");
+  await libraryMenu.getByRole("menuitem", { name: "Resume auto-cleanup" }).click();
+  await expect.poll(readItem).toMatchObject({ ...saved, skipAutoClean: false });
+  await library.keyboard.press("Shift+F10");
+  await expect(libraryMenu.getByRole("menuitem", { name: "Keep from auto-cleanup" })).toBeVisible();
+});
+
 for (const [language, theme] of [["zh-CN", "light"], ["en", "dark"]]) {
   test(`E4：当前页元数据、实际保存、切页与完整界面交接 ${language}/${theme}`, { tag: language === "en" ? ["@smoke"] : [] }, async ({ context, page, extension }, testInfo) => {
     const errors = []; page.on("pageerror", error => errors.push(error.message));
@@ -243,7 +276,7 @@ for (const [language, theme] of [["zh-CN", "light"], ["en", "dark"]]) {
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       await link.click({ button: "right" }); await expect(menu).toBeVisible();
       const box = await menu.boundingBox(); expect(box.x).toBeGreaterThanOrEqual(8); expect(box.x + box.width).toBeLessThanOrEqual(width - 7);
-      await page.keyboard.press("End"); await expect(entries.nth(2)).toBeFocused();
+      await page.keyboard.press("End"); await expect(menu.locator('[data-action="delete"]')).toBeFocused();
       await page.keyboard.press("Escape"); await expect(link).toBeFocused(); await expect(menu).toHaveCount(0);
     }
     await page.setViewportSize({ width: 375, height: 800 });

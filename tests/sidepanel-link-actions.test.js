@@ -29,7 +29,7 @@ test("真实侧栏链接保留修饰键、右键菜单和普通新标签行为",
   link.querySelector("h2").dispatchEvent(event);
   assert.equal(event.defaultPrevented, true);
   await env.until(() => env.document.querySelector('[role="menuitem"]'), "Vue 菜单提交");
-  assert.deepEqual([...env.document.querySelectorAll('[role="menuitem"]')].map(item => item.textContent), ["在新标签页打开", "编辑标题与摘要", "删除"]);
+  assert.deepEqual([...env.document.querySelectorAll('[role="menuitem"]')].map(item => item.textContent), ["在新标签页打开", "编辑标题与摘要", "不自动清理", "删除"]);
   env.click(env.document.querySelector('[role="menuitem"]'));
   await env.until(() => opened.length === 2, "右键菜单后台新建标签");
   assert.deepEqual(opened[1], { url: "https://x.com", active: false });
