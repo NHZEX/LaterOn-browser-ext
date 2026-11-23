@@ -34,13 +34,34 @@ test("普通构建默认关闭手动试用，仍可使用独立备份", async ({
     const blocked = await page.evaluate(endpoint => chrome.runtime.sendMessage({ type: "LATERON_SYNC_ACCEPTANCE", action: "create", endpoint }), endpoint);
     expect(blocked).toEqual({ ok: false });
     expect(dav.requests).toEqual([]);
+    const warning = await openTrialWarning(page);
+    await expect(warning.getByText(/deletions can spread to other devices/)).toBeVisible();
+    await expect(warning.getByText(/separate full ZIP backup/)).toBeVisible();
+    await warning.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(warning).toHaveCount(0);
+    await expect(trial.getByRole("button", { name: "Enable manual sync trial" })).toBeVisible();
+    expect((await readMeta(page))?.trialEnabled).not.toBe(true);
+    expect(dav.requests).toEqual([]);
   });
   if (!trialSmoke) {
-    await trial.getByRole("button", { name: "Enable manual sync trial" }).click();
+    await confirmTrialWarning(page);
     await expect(trial.getByText("This build has no qualified sync directory. You cannot create or join a library yet.")).toBeVisible();
     await expect(trial.getByRole("button", { name: "Create sync library" })).toHaveCount(0);
   }
 });
+
+async function openTrialWarning(page) {
+  await page.getByRole("button", { name: "Enable manual sync trial" }).click();
+  const warning = page.getByRole("dialog", { name: "Enable experimental WebDAV sync?" });
+  await expect(warning).toBeVisible();
+  return warning;
+}
+
+async function confirmTrialWarning(page) {
+  const warning = await openTrialWarning(page);
+  await warning.getByRole("button", { name: "Enable anyway" }).click();
+  await expect(warning).toHaveCount(0);
+}
 
 async function withDav(run, listenPort = 0) {
   const dav = { requests: [], files: new Map(), listing: '<d:multistatus xmlns:d="DAV:"/>' };
@@ -234,8 +255,9 @@ test("普通构建按目录准入，两套配置认证同步并可关闭", async
     dav.authorization = "Basic " + Buffer.from("fixture-user:fixture-password").toString("base64");
     const url = new URL("settings.html#backup", extension.url).href;
     const panelFor = view => view.getByRole("region", { name: "Manual WebDAV sync trial" });
-    const enable = async panel => {
-      await panel.getByRole("button", { name: "Enable manual sync trial" }).click();
+    const enable = async view => {
+      await confirmTrialWarning(view);
+      const panel = panelFor(view);
       await panel.getByRole("textbox", { name: "Sync username" }).fill("fixture-user");
       await panel.getByLabel("Sync app password").fill("fixture-password");
     };
@@ -248,7 +270,7 @@ test("普通构建按目录准入，两套配置认证同步并可关闭", async
     await extension.worker.evaluate(() => chrome.storage.local.set({ laterOnSettings: { language: "en" } }));
     await page.goto(url);
     const panel = panelFor(page);
-    await enable(panel);
+    await enable(page);
     const directory = panel.getByRole("textbox", { name: "Dedicated empty sync directory" });
     const create = panel.getByRole("button", { name: "Create sync library" });
     await directory.fill(new URL("unqualified/", endpoint).href);
@@ -278,7 +300,7 @@ test("普通构建按目录准入，两套配置认证同步并可关闭", async
       await peer.worker.evaluate(() => chrome.storage.local.set({ laterOnSettings: { language: "en" }, laterOnOnboardingSeen: true }));
       const settings = await openSettings(peer.context, peer.url);
       const join = panelFor(settings);
-      await enable(join);
+      await enable(settings);
       await join.getByRole("textbox", { name: "Dedicated directory for an existing sync library" }).fill(endpoint);
       await join.getByRole("textbox", { name: "Expected library ID" }).fill(head.collectionId);
       await join.getByRole("button", { name: "Preview join" }).click();

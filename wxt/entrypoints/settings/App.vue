@@ -201,7 +201,7 @@ onUnmounted(() => {
           <TabsContent v-if="backupVisited" v-show="activeTab === 'backup'" value="backup" force-mount class="settings-tab-panel">
             <BackupPanel v-model:busy="maintenanceBusy" :dialog="dialog" />
             <EditRecoveryPanel :dialog="dialog" />
-            <SyncAcceptancePanel />
+            <SyncAcceptancePanel :dialog="dialog" />
           </TabsContent>
           <TabsContent v-if="dataVisited" v-show="activeTab === 'data'" value="data" force-mount class="settings-tab-panel">
             <StorageUsagePanel v-if="activeTab === 'data'" />

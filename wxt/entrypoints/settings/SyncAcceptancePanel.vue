@@ -3,6 +3,9 @@ import { onMounted, onUnmounted, ref, shallowRef } from "vue";
 import { t } from "../../../src/shared/i18n";
 import { QUALIFIED_SYNC_DIRECTORY, SYNC_ACCEPTANCE_BUILD, SYNC_ACCEPTANCE_MESSAGE, SYNC_META } from "../../../src/sync/acceptance";
 import type { SyncAcceptanceAction, SyncAcceptanceReply, SyncAcceptanceStatus, SyncJoinPreview } from "../../../src/sync/acceptance";
+import type { SettingsDialog } from "./useDialog";
+
+const props = defineProps<{ dialog: SettingsDialog }>();
 
 const labels = { ready: "syncAcceptanceReady", pending: "syncAcceptancePending", joined: "syncAcceptanceJoined",
   verified: "syncAcceptanceVerified", paused: "syncAcceptancePaused" } as const;
@@ -53,7 +56,15 @@ function confirmJoin(): Promise<void> { return run("join"); }
 function cancelJoin(): void { preview.value = undefined; }
 function sync(): Promise<void> { return run("sync"); }
 function unbind(): Promise<void> { return run("unbind"); }
-function enable(): Promise<void> { return run("enable"); }
+async function enable(): Promise<void> {
+  const confirmed = await props.dialog.confirm({
+    tone: "danger",
+    title: t("syncTrialWarningTitle"),
+    message: t("syncTrialWarningMessage"),
+    confirmText: t("syncTrialEnableAnyway")
+  });
+  if (confirmed) await run("enable");
+}
 function disable(): Promise<void> { return run("disable"); }
 
 const refresh: Parameters<typeof chrome.storage.onChanged.addListener>[0] = (changes, area) => {
